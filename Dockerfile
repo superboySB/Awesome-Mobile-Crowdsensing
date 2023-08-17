@@ -1,3 +1,5 @@
 FROM nvcr.io/partners/salesforce/warpdrive:v1.0
 
-RUN apt-get update && apt-get -y --no-install-recommends install ffmpeg
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get -y update && apt-get -y install ffmpeg gedit vim tmux net-tools apt-utils git htop
