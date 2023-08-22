@@ -13,7 +13,7 @@ import logging
 
 import numpy as np
 
-from warp_drive.managers.function_manager import CUDAFunctionFeed
+from warp_drive.cuda_managers.function_manager import CUDAFunctionFeed
 from warp_drive.utils.argument_fix import Argfix
 from warp_drive.utils.common import get_project_root
 from warp_drive.utils.gpu_environment_context import CUDAEnvironmentContext
@@ -22,7 +22,6 @@ from warp_drive.utils.recursive_obs_dict_to_spaces_dict import (
 )
 
 _CUBIN_FILEPATH = f"{get_project_root()}/warp_drive/cuda_bin"
-_NUMBA_FILEPATH = "warp_drive.numba_includes"
 
 
 class EnvWrapper:
@@ -64,11 +63,11 @@ class EnvWrapper:
         :param env_config: environment configuration to instantiate
             an environment from the registrar
         :param num_envs: the number of parallel environments to instantiate. Note: this is
-            only relevant when env_backend is pycuda or numba
+            only relevant when env_backend is pycuda
         :param blocks_per_env: number of blocks to cover one environment
             default is None, the utility function will estimate it
             otherwise it will be reinforced
-        :param env_backend: environment backend, choose between pycuda, numba, or cpu.
+        :param env_backend: environment backend, choose between pycuda, or cpu.
             Before version 2.0, the old argument is 'use_cuda' = True or False
         :param use_cuda: deprecated since version 1.8
         :param testing_mode: a flag used to determine whether to simply load the .cubin (when
@@ -114,7 +113,7 @@ class EnvWrapper:
         # CUDA-specific initializations
         # -----------------------------
         # Flag to determine which backend to use
-        if env_backend not in ("pycuda", "numba", "cpu"):
+        if env_backend not in ("pycuda", "cpu"):
             logging.warn("Environment backend not recognized, defaulting to cpu")
             env_backend = "cpu"
         self.env_backend = env_backend
@@ -153,10 +152,10 @@ class EnvWrapper:
             logging.info(f"We use blocks_per_env = {self.blocks_per_env} ")
 
             if self.env_backend == "pycuda":
-                from warp_drive.managers.pycuda_managers.pycuda_data_manager import (
+                from warp_drive.cuda_managers.pycuda_data_manager import (
                     PyCUDADataManager,
                 )
-                from warp_drive.managers.pycuda_managers.pycuda_function_manager import (
+                from warp_drive.cuda_managers.pycuda_function_manager import (
                     PyCUDAEnvironmentReset,
                     PyCUDAFunctionManager,
                 )
@@ -164,18 +163,6 @@ class EnvWrapper:
                 backend_data_manager = PyCUDADataManager
                 backend_function_manager = PyCUDAFunctionManager
                 backend_env_resetter = PyCUDAEnvironmentReset
-            elif self.env_backend == "numba":
-                from warp_drive.managers.numba_managers.numba_data_manager import (
-                    NumbaDataManager,
-                )
-                from warp_drive.managers.numba_managers.numba_function_manager import (
-                    NumbaEnvironmentReset,
-                    NumbaFunctionManager,
-                )
-
-                backend_data_manager = NumbaDataManager
-                backend_function_manager = NumbaFunctionManager
-                backend_env_resetter = NumbaEnvironmentReset
 
             logging.info("Initializing the CUDA data manager...")
             self.cuda_data_manager = backend_data_manager(
@@ -212,36 +199,13 @@ class EnvWrapper:
                         customized_env_registrar=env_registrar,
                         event_messenger=event_messenger,
                     )
-            elif self.env_backend == "numba":
-                if testing_mode:
-                    logging.info(f"Using numba_filepath: {_NUMBA_FILEPATH}")
-                    assert self.n_agents == 5
-                    assert self.n_envs == 2
-                    assert self.blocks_per_env == 1
-                    self.cuda_function_manager.dynamic_import_numba(
-                        env_name=self.name,
-                        template_header_file="template_env_config.txt",
-                        template_runner_file="template_env_runner.txt",
-                    )
-                else:
-                    self.cuda_function_manager.dynamic_import_numba(
-                        env_name=self.name,
-                        template_header_file="template_env_config.txt",
-                        template_runner_file="template_env_runner.txt",
-                        customized_env_registrar=env_registrar,
-                        event_messenger=event_messenger,
-                    )
 
             self.cuda_function_feed = CUDAFunctionFeed(self.cuda_data_manager)
 
             # Register the CUDA step() function for the env
             # Note: generate_observation() and compute_reward()
             # should be part of the step function itself
-            step_function = (
-                f"Cuda{self.name}Step"
-                if self.env_backend == "pycuda"
-                else f"Numba{self.name}Step"
-            )
+            step_function = f"Cuda{self.name}Step"
             context_ready = self.env.initialize_step_function_context(
                 cuda_data_manager=self.cuda_data_manager,
                 cuda_function_manager=self.cuda_function_manager,
@@ -266,9 +230,9 @@ class EnvWrapper:
         Reset the state of the environment to initialize a new episode.
         if self.reset_on_host is True:
             calls the CPU env to prepare and return the initial state
-        if self.env_backend is pycuda or numba:
+        if self.env_backend is pycuda:
             if self.reset_on_host is True:
-                expands initial state to parallel example_envs and push to GPU once
+                expands initial state to parallel envs and push to GPU once
                 sets self.reset_on_host = False
             else:
                 calls device hard reset managed by the CUDAResetter
@@ -357,13 +321,13 @@ class EnvWrapper:
 
     def reset_only_done_envs(self):
         """
-        This function only works for GPU example_envs.
-        It will check all the running example_envs,
-        and only resets those example_envs that are observing done flag is True
+        This function only works for GPU envs.
+        It will check all the running envs,
+        and only resets those envs that are observing done flag is True
         """
         assert (not self.env_backend == "cpu") and not self.reset_on_host, (
             "reset_only_done_envs() only works "
-            "for pycuda or numba backends and self.reset_on_host = False"
+            "for pycuda backends and self.reset_on_host = False"
         )
 
         self.env_resetter.reset_when_done(self.cuda_data_manager, mode="if_done")
