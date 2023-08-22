@@ -7,4 +7,4 @@
 #include "./env_config.h"
 #include "./core_service.h"
 
-#include "/home/Awesome-Mobile-Crowdsensing/example_envs/tag_continuous/tag_continuous_step_pycuda.cu"
+#include "/home/Awesome-Mobile-Crowdsensing/envs/tag_continuous/tag_continuous_step_pycuda.cu"

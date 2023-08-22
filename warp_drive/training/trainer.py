@@ -21,11 +21,11 @@ from gym.spaces import Discrete, MultiDiscrete
 from torch import nn
 from torch.nn.parallel import DistributedDataParallel as DDP
 
-from warp_drive.training.algorithms.policygradient.a2c import A2C
-from warp_drive.training.algorithms.policygradient.ppo import PPO
-from warp_drive.training.models.factory import ModelFactory
-from warp_drive.training.utils.data_loader import create_and_push_data_placeholders
-from warp_drive.training.utils.param_scheduler import ParamScheduler
+from algs.a2c import A2C
+from algs.ppo import PPO
+from models.factory import ModelFactory
+from warp_drive.training.data_loader import create_and_push_data_placeholders
+from warp_drive.training.param_scheduler import ParamScheduler
 from warp_drive.utils.common import get_project_root
 from warp_drive.utils.constants import Constants
 
@@ -131,7 +131,7 @@ class Trainer:
 
         # Load in the default configuration
         default_config_path = os.path.join(
-            _ROOT_DIR, "warp_drive", "training", "run_configs", "default_configs.yaml"
+            _ROOT_DIR, "run_configs", "default_configs.yaml"
         )
         with open(default_config_path, "r", encoding="utf8") as fp:
             default_config = yaml.safe_load(fp)
@@ -211,22 +211,11 @@ class Trainer:
         # upon resetting environments for the very first time.
         self.cuda_envs.reset_all_envs()
 
-        if env_wrapper.env_backend == "pycuda":
-            from warp_drive.managers.pycuda_managers.pycuda_function_manager import (
-                PyCUDASampler,
-            )
+        from warp_drive.cuda_managers.pycuda_function_manager import PyCUDASampler
 
-            self.cuda_sample_controller = PyCUDASampler(
-                self.cuda_envs.cuda_function_manager
-            )
-        elif env_wrapper.env_backend == "numba":
-            from warp_drive.managers.numba_managers.numba_function_manager import (
-                NumbaSampler,
-            )
-
-            self.cuda_sample_controller = NumbaSampler(
-                self.cuda_envs.cuda_function_manager
-            )
+        self.cuda_sample_controller = PyCUDASampler(
+            self.cuda_envs.cuda_function_manager
+        )
 
         # Create and push data placeholders to the device
         create_and_push_data_placeholders(

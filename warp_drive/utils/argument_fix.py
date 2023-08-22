@@ -10,7 +10,7 @@ class Argfix:
     Before version 2.0, it has
         `use_cuda = True or False`
     For versions after, it has
-    `env_backend = cpu, pycuda or numba`.
+    `env_backend = cpu, pycuda`.
     For users who are using the old API for their application but have the
     new library installed, it will not work. So we add a runtime arg fixer
     that if old API arg is seen by the new library, it will raise a warning

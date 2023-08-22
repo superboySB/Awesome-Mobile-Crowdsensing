@@ -2,13 +2,12 @@ ffmpeg-python
 gym
 matplotlib
 numpy
-numba
 pycuda
 pytest
 pyyaml
-pytorch-lightning
 setuptools
 torch
 ujson
+wandb
 
 

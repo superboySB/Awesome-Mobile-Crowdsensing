@@ -15,7 +15,7 @@ import torch
 from gym.spaces import Discrete, MultiDiscrete
 
 from warp_drive.env_wrapper import EnvWrapper
-from warp_drive.training.utils.data_loader import (
+from warp_drive.training.data_loader import (
     create_and_push_data_placeholders,
     get_obs,
 )
@@ -95,7 +95,7 @@ class EnvironmentCPUvsGPU:
         :param cuda_env_class: cuda env class to test, for example, CUDATagGridWorld
         :param dual_mode_env_class: env class that supports both cpu and cuda
         :param env_config: env configuration
-        :param num_envs: number of parallel example_envs in the test.
+        :param num_envs: number of parallel envs in the test.
             If use_gpu_testing_mode = True,
             num_envs = 2 and num_agents=5 are enforced
         :param blocks_per_env: number of blocks to cover one environment
@@ -104,7 +104,7 @@ class EnvironmentCPUvsGPU:
         :param num_episodes: number of episodes in the test
             hint: number >=2 is recommended
             since it can fully test the reset
-        :param gpu_env_backend: "pycuda" or "numba"
+        :param gpu_env_backend: "pycuda"
         :param use_gpu_testing_mode: a flag to determine whether to simply load
             the cuda binaries (.cubin) or compile the cuda source code (.cu)
             each time to create a binary.`
@@ -155,7 +155,7 @@ class EnvironmentCPUvsGPU:
             logging.warning(
                 f"enforce num_envs = {num_envs} because you have "
                 f"use_gpu_testing_mode = True, where the cubin file"
-                f"supporting this testing mode assumes 2 parallel example_envs"
+                f"supporting this testing mode assumes 2 parallel envs"
             )
         self.num_envs = num_envs
         self.blocks_per_env = blocks_per_env

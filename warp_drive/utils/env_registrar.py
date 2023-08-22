@@ -8,10 +8,8 @@ class EnvironmentRegistrar:
 
     _cpu_envs = {}
     _cuda_envs = {}
-    _numba_envs = {}
     _customized_cuda_env_src_paths = {
-        "pycuda": {},
-        "numba": {},
+        "pycuda": {}
     }
 
     def add(self, env_backend="cpu", cuda_env_src_path=None):
@@ -46,19 +44,6 @@ class EnvironmentRegistrar:
                         self.add_cuda_env_src_path(
                             cls_name, cuda_env_src_path, env_backend
                         )
-                elif backend == "numba":
-                    if cls_name not in self._numba_envs:
-                        self._numba_envs[cls_name] = cls
-                    else:
-                        raise Exception(
-                            f"Numba environment {cls_name} already registered, "
-                            f"you may need to go to your env class to "
-                            f"define a different class name "
-                        )
-                    if cuda_env_src_path is not None:
-                        self.add_cuda_env_src_path(
-                            cls_name, cuda_env_src_path, env_backend
-                        )
                 else:
                     raise Exception("Invalid device: only support CPU and CUDA/GPU")
             return cls
@@ -77,13 +62,8 @@ class EnvironmentRegistrar:
                 raise Exception(f"PyCUDA environment {name} not found ")
             logging.info(f"returning CUDA environment {name} ")
             return self._cuda_envs[name]
-        elif env_backend == "numba":
-            if name not in self._numba_envs:
-                raise Exception(f"Numba environment {name} not found ")
-            logging.info(f"returning Numba environment {name} ")
-            return self._numba_envs[name]
         else:
-            raise Exception("Invalid backend: only support CPU, PyCUDA/CUDA and Numba")
+            raise Exception("Invalid backend: only support CPU, PyCUDA/CUDA")
 
     def add_cuda_env_src_path(self, name, cuda_env_src_path, env_backend="pycuda"):
         """
@@ -105,17 +85,13 @@ class EnvironmentRegistrar:
             assert (
                 cuda_env_src_path.rsplit(".", 1)[1] == "cu"
             ), "the customized environment is expected to be a CUDA source code (*.cu)"
-        elif env_backend == "numba":
-            assert (
-                "/" not in cuda_env_src_path
-            ), "the customized environment is expected to be a valid PYTHONPATH"
         else:
             raise Exception(f"unknown env_backend: {env_backend}")
         self._customized_cuda_env_src_paths[env_backend][name] = cuda_env_src_path
 
     def get_cuda_env_src_path(self, name, env_backend="pycuda"):
         name = name.lower()
-        assert env_backend in ("pycuda", "numba"), f"unknown env_backend: {env_backend}"
+        assert env_backend == "pycuda", f"unknown env_backend: {env_backend}"
         return self._customized_cuda_env_src_paths[env_backend].get(name, None)
 
     def has_env(self, name, env_backend="cpu"):
@@ -124,8 +100,6 @@ class EnvironmentRegistrar:
             return name in self._cpu_envs
         if env_backend in ("pycuda", "cuda", "gpu"):
             return name in self._cuda_envs
-        if env_backend == "numba":
-            return name in self._numba_envs
         raise Exception("Invalid device: only support CPU and CUDA/GPU")
 
 
