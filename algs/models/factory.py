@@ -2,7 +2,7 @@ import importlib
 
 # warpdrive reserved models
 default_models = {
-    "fully_connected": "models.fully_connected:FullyConnected",
+    "fully_connected": "algs.models.fully_connected:FullyConnected",
 }
 
 
@@ -17,12 +17,12 @@ def dynamic_import(model_name: str, model_pool: dict):
     if model_name not in model_pool:
         raise ValueError(
             f"model_name {model_name} should be registered in the model factory in the form of,"
-            f"e.g. {'fully_connected': 'models.fully_connected:FullyConnected' } "
+            f"e.g. {'fully_connected': 'algs.models.fully_connected:FullyConnected' } "
         )
     if ":" not in model_pool[model_name]:
         raise ValueError(
             f"Invalid model path format, expect ':' to separate the path and the object name"
-            f"e.g. 'warp_drive.training.models.fully_connected:FullyConnected' "
+            f"e.g. 'algs.models.fully_connected:FullyConnected' "
         )
 
     module_name, objname = model_pool[model_name].split(":")

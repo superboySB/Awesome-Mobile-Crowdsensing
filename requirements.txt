@@ -5,9 +5,11 @@ numpy
 pycuda
 pytest
 pyyaml
+pytorch_lightning
+pytest-timeout
 setuptools
 torch
 ujson
 wandb
-
+gputil
 
