@@ -2,6 +2,7 @@ ffmpeg-python
 gym
 matplotlib
 numpy
+osmnx
 pycuda
 pytest
 pyyaml
