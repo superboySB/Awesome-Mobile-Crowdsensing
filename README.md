@@ -27,7 +27,7 @@ This is a list of research resources on **Human-Machine Collaborative Sensing** 
 
 
 ## Quick Start
-We recommend to use Nvidia NGC to start our simulation and baseline algorithms.
+To always get the latest GPU optimized software, we recommend you to use [Nvidia NGC](https://catalog.ngc.nvidia.com/orgs/partners/teams/salesforce/containers/warpdrive) to start our simulation and baseline algorithms.
 ```sh
 docker build -t linc_image:v1.0 .
 docker run -itd --runtime=nvidia --network=host --user=user --name=mcs linc_image:v1.0 /bin/bash

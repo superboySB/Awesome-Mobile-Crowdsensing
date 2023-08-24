@@ -1,14 +1,12 @@
 import os
 import sys
 
-sys.path.append(os.getcwd())
-sys.path.append('/home/liuchi/fangchen/AirDropMCS/source_code/LaunchMCS')
-sys.path.append('/home/liuchi/fangchen/AirDropMCS/')
-from util.config_3d import Config
-from util.utils import IsIntersec
+from warp_drive.utils.common import get_project_root
+from .util.config_3d import Config
+from .util.utils import IsIntersec
 from tqdm import tqdm
-from util.noma_utils import *
-from util.roadmap_utils import Roadmap
+from .util.noma_utils import *
+from .util.roadmap_utils import Roadmap
 
 import numpy as np
 import copy
@@ -34,7 +32,7 @@ class EnvUCS(object):
             self.args = args
         self.config = Config(args)
         map_number = self.config.dict['map']
-        self.load_map(map_number)
+        self.load_map()
         self.DISCRIPTION = self.config('description')
         self.CENTRALIZED = self.config('centralized')
         self.SCALE = self.config("scale")
@@ -108,13 +106,11 @@ class EnvUCS(object):
                     # buffer = getattr(self, item + '_mem').buf
                     # setattr(self, item, json.loads(bytes(buffer[:]).decode('utf-8')))
             else:
-                with open(f"/home/liuchi/fangchen/AirDropMCS/source_code/LaunchMCS/util/"
-                          f"{self.config('dataset')}/road_map.json", 'r') as f:
+                with open(os.path.join(get_project_root(),"envs","mcs_data_collection",f"util/{self.config('dataset')}/road_map.json"),'r') as f:
                     self.ROAD_MAP = json.load(f)
                     self.ROAD_MAP = {key: set(value) for key, value in self.ROAD_MAP.items()}
 
-                with open(f"/home/liuchi/fangchen/AirDropMCS/source_code/LaunchMCS/util/"
-                          f"{self.config('dataset')}/pair_dis_dict_0.json", 'r') as f:
+                with open(os.path.join(get_project_root(),"envs","mcs_data_collection",f"util/{self.config('dataset')}/pair_dis_dict_0.json"),'r') as f:
                     pairs_info = json.load(f)
                     self.PAIR_DIS_DICT = pairs_info
                     self.valid_nodes = set([int(item) for item in pairs_info['0'].keys()])
@@ -131,9 +127,7 @@ class EnvUCS(object):
                                     self.valid_edges[key].add((i, j))
 
                 
-                self.ALL_G = ox.load_graphml(
-                    f"/home/liuchi/fangchen/AirDropMCS/source_code/LaunchMCS/util/"
-                    f"{self.config('dataset')}/map_0.graphml").to_undirected()
+                self.ALL_G = ox.load_graphml(os.path.join(get_project_root(),"envs","mcs_data_collection",f"util/{self.config('dataset')}/map_0.graphml")).to_undirected()
 
                 self.node_map = {}
                 for i, node in enumerate(self.ALL_G.nodes):
@@ -224,45 +218,8 @@ class EnvUCS(object):
         self.observation_space = self.obs_space
         self.reset()
 
-    def load_map(self, map_number):
-
-        if self.config.dict['dataset'] == "beijing":
-            from util.Beijing.env_config import dataset_config
-        elif self.config.dict['dataset'] == "sf":
-            from util.Sanfrancisco.env_config import dataset_config
-        elif self.config.dict['dataset'] == "KAIST":
-            from util.KAIST.env_config import dataset_config
-        elif self.config.dict['dataset'] == 'Rome':
-            from util.Rome.env_config import dataset_config
-        elif self.config.dict['dataset'] == "multienv":
-            setting = import_module('env_setting.env_setting_{}'.format(map_number))
-            setting = setting.Setting(None)
-            dataset_config = {
-                "map_x": 80,
-                "map_y": 80,
-                "origin_obstacle": setting.V['OBSTACLE'],
-                'poi_position': setting.V['DATA'],
-                'init_position': {
-                    'carrier': [[setting.V['INIT_POSITION'][1] * 5, setting.V['INIT_POSITION'][2] * 5] for _ in
-                                range(10)],
-                    'uav': [[setting.V['INIT_POSITION'][1] * 5, setting.V['INIT_POSITION'][2] * 5] for _ in range(10)]}
-            }
-            new_o_all = []
-            for o in dataset_config['origin_obstacle']:
-                x_min = o[0] * 5
-                y_min = o[1] * 5
-                x_max = o[0] * 5 + o[2] * 5
-                y_max = o[1] * 5 + o[3] * 5
-                new_o = [x_min, y_min, x_max, y_min, x_max, y_max, x_min, y_max]
-                new_o_all.append(new_o)
-
-            dataset_config['obstacle'] = new_o_all
-            dataset_config['poi_num'] = len(dataset_config['poi_position'])
-            dataset_config['poi'] = np.array(dataset_config['poi_position'])[:, 0:2],
-            dataset_config['poi'] = np.array(dataset_config['poi'][0]).tolist()
-        else:
-            raise NotImplementedError
-
+    def load_map(self):
+        from .util.KAIST.env_config import dataset_config
         self.config.dict = {
             **self.config.dict,
             **dataset_config
@@ -324,13 +281,6 @@ class EnvUCS(object):
         self.last_dst_lonlat = np.zeros((self.NUM_UAV['carrier'], self.action_space['carrier'].n, 2))
 
     def reload_map(self, map_index: str):
-        # if self.config("dataset") == 'multitask':
-        #     if self.map == map_index:
-        #         return
-
-        #     self.map = map_index
-        #     self.config.load_map(map_index)
-        # else:
         if self.config("random_map"):
             self.map = map_index
         else:
