@@ -29,19 +29,25 @@ This repo is based on [warp-drive](https://github.com/salesforce/warp-drive).
 
 
 ## Quick Start
-How to start our simulation and baseline algorithms.
+We recommend to use Nvidia NGC to start our simulation and baseline algorithms.
 ```sh
 docker build -t linc_image:v1.0 .
-docker run -itd --runtime=nvidia --network=host --name=mcs linc_image:v1.0 /bin/bash
-git clone https://github.com/BIT-MCS/Awesome-Mobile-Crowdsensing.git && cd Awesome-Mobile-Crowdsensing && pip install -e .
-
-# 单元测试
-python -m warp_drive.utils.unittests.run_unittests_pycuda
-
-# 能够最佳使用GPU资源的模式
-# With auto-scaling, WarpDrive will automatically determine the best block size and training batch size to use. It will also determine the number of available GPUs and perform training on all the GPUs.
-python warp_drive/trainer_pytorch.py --env tag_continuous --auto_scale
-
-# 魔改最前线
-python run.py
+docker run -itd --runtime=nvidia --network=host --user=user --name=mcs linc_image:v1.0 /bin/bash
+docker exec -it mcs /bin/bash
 ```
+Install our drl-framework.
+```sh
+git clone https://github.com/BIT-MCS/Awesome-Mobile-Crowdsensing.git && cd Awesome-Mobile-Crowdsensing
+conda create --name warp_drive python=3.7 --yes && conda activate warp_drive && pip install -e .
+```
+Do the following unittests to make sure the whole architecture can run successfully.
+```sh
+# cd warp_drive/cuda_includes && make compile-test # [Optional]
+python -m warp_drive.utils.unittests.run_unittests_pycuda
+python -m warp_drive.utils.unittests.run_trainer_tests
+```
+[Optional] Do auto-scaling, and drl-framework will automatically determine the best block size and training batch size to use. It will also determine the number of available GPUs and perform training on all the GPUs.
+```sh
+python warp_drive/trainer_pytorch.py --env tag_continuous --auto_scale
+```
+Note that our drl-framework is based on [warp-drive](https://github.com/salesforce/warp-drive), an extremely fast end-to-end MARL architecture on GPUs.

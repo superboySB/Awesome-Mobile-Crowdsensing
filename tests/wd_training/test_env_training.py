@@ -11,7 +11,7 @@ import warnings
 import torch
 import yaml
 
-from warp_drive.pytorch_training import setup_trainer_and_train
+from warp_drive.trainer_pytorch import setup_trainer_and_train
 from warp_drive.training.child_process_pycuda import ProcessWrapper
 from warp_drive.training.distributed_trainer_pycuda import (
     perform_distributed_training,

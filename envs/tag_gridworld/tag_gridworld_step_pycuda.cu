@@ -148,7 +148,7 @@ extern "C" {
     assert(env_timestep_arr[kEnvId] > 0 && env_timestep_arr[kEnvId]
       <= episode_length);
 
-    int global_state_arr_shape[] = {gridDim.x, wkNumberAgents};
+    int global_state_arr_shape[] = {static_cast<int>(gridDim.x), wkNumberAgents};
     int agent_index[] = {kEnvId, kThisAgentId};
     int adv_agent_index[] = {kEnvId, wkNumberAgents - 1};
     int dimension = 2;
