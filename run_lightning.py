@@ -1,66 +1,11 @@
-# -*- coding: utf-8 -*-
-# ---
-# jupyter:
-#   jupytext:
-#     formats: ipynb,py:percent
-#     text_representation:
-#       extension: .py
-#       format_name: percent
-#       format_version: '1.3'
-#       jupytext_version: 1.11.4
-#   kernelspec:
-#     display_name: Python 3 (ipykernel)
-#     language: python
-#     name: python3
-# ---
-
-# %% [markdown]
-# # Fast Multi-agent Reinforcement Learning on a GPU using WarpDrive and Pytorch Lightning
-
-# %% [markdown]
-# Try this notebook on [Colab](http://colab.research.google.com/github/salesforce/warp-drive/blob/master/tutorials/tutorial-7-training_with_warp_drive_and_pytorch_lightning.ipynb)
-
-# %% [markdown]
-# # ⚠️ PLEASE NOTE:
-# This notebook runs on a GPU runtime.\
-# If running on Colab, choose Runtime > Change runtime type from the menu, then select `GPU` in the 'Hardware accelerator' dropdown menu.
-
-# %%
 import torch
 
 assert torch.cuda.device_count() > 0, "This notebook needs a GPU to run!"
 
-# %% [markdown]
-# # Introduction
-
-# %% [markdown]
-# This tutorial shows how [WarpDrive](https://github.com/salesforce/warp-drive) can be used together with [PyTorch Lightning](https://github.com/PyTorchLightning/pytorch-lightning).
-#
-# WarpDrive is a flexible, lightweight, and easy-to-use RL framework that implements end-to-end deep multi-agent RL on a single GPU (Graphics Processing Unit). Using the extreme parallelization capability of GPUs, it enables [orders-of-magnitude faster RL](https://arxiv.org/abs/2108.13976) compared to common implementations that blend CPU simulations and GPU models. WarpDrive is extremely efficient as it runs simulations across multiple agents and multiple environment replicas in parallel and completely eliminates the back-and-forth data copying between the CPU and the GPU.
-#
-# Pytorch Lightning is a machine learning framework which [greatly reduces trainer boilerplate code](https://www.pytorchlightning.ai/), and improves training modularity and flexibility. It abstracts away most of the engineering pieces of code, so users can focus on research and building models, and iterate on experiments really fast. Pytorch Lightning also provides support for easily running the model on any hardware, performing distributed training, model checkpointing, performance profiling, logging and visualization.
-#
-# Below, we demonstrate how to use WarpDrive and PytorchLightning together to train a game of [Tag](https://github.com/salesforce/warp-drive/blob/master/example_envs/tag_continuous/tag_continuous.py) where multiple *tagger* agents are trying to run after and tag multiple other *runner* agents. As such, the Warpdrive framework comprises several utility functions that help easily implement any (OpenAI-)*gym-style* RL environment, and furthermore, provides quality-of-life tools to train it end-to-end using just a few lines of code. You may familiarize yourself with WarpDrive with the help of these [tutorials](https://github.com/salesforce/warp-drive/tree/master/tutorials).
-#
-# We invite everyone to **contribute to WarpDrive**, including adding new multi-agent environments, proposing new features and reporting issues on our open source [repository](https://github.com/salesforce/warp-drive).
-
-# %% [markdown]
-# ### Dependencies
-
-# %% [markdown]
-# This notebook requires the `rl-warp-drive` as well as the `pytorch-lightning` packages.
-
-# %%
-# ! pip install -U rl_warp_drive
-
-# ! pip install 'pytorch_lightning>=1.4'
-
-# Also ,install ffmpeg for visualizing animations
-# ! apt install ffmpeg --yes
-
 # %%
 import logging
 
+from pytorch_lightning.loggers import WandbLogger
 from pytorch_lightning import Trainer
 
 from envs.tag_continuous.generate_rollout_animation import (
@@ -68,7 +13,7 @@ from envs.tag_continuous.generate_rollout_animation import (
 )
 from envs.tag_continuous.tag_continuous import TagContinuous
 from warp_drive.env_wrapper import EnvWrapper
-from warp_drive.trainer_pytorch_lightning import (
+from warp_drive.trainer_lightning import (
     CUDACallback,
     PerfStatsCallback,
     WarpDriveModule,
@@ -78,17 +23,6 @@ from warp_drive.trainer_pytorch_lightning import (
 # Set logger level e.g., DEBUG, INFO, WARNING, ERROR.
 logging.getLogger().setLevel(logging.ERROR)
 
-# %% [markdown]
-# # Specify a set of run configurations for your experiments
-
-# %% [markdown]
-# The run configuration is a dictionary comprising the environment parameters, the trainer and the policy network settings, as well as configurations for saving.
-#
-# For our experiment, we consider an environment wherein $5$ taggers and $100$ runners play the game of [Tag](https://github.com/salesforce/warp-drive/blob/master/example_envs/tag_continuous/tag_continuous.py) on a $20 \times 20$ plane. The game lasts $200$ timesteps. Each agent chooses it's own acceleration and turn actions at every timestep, and we use mechanics to determine how the agents move over the grid. When a tagger gets close to a runner, the runner is tagged, and is eliminated from the game. For the configuration below, the runners and taggers have the same unit skill levels, or top speeds.
-#
-# We train the agents using $50$ environments or simulations running in parallel. With WarpDrive, each simulation runs on sepate GPU blocks.
-#
-# There are two separate policy networks used for the tagger and runner agents. Each network is a fully-connected model with two layers each of $256$ dimensions. We use the Advantage Actor Critic (A2C) algorithm for training. WarpDrive also currently provides the option to use the Proximal Policy Optimization (PPO) algorithm instead.
 
 # %%
 run_config = dict(
@@ -98,7 +32,7 @@ run_config = dict(
         num_taggers=5,  # number of taggers in the environment
         num_runners=100,  # number of runners in the environment
         grid_length=20.0,  # length of the (square) grid on which the game is played
-        episode_length=200,  # episode length in timesteps
+        episode_length=400,  # episode length in timesteps
         max_acceleration=0.1,  # maximum acceleration
         min_acceleration=-0.1,  # minimum acceleration
         max_turn=2.35,  # 3*pi/4 radians
@@ -117,9 +51,9 @@ run_config = dict(
     ),
     # Trainer settings.
     trainer=dict(
-        num_envs=500,  # number of environment replicas (number of GPU blocks used)
+        num_envs=200,  # number of environment replicas (number of GPU blocks used)
         train_batch_size=10000,  # total batch size used for training per iteration (across all the environments)
-        num_episodes=2e6,  # total number of episodes to run the training for (can be arbitrarily high!)
+        num_episodes=2000000,  # total number of episodes to run the training for (can be arbitrarily high!)
     ),
     # Policy network settings.
     policy=dict(
@@ -146,21 +80,12 @@ run_config = dict(
     saving=dict(
         metrics_log_freq=10,  # how often (in iterations) to print the metrics
         model_params_save_freq=5000,  # how often (in iterations) to save the model parameters
-        basedir="/tmp",  # base folder used for saving
+        basedir="./saved_data",  # base folder used for saving
         name="continuous_tag",  # experiment name
         tag="example",  # experiment tag
     ),
 )
 
-# %% [markdown]
-# # Instantiate the WarpDrive Module
-
-# %% [markdown]
-# In order to instantiate the WarpDrive module,
-# we first use an environment wrapper to specify that the environment needs to
-# be run on the GPU (via the `env_backend` flag).
-# Also, agents in the environment can share policy models;
-# so we specify a dictionary to map each policy network model to the list of agent ids using that model.
 
 env_wrapper = EnvWrapper(
     TagContinuous(**run_config["env"]),
@@ -181,25 +106,10 @@ wd_module = WarpDriveModule(
     verbose=True,
 )
 
-# %% [markdown]
-# # Visualizing an episode roll-out before training
-
-# %% [markdown]
-# We will use the `generate_tag_env_rollout_animation()` helper function in order to visualize an episode rollout. Internally, this function uses the WarpDrive module's `fetch_episode_states` to fetch the data arrays on the GPU for the duration of an entire episode. Specifically, we fetch the state arrays pertaining to agents' x and y locations on the plane and indicators on which agents are still active in the game, and will use these to visualize an episode roll-out. Note that this function may be invoked at any time during training, and it will use the state of the policy models at that time to sample actions and generate the visualization.
-#
-# The animation below shows a sample realization of the game episode before training, i.e., with randomly chosen agent actions. The $5$ taggers are marked in pink, while the $100$ blue agents are the runners. Both the taggers and runners move around randomly and about half the runners remain at the end of the episode.
-
-# %%
 # anim = generate_tag_env_rollout_animation(wd_module, fps=25)
 # anim.to_html5_video()
 
-# %% [markdown]
-# # Create the Lightning Trainer
 
-# %% [markdown]
-# Next, we create the trainer for training the WarpDrive model. We add the `performance stats` callbacks to the trainer to view the throughput performance of WarpDrive.
-
-# %%
 log_freq = run_config["saving"]["metrics_log_freq"]
 
 # Define callbacks.
@@ -220,45 +130,21 @@ num_epochs = int(num_episodes * episode_length / training_batch_size)
 
 # Set reload_dataloaders_every_n_epochs=1 to invoke
 # train_dataloader() each epoch.
+wandb_logger = WandbLogger(project="awesome-mcs",name="data-collection")
 trainer = Trainer(
     accelerator="gpu",
     devices=num_gpus,
     callbacks=[cuda_callback, perf_stats_callback],
     max_epochs=num_epochs,
     reload_dataloaders_every_n_epochs=1,
+    logger = wandb_logger
 )
 
-# %%
-# Start tensorboard.
-# %load_ext tensorboard
-# %tensorboard --logdir lightning_logs/
-
-# %% [markdown]
-# # Train the WarpDrive Module
-
-# %% [markdown]
-# Finally, we invoke training.
-#
-# Note: please scroll up to the tensorboard cell to visualize the curves during training.
-
-# %%
 trainer.fit(wd_module)
 
-# %% [markdown]
-# ## Visualize an episode-rollout after training
 
-# %%
 anim = generate_tag_env_rollout_animation(wd_module, fps=25)
 anim.save("./mymovie.mp4")
 
-# %% [markdown]
-# Note: In the configuration above, we have set the trainer to only train on $50000$ rollout episodes, but you can increase the `num_episodes` configuration parameter to train further. As more training happens, the runners learn to escape the taggers, and the taggers learn to chase after the runner. Sometimes, the taggers also collaborate to team-tag runners. A good number of episodes to train on (for the configuration we have used) is $2$M or higher.
 
-# %%
-# Finally, close the WarpDrive module to clear up the CUDA memory heap
 wd_module.graceful_close()
-
-# %% [markdown]
-# # Learn More about WarpDrive and explore our tutorials!
-
-# %%

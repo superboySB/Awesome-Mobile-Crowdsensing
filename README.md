@@ -1,8 +1,6 @@
 # Awesome-Mobile-Crowdsensing
 This is a list of research resources on **Human-Machine Collaborative Sensing** by AI-Driven Unmanned Vehicles（边缘环境人机协同群智感知与决策关键技术研究）. And the repository will be continuously updated to help readers get inspired by our researches and realize their ideas in their own field.
 
-This repo is based on [warp-drive](https://github.com/salesforce/warp-drive).
-
 ## Related Papers
 - [Ensuring Threshold AoI for UAV-assisted Mobile Crowdsensing by Multi-Agent Deep Reinforcement Learning with Transformer](https://ieeexplore.ieee.org/abstract/document/10181012)
 - [Exploring both Individuality and Cooperation for Air-Ground Spatial Crowdsourcing by Multi-Agent Deep Reinforcement Learning](https://ieeexplore.ieee.org/abstract/document/10184585)

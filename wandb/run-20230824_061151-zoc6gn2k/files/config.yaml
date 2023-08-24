@@ -1,0 +1,140 @@
+wandb_version: 1
+
+_wandb:
+  desc: null
+  value:
+    python_version: 3.8.10
+    cli_version: 0.15.8
+    framework: lightning
+    is_jupyter_run: false
+    is_kaggle_kernel: false
+    start_time: 1692857511.796023
+    t:
+      1:
+      - 1
+      - 9
+      - 41
+      - 55
+      - 103
+      2:
+      - 1
+      - 9
+      - 41
+      - 55
+      - 103
+      3:
+      - 7
+      - 13
+      - 23
+      4: 3.8.10
+      5: 0.15.8
+      8:
+      - 5
+    m:
+    - 1: trainer/global_step
+      6:
+      - 3
+    - 1: loss_runner
+      5: 1
+      6:
+      - 1
+    - 1: VF loss coefficient_runner
+      5: 1
+      6:
+      - 1
+    - 1: Entropy coefficient_runner
+      5: 1
+      6:
+      - 1
+    - 1: Total loss_runner
+      5: 1
+      6:
+      - 1
+    - 1: Policy loss_runner
+      5: 1
+      6:
+      - 1
+    - 1: Value function loss_runner
+      5: 1
+      6:
+      - 1
+    - 1: Mean rewards_runner
+      5: 1
+      6:
+      - 1
+    - 1: Max\. rewards_runner
+      5: 1
+      6:
+      - 1
+    - 1: Min\. rewards_runner
+      5: 1
+      6:
+      - 1
+    - 1: Mean value function_runner
+      5: 1
+      6:
+      - 1
+    - 1: Mean advantages_runner
+      5: 1
+      6:
+      - 1
+    - 1: Mean (norm\.) advantages_runner
+      5: 1
+      6:
+      - 1
+    - 1: Mean (discounted) returns_runner
+      5: 1
+      6:
+      - 1
+    - 1: Mean normalized returns_runner
+      5: 1
+      6:
+      - 1
+    - 1: Mean entropy_runner
+      5: 1
+      6:
+      - 1
+    - 1: Variance explained by the value function_runner
+      5: 1
+      6:
+      - 1
+    - 1: Std\. of action_0 over agents_runner
+      5: 1
+      6:
+      - 1
+    - 1: Std\. of action_0 over envs_runner
+      5: 1
+      6:
+      - 1
+    - 1: Std\. of action_0 over time_runner
+      5: 1
+      6:
+      - 1
+    - 1: Std\. of action_1 over agents_runner
+      5: 1
+      6:
+      - 1
+    - 1: Std\. of action_1 over envs_runner
+      5: 1
+      6:
+      - 1
+    - 1: Std\. of action_1 over time_runner
+      5: 1
+      6:
+      - 1
+    - 1: Current timestep_runner
+      5: 1
+      6:
+      - 1
+    - 1: Gradient norm_runner
+      5: 1
+      6:
+      - 1
+    - 1: Mean episodic reward_runner
+      5: 1
+      6:
+      - 1
+    - 1: epoch
+      5: 1
+      6:
+      - 1

@@ -142,6 +142,7 @@ class WarpDriveModule(LightningModule):
 
         """
         super().__init__()
+        self.automatic_optimization = False
 
         assert env_wrapper is not None
         assert env_wrapper.env_backend == "pycuda" or env_wrapper.env_backend == "numba"
@@ -154,7 +155,7 @@ class WarpDriveModule(LightningModule):
 
         # Load in the default configuration
         default_config_path = os.path.join(
-            _ROOT_DIR, "warp_drive", "training", "run_configs", "default_configs.yaml"
+            _ROOT_DIR, "run_configs", "default_configs.yaml"
         )
         with open(default_config_path, "r", encoding="utf8") as fp:
             default_config = yaml.safe_load(fp)
