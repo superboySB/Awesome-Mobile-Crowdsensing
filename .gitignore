@@ -161,3 +161,4 @@ cython_debug/
 lightning_logs
 warp_drive/cuda_bin/
 saved_data/
+wandb/
