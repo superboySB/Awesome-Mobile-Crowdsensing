@@ -1,5 +1,5 @@
 # Awesome-Mobile-Crowdsensing
-This is a list of research resources on **Human-Machine Collaborative Sensing** by AI-Driven Unmanned Vehicles（边缘环境人机协同群智感知与决策关键技术研究）. And the repository will be continuously updated to help readers get inspired by our researches and realize their ideas in their own field.
+This is a list of research resources on **Human-Machine Collaborative Sensing** by AI-Driven Unmanned Vehicles, including related papers, simulation codes and default algorithms. This repository will be continuously updated to help readers get inspired by our researches and realize their ideas in their own field.
 
 ## Related Papers
 - [Ensuring Threshold AoI for UAV-assisted Mobile Crowdsensing by Multi-Agent Deep Reinforcement Learning with Transformer](https://ieeexplore.ieee.org/abstract/document/10181012)
@@ -25,7 +25,6 @@ This is a list of research resources on **Human-Machine Collaborative Sensing** 
 - [Learning-based Energy-Efficient Data Collection by Unmanned Vehicles in Smart Cities](https://ieeexplore.ieee.org/abstract/document/8207610/)
 
 
-
 ## Quick Start
 To always get the latest GPU optimized software, we recommend you to use [Nvidia NGC](https://catalog.ngc.nvidia.com/orgs/partners/teams/salesforce/containers/warpdrive) to start our simulation and baseline algorithms.
 ```sh
@@ -35,8 +34,9 @@ docker exec -it mcs /bin/bash
 ```
 Install our drl-framework.
 ```sh
-git clone https://github.com/BIT-MCS/Awesome-Mobile-Crowdsensing.git && cd Awesome-Mobile-Crowdsensing
-conda create --name warp_drive python=3.7 --yes && conda activate warp_drive && pip install -e .
+conda create --name mcs python=3.9 --yes && conda activate mcs
+cd /workspace/movingpandas && python setup.py develop && cd ..
+git clone https://github.com/BIT-MCS/Awesome-Mobile-Crowdsensing.git && cd Awesome-Mobile-Crowdsensing && pip install -e .
 ```
 Do the following unittests to make sure the whole architecture can run successfully.
 ```sh
@@ -48,4 +48,22 @@ python -m warp_drive.utils.unittests.run_trainer_tests
 ```sh
 python warp_drive/trainer_pytorch.py --env tag_continuous --auto_scale
 ```
+Run random policy and debug the environment.
+```sh
+python run_random_policy.py
+```
+Run RL policy (PPO/A2C)
+```sh
+python run_rl_policy.py
+```
 Note that our drl-framework is based on [warp-drive](https://github.com/salesforce/warp-drive), an extremely fast end-to-end MARL architecture on GPUs.
+
+## Roadmap
+- [X] Finish Simple Air-Ground Collaborative Simulation for MCS
+- [X] Finish CUDA implementation
+- [X] Finish PPO baseline
+- [X] Add mobile users as PoIs
+- [ ] Add macro stragies of mobile users as PoIs
+- [ ] Add our proposed key metrics for [emergency response](https://github.com/BIT-MCS/DRL-UCS-AoI-Threshold), inspired by Age of Information (AoI)
+- [ ] Add apis for using available actions
+- [ ] Add more realistic environment dynamics, e.g., [4G MIMO](https://github.com/BIT-MCS/DRL-freshMCS), [5G NOMA](https://github.com/BIT-MCS/hi-MADRL)

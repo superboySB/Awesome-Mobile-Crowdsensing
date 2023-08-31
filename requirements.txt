@@ -1,10 +1,12 @@
 ffmpeg-python
 folium
 gym
+imageio
 json5
 matplotlib
 numpy
 osmnx
+opencv-python
 pandas
 pycuda
 pygame
@@ -12,6 +14,7 @@ pytest
 pyyaml
 pytorch_lightning
 pytest-timeout
+scikit-learn
 setuptools
 seaborn
 shapely

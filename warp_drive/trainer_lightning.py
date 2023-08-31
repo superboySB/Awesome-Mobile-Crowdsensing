@@ -142,7 +142,7 @@ class WarpDriveModule(LightningModule):
 
         """
         super().__init__()
-        self.automatic_optimization = False
+        self.automatic_optimization = True
 
         assert env_wrapper is not None
         assert env_wrapper.env_backend == "pycuda" or env_wrapper.env_backend == "numba"

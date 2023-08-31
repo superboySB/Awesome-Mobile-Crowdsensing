@@ -7,4 +7,4 @@
 #include "./env_config.h"
 #include "./core_service.h"
 
-#include "/home/Awesome-Mobile-Crowdsensing/envs/tag_gridworld/tag_gridworld_step_pycuda.cu"
+#include "/workspace/Awesome-Mobile-Crowdsensing/envs/mcs_data_collection/crowd_sim_step.cu"
