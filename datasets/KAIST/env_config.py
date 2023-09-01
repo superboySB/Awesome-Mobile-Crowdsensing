@@ -37,7 +37,7 @@ class BaseEnvConfig(object):
     env.nlat = 1960
     env.human_num = 92
     env.dataset_dir = 'datasets/KAIST/ground_trajs.csv'
-
+    
     env.drone_action_space = np.array([[0, 0], [300, 0], [-300, 0], [0, 300], [0, -300], [210, 210], [210, -210], [-210, 210],
                                 [-210, -210]])
     env.drone_sensing_range = 220  # unit  220

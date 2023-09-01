@@ -112,37 +112,6 @@ def judge_collision(new_robot_px, new_robot_py, old_robot_px, old_robot_py):
     return False
 
 
-def get_theta(x1, y1, x2, y2):
-    ang1 = np.arctan2(y1, x1)
-    ang2 = np.arctan2(y2, x2)
-    theta = np.rad2deg((ang1 - ang2) % (2 * np.pi))
-    return theta
-
-
-def consume_uav_energy(fly_time, hover_time):
-    tmp_config = BaseEnvConfig()
-
-    # configs
-    Pu = 0.5  # the average transmitted power of each user, W,  e.g. mobile phone
-    P0 = 79.8563  # blade profile power, W
-    P1 = 88.6279  # derived power, W
-    U_tips = 120  # tip speed of the rotor blade of the UAV,m/s
-    v0 = 4.03  # the mean rotor induced velocity in the hovering state,m/s
-    d0 = 0.6  # fuselage drag ratio
-    rho = 1.225  # density of air,kg/m^3
-    s0 = 0.05  # the rotor solidity
-    A = 0.503  # the area of the rotor disk, m^2
-    Vt = tmp_config.env.velocity  # velocity of the UAV,m/s
-
-    Power_flying = P0 * (1 + 3 * Vt ** 2 / U_tips ** 2) + \
-                   P1 * np.sqrt((np.sqrt(1 + Vt ** 4 / (4 * v0 ** 4)) - Vt ** 2 / (2 * v0 ** 2))) + \
-                   0.5 * d0 * rho * s0 * A * Vt ** 3
-
-    Power_hovering = P0 + P1
-
-    return fly_time * Power_flying + hover_time * Power_hovering
-
-
 def get_border(ur, lf):
     upper_left = [lf[0], ur[1]]
     upper_right = [ur[0], ur[1]]

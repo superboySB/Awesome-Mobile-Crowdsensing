@@ -11,9 +11,6 @@ from shapely.geometry import Point
 from folium.plugins import TimestampedGeoJson, AntPath
 from datasets.KAIST.env_config import BaseEnvConfig
 
-from .utils import *
-from .mdp import *
-
 try:
     num_gpus_available = len(GPUtil.getAvailable())
     print(f"Inside covid19_env.py: {num_gpus_available} GPUs are available.")
@@ -35,13 +32,6 @@ except ModuleNotFoundError:
     )
 except ValueError:
     print("No GPUs found! Running the simulation on a CPU.")
-
-
-_LOC_X = "loc_x"
-_LOC_Y = "loc_y"
-_DIR = "direction"
-_ENR = "energy"  # only in drones/cars
-_AOI = "aoi"  # only in humans
 
 
 class CrowdSim:
@@ -85,7 +75,6 @@ class CrowdSim:
 
         self.nlon = self.config.env.nlon
         self.nlat = self.config.env.nlat
-        self.grid_diagonal = np.sqrt(self.nlon**2 + self.nlat**2)
         self.lower_left = self.config.env.lower_left
         self.upper_right = self.config.env.upper_right
         self.human_df = pd.read_csv(self.config.env.dataset_dir)
@@ -94,43 +83,41 @@ class CrowdSim:
         self.human_df['aoi'] = -1  # 加入aoi记录aoi
         self.human_df['energy'] = -1  # 加入energy记录energy
 
-        self.human_x_array = np.ones([self.episode_length + 1, ])
 
-
-        # Correct the unique ids and timestamps based on user's clarification
+        # human infos
         unique_ids = np.arange(0, self.num_sensing_targets)  # id from 0 to 91
         unique_timestamps = np.arange(self.start_timestamp, self.end_timestamp+self.step_time, self.step_time)  # timestamp from 1519894800 to 1519896600 with 15-second intervals
-
-        # Initialize a new empty array
         id_to_index = {id: index for index, id in enumerate(unique_ids)}
         timestamp_to_index = {timestamp: index for index, timestamp in enumerate(unique_timestamps)}
-        self.human_x_array_full = np.full((self.num_sensing_targets, self.episode_length + 1), np.nan)
-        self.human_y_array_full = np.full((self.num_sensing_targets, self.episode_length + 1), np.nan)
-        self.human_aoi_array_full = np.ones(self.num_sensing_targets, self.episode_length)
+        self.target_x_timelist = np.full([self.episode_length + 1, self.num_sensing_targets], np.nan)
+        self.target_y_timelist = np.full([self.episode_length + 1, self.num_sensing_targets], np.nan)
+        self.target_aoi_timelist = np.ones([self.episode_length + 1, self.num_sensing_targets])
+        self.target_aoi_current = np.ones([self.num_sensing_targets, ])
         
         # Fill the new array with data from the full DataFrame
         for _, row in self.human_df.iterrows():
             id_index = id_to_index.get(row['id'], None)
             timestamp_index = timestamp_to_index.get(row['timestamp'], None)
             if id_index is not None and timestamp_index is not None:
-                self.human_x_array_full[id_index, timestamp_index] = row['x']
-                self.human_y_array_full[id_index, timestamp_index] = row['y']
+                self.target_x_timelist[id_index, timestamp_index] = row['x']
+                self.target_y_timelist[id_index, timestamp_index] = row['y']
         
-        x1 = self.human_x_array_full[:, :-1]
-        y1 = self.human_y_array_full[:, :-1]
-        x2 = self.human_x_array_full[:, 1:]
-        y2 = self.human_y_array_full[:, 1:]
-        self.human_theta_array_full = get_theta(x1, y1, x2, y2)
+        x1 = self.target_x_timelist[:-1,:]
+        y1 = self.target_y_timelist[:-1,:]
+        x2 = self.target_x_timelist[1:,:]
+        y2 = self.target_y_timelist[1:,:]
+        self.target_theta_timelist = self.get_theta(x1, y1, x2, y2)
+        self.target_theta_timelist = np.vstack([self.target_theta_timelist, self.target_theta_timelist[-1,:]])
 
         # Check if there are any NaN values in the array
-        assert np.isnan(self.human_x_array_full).any() is False
-        assert np.isnan(self.human_y_array_full).any() is False
-        assert np.isnan(self.human_theta_array_full).any() is False
+        assert np.isnan(self.target_x_timelist).any() is False
+        assert np.isnan(self.target_y_timelist).any() is False
+        assert np.isnan(self.target_theta_timelist).any() is False
 
+        # agent infos
         self.timestep = 0
-        self.current_target_aoi_list = np.ones([self.num_sensing_targets, ])
-        self.mean_aoi_timelist = np.ones([self.episode_length + 1, ])
-        self.mean_aoi_timelist[self.timestep] = np.mean(self.current_target_aoi_list)
+        self.mean_aoi_timelist = np.ones([self.episode_length + 1,])
+        self.mean_aoi_timelist[self.timestep] = np.mean(self.target_aoi_current)
         self.agent_energy_timelist = np.zeros([self.episode_length + 1, self.num_agents])
         self.agent_x_timelist = np.zeros([self.episode_length + 1, self.num_agents])
         self.agent_y_timelist = np.zeros([self.episode_length + 1, self.num_agents])
@@ -143,16 +130,12 @@ class CrowdSim:
             self.seed(seed)
 
         # Types and Status of vehicles
-        self.agent_type = {}
-        self.aerial_agents = {}
-        self.ground_agents = {}
+        self.agent_types = np.ones(self.num_agents,)
         for agent_id in range(self.num_agents):
-            if agent_id < self.num_aerial_agents:
-                self.agent_type[agent_id] = 1  # Drone
-                self.aerial_agents[agent_id] = True
+            if agent_id < self.num_ground_agents:
+                self.agent_types[agent_id] = 0  # Car
             else:
-                self.agent_type[agent_id] = 0  # Car
-                self.ground_agents[agent_id] = True
+                self.agent_types[agent_id] = 1  # Drone
 
 
         self.starting_location_x = np.ones(self.num_agents) * self.nlon / 2
@@ -164,10 +147,14 @@ class CrowdSim:
 
         # Defining observation and action spaces
         self.observation_space = None  # Note: this will be set via the env_wrapper
+        self.drone_action_space_dx = self.config.env.drone_action_space[:,0]
+        self.drone_action_space_dy = self.config.env.drone_action_space[:,1]
+        self.car_action_space_dx = self.config.env.car_action_space[:,0]
+        self.car_action_space_dy = self.config.env.car_action_space[:,1]
         self.action_space = {
-            agent_id: spaces.Discrete(np.int8(self.config.env.drone_action_space.shape[0]))
-                if self.agent_type[agent_id] == 1 
-                else spaces.Discrete(np.int8(self.config.env.car_action_space.shape[0]))
+            agent_id: spaces.Discrete(np.int8(self.drone_action_space_dx.shape[0]))
+                if self.agent_types[agent_id] == 1 
+                else spaces.Discrete(np.int8(self.car_action_space_dx.shape[0]))
                     for agent_id in range(self.num_agents)
         }
         # Used in generate_observation()
@@ -195,6 +182,11 @@ class CrowdSim:
         # Copy drones dict for applying at reset (with limited energy reserve)
         self.drones_at_reset = copy.deepcopy(self.aerial_agents)
 
+    def get_theta(self, x1, y1, x2, y2):
+        ang1 = np.arctan2(y1, x1)
+        ang2 = np.arctan2(y2, x2)
+        theta = np.rad2deg((ang1 - ang2) % (2 * np.pi))
+        return theta
     
     def seed(self, seed=None):
         """
@@ -205,151 +197,100 @@ class CrowdSim:
         self.np_random.seed(seed)
         return [seed]
 
-
-    def compute_distance(self, entity1, entity2):
+    def reset(self):
         """
-        Note: 'compute_distance' is only used when running on CPU step() only.
-        When using the CUDA step function, this Python method (compute_distance)
-        is also part of the step() function!
+        Env reset().
         """
-        return np.sqrt(
-            (
-                self.global_state[_LOC_X][self.timestep, entity1]
-                - self.global_state[_LOC_X][self.timestep, entity2]
-            )
-            ** 2
-            + (
-                self.global_state[_LOC_Y][self.timestep, entity1]
-                - self.global_state[_LOC_Y][self.timestep, entity2]
-            )
-            ** 2
-        ).astype(self.float_dtype)
+        # Reset time to the beginning
+        self.timestep = 0
 
+        # Re-initialize the global state
+        for agent_id in range(self.num_agents):
+            self.agent_x_timelist[self.timestep,agent_id] = self.starting_location_x,
+            self.agent_y_timelist[self.timestep,agent_id] = self.starting_location_y,
+            self.agent_energy_timelist[self.timestep,agent_id] = self.max_uav_energy,
+        
+        for target_id in range(self.num_sensing_targets):
+            self.target_aoi_timelist[self.timestep,target_id] = 1
+            self.target_aoi_current = 1
+
+        return self.generate_observation()
+    
     def k_nearest_targets(self, agent_id, k):
         """
         Note: 'k_nearest_neighbors' is only used when running on CPU step() only.
         When using the CUDA step function, this Python method (k_nearest_neighbors)
         is also part of the step() function!
         """
-        agent_ids_and_distances = []
+        target_ids_and_distances = []
+        for target_id in range(self.num_sensing_targets):
+            agent_target_distance = np.sqrt(np.power(self.agent_x_timelist[self.timestep, agent_id] - self.target_x_timelist[self.timestep, target_id])
+                                            + np.power(self.agent_y_timelist[self.timestep, agent_id] - self.target_y_timelist[self.timestep, target_id]))
+            target_ids_and_distances += [target_id, agent_target_distance]
 
-        for ag_id in range(self.num_agents):
-            if ag_id != agent_id:
-                agent_ids_and_distances += [
-                    (ag_id, self.compute_distance(agent_id, ag_id))
-                ]
-        k_nearest_neighbor_ids_and_distances = heapq.nsmallest(
-            k, agent_ids_and_distances, key=lambda x: x[1]
+        k_nearest_target_ids_and_distances = heapq.nsmallest(
+            k, target_ids_and_distances, key=lambda x: x[1]
         )
 
-        return [
-            item[0]
-            for item in k_nearest_neighbor_ids_and_distances[
-                : self.num_other_agents_observed
-            ]
-        ]
+        return [item[0] for item in k_nearest_target_ids_and_distances[:k]]
+    
 
     def generate_observation(self):
         """
         Generate and return the observations for every agent.
         """
-        obs = {}
-
-        normalized_global_obs = None
-        for feature in [
-            (_LOC_X, self.grid_diagonal),
-            (_LOC_Y, self.grid_diagonal),
-            (_DIR, 2 * np.pi),
-        ]:
-            if normalized_global_obs is None:
-                normalized_global_obs = (
-                    self.global_state[feature[0]][self.timestep] / feature[1]
-                )
-            else:
-                normalized_global_obs = np.vstack(
-                    (
-                        normalized_global_obs,
-                        self.global_state[feature[0]][self.timestep] / feature[1],
-                    )
-                )
-        agent_types = np.array(
-            [self.agent_type[agent_id] for agent_id in range(self.num_agents)]
-        )
-        time = np.array([float(self.timestep) / self.episode_length])
-
-        # use partial observation
+        # global states
+        agents_state = np.zeros(self.num_agents, 4)
         for agent_id in range(self.num_agents):
-            if self.timestep == 0:
-                # Set obs to all zeros
-                obs_global_states = np.zeros(
-                    (
-                        normalized_global_obs.shape[0],
-                        self.num_other_agents_observed,
-                    )
-                )
-                obs_agent_types = np.zeros(self.num_other_agents_observed)
+            agents_state[agent_id,:] = np.array([
+                self.agent_x_timelist[self.timestep,agent_id]/self.nlon,
+                self.agent_y_timelist[self.timestep,agent_id]/self.nlat,
+                self.agent_types[agent_id],
+                self.agent_energy_timelist[self.timestep,agent_id]/self.max_uav_energy,
+            ])
+        
+        targets_state = np.zeros(self.num_sensing_targets,4)
+        for target_id in range(self.num_sensing_targets):
+            targets_state[target_id,:] = np.array([
+                self.target_x_timelist[self.timestep,target_id]/self.nlon,
+                self.target_y_timelist[self.timestep,target_id]/self.nlat,
+                self.target_theta_timelist[self.timestep, target_id] / (2 * np.pi),
+                self.target_aoi_timelist[self.timestep,target_id]/self.episode_length,
+            ])
+        
+        # generate observation
+        obs = {}
+        for agent_id in range(self.num_agents):
+            agent_obs_part = agents_state.reshape(-1)
+            nearest_neighbor_ids = self.k_nearest_targets(agent_id, self.num_targets_observed)
+            nearest_target_obs = targets_state[nearest_neighbor_ids]
+            target_obs_part = nearest_target_obs.reshape(-1)
 
-                # Form the observation
-                self.init_obs = np.concatenate(
-                    [
-                        np.vstack(
-                            (
-                                obs_global_states,
-                                obs_agent_types,
-                            )
-                        ).reshape(-1),
-                        np.array([0.0]),  # time
-                    ]
-                )
+            assert agent_obs_part.shape[0] == self.num_agents * 4
+            assert target_obs_part.shape[0] == self.num_targets_observed * 4
 
-            # Initialize obs to all zeros
-            obs[agent_id] = self.init_obs
-
-            nearest_neighbor_ids = self.k_nearest_neighbors(
-                agent_id, k=self.num_other_agents_observed
-            )
-            # For the case when the number of remaining agent ids is fewer
-            # than self.num_other_agents_observed (because agents have exited
-            # the game), we also need to pad obs wih zeros
-            obs_global_states = np.hstack(
-                (
-                    normalized_global_obs[:, nearest_neighbor_ids]
-                    - normalized_global_obs[:, agent_id].reshape(-1, 1),
-                    np.zeros(
-                        (
-                            normalized_global_obs.shape[0],
-                            self.num_other_agents_observed
-                            - len(nearest_neighbor_ids),
-                        )
-                    ),
-                )
-            )
-            obs_agent_types = np.hstack(
-                (
-                    agent_types[nearest_neighbor_ids],
-                    np.zeros(
-                        (
-                            self.num_other_agents_observed
-                            - len(nearest_neighbor_ids)
-                        )
-                    ),
-                )
-            )
-
-            # Form the observation
-            obs[agent_id] = np.concatenate(
-                [
-                    np.vstack(
-                        (
-                            obs_global_states,
-                            obs_agent_types,
-                        )
-                    ).reshape(-1),
-                    time,
-                ]
-            )
+            obs[agent_id] = np.hstack((agent_obs_part, target_obs_part))
 
         return obs
+
+    def nearest_car_and_distance(self, drone_id):
+        car_ids_and_distances = []
+        for car_id in range(self.num_ground_agents):
+            agent_target_distance = np.sqrt(np.power(self.agent_x_timelist[self.timestep, drone_id] - self.target_x_timelist[self.timestep, car_id])
+                                            + np.power(self.agent_y_timelist[self.timestep, drone_id] - self.target_y_timelist[self.timestep, car_id]))
+            car_ids_and_distances += [car_id, agent_target_distance]
+
+        k_nearest_car_ids_and_distances = heapq.nsmallest(
+            1, car_ids_and_distances, key=lambda x: x[1]
+        )
+
+        return k_nearest_car_ids_and_distances[0][0], k_nearest_car_ids_and_distances[0][1]
+    
+    def compute_drone_reward(self, agent_id):
+        pass
+
+    def compute_car_reward(self, agent_id):
+        pass
 
     def compute_reward(self):
         """
@@ -357,6 +298,14 @@ class CrowdSim:
         """
         # Initialize rewards
         rew = {agent_id: 0.0 for agent_id in range(self.num_agents)}
+
+        for agent_id in range(self.num_agents):
+            if self.agent_types[agent_id] == 0:  # car
+                pass
+            else:  # drone
+                pass
+            _
+        
 
         taggers_list = sorted(self.taggers)
 
@@ -405,79 +354,79 @@ class CrowdSim:
                 rew[runner_id] += self.tag_penalty_for_runner
                 rew[nearest_tagger_ids[idx]] += self.tag_reward_for_tagger
 
-
-        if self.timestep == self.episode_length:
-            for runner_id in self.runners:
-                rew[runner_id] += self.end_of_game_reward_for_runner
-
         return rew
 
-    def reset(self):
-        """
-        Env reset().
-        """
-        # Reset time to the beginning
-        self.timestep = 0
+    
+    def consume_uav_energy(self, fly_time, hover_time):
+        # configs
+        Pu = 0.5  # the average transmitted power of each user, W,  e.g. mobile phone
+        P0 = 79.8563  # blade profile power, W
+        P1 = 88.6279  # derived power, W
+        U_tips = 120  # tip speed of the rotor blade of the UAV,m/s
+        v0 = 4.03  # the mean rotor induced velocity in the hovering state,m/s
+        d0 = 0.6  # fuselage drag ratio
+        rho = 1.225  # density of air,kg/m^3
+        s0 = 0.05  # the rotor solidity
+        A = 0.503  # the area of the rotor disk, m^2
+        Vt = self.config.env.velocity  # velocity of the UAV,m/s
 
-        # Re-initialize the global state
-        self.global_state = {}
-        self.set_global_state(
-            key=_LOC_X, value=self.starting_location_x, t=self.timestep
-        )
-        self.set_global_state(
-            key=_LOC_Y, value=self.starting_location_y, t=self.timestep
-        )
-        self.set_global_state(key=_SP, value=self.starting_speeds, t=self.timestep)
-        self.set_global_state(key=_DIR, value=self.starting_directions, t=self.timestep)
-        self.set_global_state(
-            key=_ACC, value=self.starting_accelerations, t=self.timestep
-        )
+        Power_flying = P0 * (1 + 3 * Vt ** 2 / U_tips ** 2) + \
+                    P1 * np.sqrt((np.sqrt(1 + Vt ** 4 / (4 * v0 ** 4)) - Vt ** 2 / (2 * v0 ** 2))) + \
+                    0.5 * d0 * rho * s0 * A * Vt ** 3
 
+        Power_hovering = P0 + P1
 
-        # Penalty for hitting the edges
-        self.edge_hit_reward_penalty = np.zeros(self.num_agents, dtype=self.float_dtype)
+        return fly_time * Power_flying + hover_time * Power_hovering
+    
+    def judge_aoi_update(self, human_position, robot_position):
+        # TODO：判断是否可以更新aoi，可以将空地间协同也加进来
+        should_reset = False
+        for robot_id in range(tmp_config.env.robot_num):
+            unit_distance = np.sqrt(np.power(robot_position[robot_id][0] - human_position[0], 2)
+                                    + np.power(robot_position[robot_id][1] - human_position[1], 2))
+            if unit_distance <= self.drone_sensing_range:
+                should_reset = True
+                break
 
-        # Reinitialize some variables that may have changed during previous episode
-        self.runners = copy.deepcopy(self.runners_at_reset)
-        self.num_runners = len(self.runners)
-
-        return self.generate_observation()
-
+        return should_reset
+    
     def step(self, actions=None):
         """
         Env step() - The GPU version calls the corresponding CUDA kernels
         """
         self.timestep += 1
-        assert self.env_backend == "cpu"
         assert isinstance(actions, dict)
         assert len(actions) == self.num_agents
 
-        acceleration_action_ids = [
-            actions[agent_id][0] for agent_id in range(self.num_agents)
-        ]
-        turn_action_ids = [
-            actions[agent_id][1] for agent_id in range(self.num_agents)
-        ]
 
-        assert all(
-            0 <= acc <= self.num_acceleration_levels
-            for acc in acceleration_action_ids
-        )
-        assert all(0 <= turn <= self.num_turn_levels for turn in turn_action_ids)
+        for agent_id in range(self.num_agents):
+            # agent
+            is_stopping = True if actions[agent_id] == 0 else False
+            if self.agent_types[agent_id] == 0:
+                dx, dy = self.car_action_space_dx[actions[agent_id]], self.car_action_space_dy[actions[agent_id]]
+            else:
+                dx, dy = self.drone_action_space_dx[actions[agent_id]], self.drone_action_space_dy[actions[agent_id]]
+            consume_energy = self.consume_uav_energy(0, self.step_time) if is_stopping else self.consume_uav_energy(self.step_time, 0)
 
-        delta_accelerations = self.acceleration_actions[acceleration_action_ids]
-        delta_turns = self.turn_actions[turn_action_ids]
+            self.agent_x_timelist[self.timestep, agent_id] = self.agent_x_timelist[self.timestep-1,agent_id] + dx
+            self.agent_y_timelist[self.timestep, agent_id] = self.agent_y_timelist[self.timestep-1,agent_id] + dy
+            self.agent_energy_timelist[self.timestep, agent_id] = self.agent_energy_timelist[self.timestep-1,agent_id] - consume_energy
 
-        # Update state and generate observation
-        self.update_state(delta_accelerations, delta_turns)
-        if self.env_backend == "cpu":
-            obs = self.generate_observation()
+            # target    
+            self.target_x_timelist
+            self.target_y_timelist
+            self.target_theta_timelist
+            self.target_aoi_timelist
+
+            # TODO: 扁平化为一维数组
+
+        
+        obs = self.generate_observation()
 
         # Compute rewards and done
         rew = self.compute_reward()
         done = {
             "__all__": (self.timestep >= self.episode_length)
-            or (self.num_runners == 0)
         }
         info = {}
 
