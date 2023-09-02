@@ -1,5 +1,4 @@
 import copy
-import heapq
 import GPUtil
 import numpy as np
 import pandas as pd
@@ -10,6 +9,7 @@ from gym import spaces
 from shapely.geometry import Point
 from folium.plugins import TimestampedGeoJson, AntPath
 from datasets.KAIST.env_config import BaseEnvConfig
+from .utils import *
 
 try:
     num_gpus_available = len(GPUtil.getAvailable())
@@ -60,7 +60,6 @@ class CrowdSim:
         self.eps = self.float_dtype(1e-10)
         self.config = BaseEnvConfig()
 
-        assert num_aerial_agents > 0
         self.num_aerial_agents = num_aerial_agents
         self.num_ground_agents = num_ground_agents
         self.num_agents = self.num_aerial_agents + self.num_ground_agents
@@ -71,7 +70,7 @@ class CrowdSim:
         self.step_time = self.config.env.step_time
         self.start_timestamp = self.config.env.start_timestamp
         self.end_timestamp = self.config.env.end_timestamp
-        self.max_uav_energy = self.config.env.max_uav_energy
+        
 
         self.nlon = self.config.env.nlon
         self.nlat = self.config.env.nlat
@@ -83,7 +82,6 @@ class CrowdSim:
         self.human_df['aoi'] = -1  # 加入aoi记录aoi
         self.human_df['energy'] = -1  # 加入energy记录energy
 
-
         # human infos
         unique_ids = np.arange(0, self.num_sensing_targets)  # id from 0 to 91
         unique_timestamps = np.arange(self.start_timestamp, self.end_timestamp+self.step_time, self.step_time)  # timestamp from 1519894800 to 1519896600 with 15-second intervals
@@ -92,15 +90,17 @@ class CrowdSim:
         self.target_x_timelist = np.full([self.episode_length + 1, self.num_sensing_targets], np.nan)
         self.target_y_timelist = np.full([self.episode_length + 1, self.num_sensing_targets], np.nan)
         self.target_aoi_timelist = np.ones([self.episode_length + 1, self.num_sensing_targets])
-        self.target_aoi_current = np.ones([self.num_sensing_targets, ])
+        self.target_coveraged_timelist = np.zeros([self.episode_length, self.num_sensing_targets])
         
         # Fill the new array with data from the full DataFrame
         for _, row in self.human_df.iterrows():
             id_index = id_to_index.get(row['id'], None)
             timestamp_index = timestamp_to_index.get(row['timestamp'], None)
             if id_index is not None and timestamp_index is not None:
-                self.target_x_timelist[id_index, timestamp_index] = row['x']
-                self.target_y_timelist[id_index, timestamp_index] = row['y']
+                self.target_x_timelist[timestamp_index, id_index] = row['x']
+                self.target_y_timelist[timestamp_index, id_index] = row['y']
+            else:
+                print(row)
         
         x1 = self.target_x_timelist[:-1,:]
         y1 = self.target_y_timelist[:-1,:]
@@ -110,18 +110,18 @@ class CrowdSim:
         self.target_theta_timelist = np.vstack([self.target_theta_timelist, self.target_theta_timelist[-1,:]])
 
         # Check if there are any NaN values in the array
-        assert np.isnan(self.target_x_timelist).any() is False
-        assert np.isnan(self.target_y_timelist).any() is False
-        assert np.isnan(self.target_theta_timelist).any() is False
+        assert not np.isnan(self.target_x_timelist).any()
+        assert not np.isnan(self.target_y_timelist).any() 
+        assert not np.isnan(self.target_theta_timelist).any()
 
         # agent infos
         self.timestep = 0
-        self.mean_aoi_timelist = np.ones([self.episode_length + 1,])
-        self.mean_aoi_timelist[self.timestep] = np.mean(self.target_aoi_current)
-        self.agent_energy_timelist = np.zeros([self.episode_length + 1, self.num_agents])
-        self.agent_x_timelist = np.zeros([self.episode_length + 1, self.num_agents])
-        self.agent_y_timelist = np.zeros([self.episode_length + 1, self.num_agents])
-        self.num_covered_human_timelist = np.zeros([self.episode_length, ])
+        self.starting_location_x = self.nlon / 2
+        self.starting_location_y = self.nlat / 2
+        self.max_uav_energy = self.config.env.max_uav_energy
+        self.agent_energy_timelist = np.ones([self.episode_length + 1, self.num_agents]) * self.max_uav_energy
+        self.agent_x_timelist = np.ones([self.episode_length + 1, self.num_agents]) * self.starting_location_x 
+        self.agent_y_timelist = np.ones([self.episode_length + 1, self.num_agents]) * self.starting_location_y
         self.data_collection = 0
 
         # Seeding
@@ -138,12 +138,8 @@ class CrowdSim:
                 self.agent_types[agent_id] = 1  # Drone
 
 
-        self.starting_location_x = np.ones(self.num_agents) * self.nlon / 2
-        self.starting_location_y = np.ones(self.num_agents) * self.nlat / 2
-
         # These will be set during reset (see below)
         self.timestep = None
-        self.global_state = None
 
         # Defining observation and action spaces
         self.observation_space = None  # Note: this will be set via the env_wrapper
@@ -172,6 +168,8 @@ class CrowdSim:
         self.drone_sensing_range = self.config.env.drone_sensing_range
         self.car_sensing_range = self.config.env.car_sensing_range
         self.drone_car_comm_range = self.config.env.drone_car_comm_range
+        
+        self.global_distance_matrix = np.full((self.num_agents,self.num_agents+self.num_sensing_targets),np.nan)
 
         # Rewards and penalties
         self.energy_factor = self.config.env.energy_factor
@@ -179,8 +177,8 @@ class CrowdSim:
         # These will also be set via the env_wrapper
         self.env_backend = env_backend
 
-        # Copy drones dict for applying at reset (with limited energy reserve)
-        self.drones_at_reset = copy.deepcopy(self.aerial_agents)
+        # TODO：Copy drones dict for applying at reset (with limited energy reserve)
+        # self.drones_at_reset = copy.deepcopy(self.aerial_agents)
 
     def get_theta(self, x1, y1, x2, y2):
         ang1 = np.arctan2(y1, x1)
@@ -206,41 +204,45 @@ class CrowdSim:
 
         # Re-initialize the global state
         for agent_id in range(self.num_agents):
-            self.agent_x_timelist[self.timestep,agent_id] = self.starting_location_x,
-            self.agent_y_timelist[self.timestep,agent_id] = self.starting_location_y,
-            self.agent_energy_timelist[self.timestep,agent_id] = self.max_uav_energy,
+            self.agent_x_timelist[self.timestep,agent_id] = self.starting_location_x
+            self.agent_y_timelist[self.timestep,agent_id] = self.starting_location_y
+            self.agent_energy_timelist[self.timestep,agent_id] = self.max_uav_energy
         
         for target_id in range(self.num_sensing_targets):
             self.target_aoi_timelist[self.timestep,target_id] = 1
-            self.target_aoi_current = 1
 
+        # reset global distance matrix
+        self.calculate_global_distance_matrix()
+
+        # for logging
+        self.data_collection = 0
+        self.target_coveraged_timelist = np.zeros([self.episode_length,self.num_sensing_targets])
+        
         return self.generate_observation()
     
-    def k_nearest_targets(self, agent_id, k):
-        """
-        Note: 'k_nearest_neighbors' is only used when running on CPU step() only.
-        When using the CUDA step function, this Python method (k_nearest_neighbors)
-        is also part of the step() function!
-        """
-        target_ids_and_distances = []
-        for target_id in range(self.num_sensing_targets):
-            agent_target_distance = np.sqrt(np.power(self.agent_x_timelist[self.timestep, agent_id] - self.target_x_timelist[self.timestep, target_id])
-                                            + np.power(self.agent_y_timelist[self.timestep, agent_id] - self.target_y_timelist[self.timestep, target_id]))
-            target_ids_and_distances += [target_id, agent_target_distance]
+    def calculate_global_distance_matrix(self):
+        for entity_id_1 in range(self.num_agents):
+            for entity_id_2 in range(entity_id_1, self.num_agents+self.num_sensing_targets):
+                if entity_id_1 == entity_id_2:
+                    self.global_distance_matrix[entity_id_1,entity_id_2] = 0
+                    continue
 
-        k_nearest_target_ids_and_distances = heapq.nsmallest(
-            k, target_ids_and_distances, key=lambda x: x[1]
-        )
-
-        return [item[0] for item in k_nearest_target_ids_and_distances[:k]]
-    
+                if entity_id_1 < self.num_agents and entity_id_2 < self.num_agents:
+                    self.global_distance_matrix[entity_id_1,entity_id_2] = np.sqrt((self.agent_x_timelist[self.timestep, entity_id_1] - self.agent_x_timelist[self.timestep, entity_id_2])**2
+                                            + (self.agent_y_timelist[self.timestep, entity_id_1] - self.agent_y_timelist[self.timestep, entity_id_2])**2)
+                    self.global_distance_matrix[entity_id_2,entity_id_1] = self.global_distance_matrix[entity_id_1,entity_id_2]
+                
+                if entity_id_1 < self.num_agents and entity_id_2 >= self.num_agents:
+                    self.global_distance_matrix[entity_id_1,entity_id_2] = np.sqrt((self.agent_x_timelist[self.timestep, entity_id_1] - self.target_x_timelist[self.timestep, entity_id_2-self.num_agents])**2
+                                            + (self.agent_y_timelist[self.timestep, entity_id_1] - self.target_y_timelist[self.timestep, entity_id_2-self.num_agents])**2)
+        return 
 
     def generate_observation(self):
         """
         Generate and return the observations for every agent.
         """
         # global states
-        agents_state = np.zeros(self.num_agents, 4)
+        agents_state = np.zeros([self.num_agents, 4])
         for agent_id in range(self.num_agents):
             agents_state[agent_id,:] = np.array([
                 self.agent_x_timelist[self.timestep,agent_id]/self.nlon,
@@ -249,7 +251,7 @@ class CrowdSim:
                 self.agent_energy_timelist[self.timestep,agent_id]/self.max_uav_energy,
             ])
         
-        targets_state = np.zeros(self.num_sensing_targets,4)
+        targets_state = np.zeros([self.num_sensing_targets,4])
         for target_id in range(self.num_sensing_targets):
             targets_state[target_id,:] = np.array([
                 self.target_x_timelist[self.timestep,target_id]/self.nlon,
@@ -260,10 +262,11 @@ class CrowdSim:
         
         # generate observation
         obs = {}
+        agent_nearest_targets_ids = np.argsort(self.global_distance_matrix[:,self.num_agents:],axis=-1)[:,:self.num_targets_observed]
         for agent_id in range(self.num_agents):
             agent_obs_part = agents_state.reshape(-1)
-            nearest_neighbor_ids = self.k_nearest_targets(agent_id, self.num_targets_observed)
-            nearest_target_obs = targets_state[nearest_neighbor_ids]
+
+            nearest_target_obs = targets_state[agent_nearest_targets_ids[agent_id]]
             target_obs_part = nearest_target_obs.reshape(-1)
 
             assert agent_obs_part.shape[0] == self.num_agents * 4
@@ -272,90 +275,6 @@ class CrowdSim:
             obs[agent_id] = np.hstack((agent_obs_part, target_obs_part))
 
         return obs
-
-    def nearest_car_and_distance(self, drone_id):
-        car_ids_and_distances = []
-        for car_id in range(self.num_ground_agents):
-            agent_target_distance = np.sqrt(np.power(self.agent_x_timelist[self.timestep, drone_id] - self.target_x_timelist[self.timestep, car_id])
-                                            + np.power(self.agent_y_timelist[self.timestep, drone_id] - self.target_y_timelist[self.timestep, car_id]))
-            car_ids_and_distances += [car_id, agent_target_distance]
-
-        k_nearest_car_ids_and_distances = heapq.nsmallest(
-            1, car_ids_and_distances, key=lambda x: x[1]
-        )
-
-        return k_nearest_car_ids_and_distances[0][0], k_nearest_car_ids_and_distances[0][1]
-    
-    def compute_drone_reward(self, agent_id):
-        pass
-
-    def compute_car_reward(self, agent_id):
-        pass
-
-    def compute_reward(self):
-        """
-        Compute and return the rewards for each agent.
-        """
-        # Initialize rewards
-        rew = {agent_id: 0.0 for agent_id in range(self.num_agents)}
-
-        for agent_id in range(self.num_agents):
-            if self.agent_types[agent_id] == 0:  # car
-                pass
-            else:  # drone
-                pass
-            _
-        
-
-        taggers_list = sorted(self.taggers)
-
-        # At least one runner present
-        if self.num_runners > 0:
-            runners_list = sorted(self.runners)
-            runner_locations_x = self.global_state[_LOC_X][self.timestep][runners_list]
-            tagger_locations_x = self.global_state[_LOC_X][self.timestep][taggers_list]
-
-            runner_locations_y = self.global_state[_LOC_Y][self.timestep][runners_list]
-            tagger_locations_y = self.global_state[_LOC_Y][self.timestep][taggers_list]
-
-            runners_to_taggers_distances = np.sqrt(
-                (
-                    np.repeat(runner_locations_x, self.num_taggers)
-                    - np.tile(tagger_locations_x, self.num_runners)
-                )
-                ** 2
-                + (
-                    np.repeat(runner_locations_y, self.num_taggers)
-                    - np.tile(tagger_locations_y, self.num_runners)
-                )
-                ** 2
-            ).reshape(self.num_runners, self.num_taggers)
-
-            min_runners_to_taggers_distances = np.min(
-                runners_to_taggers_distances, axis=1
-            )
-            argmin_runners_to_taggers_distances = np.argmin(
-                runners_to_taggers_distances, axis=1
-            )
-            nearest_tagger_ids = [
-                taggers_list[idx] for idx in argmin_runners_to_taggers_distances
-            ]
-
-        # Rewards
-        # Add edge hit reward penalty and the step rewards/ penalties
-        for agent_id in range(self.num_agents):
-            rew[agent_id] += self.edge_hit_reward_penalty[agent_id]
-            rew[agent_id] += self.step_rewards[agent_id]
-
-        for idx, runner_id in enumerate(runners_list):
-            if min_runners_to_taggers_distances[idx] < self.distance_margin_for_reward:
-
-                # the runner is tagged!
-                rew[runner_id] += self.tag_penalty_for_runner
-                rew[nearest_tagger_ids[idx]] += self.tag_reward_for_tagger
-
-        return rew
-
     
     def consume_uav_energy(self, fly_time, hover_time):
         # configs
@@ -378,18 +297,6 @@ class CrowdSim:
 
         return fly_time * Power_flying + hover_time * Power_hovering
     
-    def judge_aoi_update(self, human_position, robot_position):
-        # TODO：判断是否可以更新aoi，可以将空地间协同也加进来
-        should_reset = False
-        for robot_id in range(tmp_config.env.robot_num):
-            unit_distance = np.sqrt(np.power(robot_position[robot_id][0] - human_position[0], 2)
-                                    + np.power(robot_position[robot_id][1] - human_position[1], 2))
-            if unit_distance <= self.drone_sensing_range:
-                should_reset = True
-                break
-
-        return should_reset
-    
     def step(self, actions=None):
         """
         Env step() - The GPU version calls the corresponding CUDA kernels
@@ -398,41 +305,70 @@ class CrowdSim:
         assert isinstance(actions, dict)
         assert len(actions) == self.num_agents
 
-
         for agent_id in range(self.num_agents):
-            # agent
+            
             is_stopping = True if actions[agent_id] == 0 else False
             if self.agent_types[agent_id] == 0:
                 dx, dy = self.car_action_space_dx[actions[agent_id]], self.car_action_space_dy[actions[agent_id]]
             else:
                 dx, dy = self.drone_action_space_dx[actions[agent_id]], self.drone_action_space_dy[actions[agent_id]]
+            # TODO: 暂缺车辆的能耗公式,不过目前也没有加充电桩啦
             consume_energy = self.consume_uav_energy(0, self.step_time) if is_stopping else self.consume_uav_energy(self.step_time, 0)
 
             self.agent_x_timelist[self.timestep, agent_id] = self.agent_x_timelist[self.timestep-1,agent_id] + dx
             self.agent_y_timelist[self.timestep, agent_id] = self.agent_y_timelist[self.timestep-1,agent_id] + dy
             self.agent_energy_timelist[self.timestep, agent_id] = self.agent_energy_timelist[self.timestep-1,agent_id] - consume_energy
 
-            # target    
-            self.target_x_timelist
-            self.target_y_timelist
-            self.target_theta_timelist
-            self.target_aoi_timelist
+        self.calculate_global_distance_matrix()
 
-            # TODO: 扁平化为一维数组
+        drone_nearest_car_id = np.argsort(self.global_distance_matrix[self.num_ground_agents:self.num_agents,:self.num_ground_agents], axis=-1)[:,0]
+        drone_car_min_distance = self.global_distance_matrix[self.num_ground_agents:self.num_agents,:self.num_ground_agents][np.arange(self.num_aerial_agents),drone_nearest_car_id]
+        target_nearest_agent_ids = np.argsort(self.global_distance_matrix[:,self.num_agents:], axis=0)
+        target_nearest_agent_distances = self.global_distance_matrix[:,self.num_agents:][target_nearest_agent_ids,np.arange(self.num_sensing_targets)]
 
+        rew = {agent_id: 0.0 for agent_id in range(self.num_agents)}
+        for target_id in range(self.num_sensing_targets):
+            increase_aoi_flag = True
+            for agent_id, target_agent_distance in zip(target_nearest_agent_ids[:,target_id], target_nearest_agent_distances[:, target_id]):
+                if self.agent_types[agent_id] == 0 \
+                        and target_agent_distance <= self.car_sensing_range:
+                    increase_aoi_flag = False
+                    rew[agent_id] += (self.target_aoi_timelist[self.timestep-1, target_id]-1)/self.episode_length
+                    self.target_aoi_timelist[self.timestep, target_id] = 1
+                    break
+
+                if self.agent_types[agent_id] == 1 \
+                        and target_agent_distance <= self.drone_sensing_range \
+                        and drone_car_min_distance[agent_id-self.num_ground_agents] <= self.drone_car_comm_range:
+                    increase_aoi_flag = False
+                    rew[agent_id] += (self.target_aoi_timelist[self.timestep-1, target_id]-1)/self.episode_length
+                    rew[drone_nearest_car_id[agent_id-self.num_ground_agents]] += (self.target_aoi_timelist[self.timestep-1, target_id]-1)/self.episode_length
+                    self.target_aoi_timelist[self.timestep, target_id] = 1
+                    break
+                    
+                if increase_aoi_flag:
+                    self.target_aoi_timelist[self.timestep, target_id] = self.target_aoi_timelist[self.timestep-1, target_id] + 1
+                else:
+                    self.target_coveraged_timelist[self.timestep-1, target_id] = 1
+                    self.data_collection += (self.target_aoi_timelist[self.timestep-1, target_id] - self.target_aoi_timelist[self.timestep, target_id])
         
         obs = self.generate_observation()
-
-        # Compute rewards and done
-        rew = self.compute_reward()
+        
         done = {
             "__all__": (self.timestep >= self.episode_length)
         }
-        info = {}
+
+        self.data_collection += np.sum(self.target_aoi_timelist[self.timestep]-self.target_aoi_timelist[self.timestep-1])
+        info = {"mean_aoi": np.mean(self.target_aoi_timelist[self.timestep]),
+            "mean_energy_consumption": 1.0 - (
+                        np.mean(self.agent_energy_timelist[self.timestep]) / self.max_uav_energy),
+            "collected_data_ratio": self.data_collection/(self.episode_length*self.num_sensing_targets),
+            "target_coverage": np.sum(self.target_coveraged_timelist) / (self.episode_length*self.num_sensing_targets)
+        }
 
         result = obs, rew, done, info
         return result
-
+    
     def render(self, output_file=None, plot_loop=False, moving_line=False):
         import geopandas as gpd
         import movingpandas as mpd
@@ -450,8 +386,8 @@ class CrowdSim:
             y_list = self.agent_y_timelist[:, i]
             id_list = np.ones_like(x_list) * (-i - 1)
             aoi_list = np.ones_like(x_list) * (-1)
-            energy_list = self.robot_energy_timelist[:, i]
-            timestamp_list = [self.start_timestamp + i * self.step_time for i in range(self.num_timestep + 1)]
+            energy_list = self.agent_energy_timelist[:, i]
+            timestamp_list = [self.start_timestamp + i * self.step_time for i in range(self.episode_length + 1)]
             x_distance_list = x_list * max_distance_x / self.nlon + max_distance_x / self.nlon / 2
             y_distance_list = y_list * max_distance_y / self.nlat + max_distance_y / self.nlat / 2
             max_longitude = abs(self.lower_left[0] - self.upper_right[0])
@@ -464,7 +400,7 @@ class CrowdSim:
                     "timestamp": timestamp_list, "aoi": aoi_list, "energy": energy_list}
             robot_df = pd.DataFrame(data)
             robot_df['t'] = pd.to_datetime(robot_df['timestamp'], unit='s')  # s表示时间戳转换
-            mixed_df = mixed_df.append(robot_df)
+            mixed_df = pd.concat([mixed_df,robot_df])
 
         # ------------------------------------------------------------------------------------
         # 建立moving pandas轨迹，也可以选择调用高级API继续清洗轨迹。
@@ -473,10 +409,6 @@ class CrowdSim:
         mixed_gdf = mixed_gdf.set_index('t').tz_localize(None)  # tz=time zone, 以本地时间为准
         mixed_gdf = mixed_gdf.sort_values(by=["id", "t"], ascending=[True, True])
         trajs = mpd.TrajectoryCollection(mixed_gdf, 'id')
-        # trajs = mpd.MinTimeDeltaGeneralizer(trajs).generalize(tolerance=timedelta(minutes=1))
-        # for index, traj in enumerate(trajs.trajectories):
-        #     print(f"id: {trajs.trajectories[index].df['id'][0]}"
-        #           + f"  size:{trajs.trajectories[index].size()}")
 
         start_point = trajs.trajectories[0].get_start_location()
 
@@ -505,13 +437,19 @@ class CrowdSim:
         m.add_child(border)
 
         for index, traj in enumerate(trajs.trajectories):
-            name = f"UAV {index}" if index < self.robot_num else f"Human {traj.df['id'][0]}"  # select human
+            if index < self.num_ground_agents:
+                name = f"Agent {index} (Car)"
+            elif index >= self.num_ground_agents and index < self.num_ground_agents:
+                name = f"Agent {index} (Drone)"
+            else:
+                f"Human {traj.df['id'][0]}"
+
             # name = f"UAV {index}" if index < robot_num else f"Human {index - robot_num}"
             randr = lambda: np.random.randint(0, 255)
             color = '#%02X%02X%02X' % (randr(), randr(), randr())  # black
 
             # point
-            features = traj_to_timestamped_geojson(index, traj, self.robot_num, color)
+            features = traj_to_timestamped_geojson(index, traj, self.num_agents, color)
             TimestampedGeoJson(
                 {
                     "type": "FeatureCollection",
@@ -524,7 +462,7 @@ class CrowdSim:
             ).add_to(m)  # sub_map
 
             # line
-            if index < self.robot_num:
+            if index < self.num_agents:
                 geo_col = traj.to_point_gdf().geometry
                 xy = [[y, x] for x, y in zip(geo_col.x, geo_col.y)]
                 f1 = folium.FeatureGroup(name)
@@ -537,149 +475,149 @@ class CrowdSim:
 
         folium.LayerControl().add_to(m)
 
-        if self.config.env.tallest_locs is not None:
-            # 绘制正方形
-            for tallest_loc in self.config.env.tallest_locs:
-                # folium.Rectangle(
-                #     bounds=[(tallest_loc[0] + 0.00025, tallest_loc[1] + 0.0003),
-                #             (tallest_loc[0] - 0.00025, tallest_loc[1] - 0.0003)],  # 解决经纬度在地图上的尺度不一致
-                #     color="black",
-                #     fill=True,
-                # ).add_to(m)
-                icon_square = folium.plugins.BeautifyIcon(
-                    icon_shape='rectangle-dot',
-                    border_color='red',
-                    border_width=8,
-                )
-                folium.Marker(location=[tallest_loc[0], tallest_loc[1]],
-                                popup=folium.Popup(html=f'<p>raw coord: ({tallest_loc[1]},{tallest_loc[0]})</p>'),
-                                tooltip='High-rise building',
-                                icon=icon_square).add_to(m)
+        # if self.config.env.tallest_locs is not None:
+        #     # 绘制正方形
+        #     for tallest_loc in self.config.env.tallest_locs:
+        #         # folium.Rectangle(
+        #         #     bounds=[(tallest_loc[0] + 0.00025, tallest_loc[1] + 0.0003),
+        #         #             (tallest_loc[0] - 0.00025, tallest_loc[1] - 0.0003)],  # 解决经纬度在地图上的尺度不一致
+        #         #     color="black",
+        #         #     fill=True,
+        #         # ).add_to(m)
+        #         icon_square = folium.plugins.BeautifyIcon(
+        #             icon_shape='rectangle-dot',
+        #             border_color='red',
+        #             border_width=8,
+        #         )
+        #         folium.Marker(location=[tallest_loc[0], tallest_loc[1]],
+        #                         popup=folium.Popup(html=f'<p>raw coord: ({tallest_loc[1]},{tallest_loc[0]})</p>'),
+        #                         tooltip='High-rise building',
+        #                         icon=icon_square).add_to(m)
 
         m.get_root().render()
         m.get_root().save(output_file)
         logging.info(f"{output_file} saved!")
 
 
-class CUDACrowdSim(CrowdSim, CUDAEnvironmentContext):
-    """
-    CUDA version of the TagGridWorld environment.
-    Note: this class subclasses the Python environment class TagGridWorld,
-    and also the  CUDAEnvironmentContext
-    """
-    def get_data_dictionary(self):
-        """
-        Create a dictionary of data to push to the device
-        """
-        data_dict = DataFeed()
-        for feature in [_LOC_X, _LOC_Y, _SP, _DIR, _ACC]:
-            data_dict.add_data(
-                name=feature,
-                data=self.global_state[feature][0],
-                save_copy_and_apply_at_reset=True,
-            )
-        data_dict.add_data(
-            name="agent_types",
-            data=[self.agent_type[agent_id] for agent_id in range(self.num_agents)],
-        )
-        data_dict.add_data(
-            name="num_runners", data=self.num_runners, save_copy_and_apply_at_reset=True
-        )
-        data_dict.add_data(
-            name="num_other_agents_observed", data=self.num_other_agents_observed
-        )
-        data_dict.add_data(name="grid_length", data=self.grid_length)
-        data_dict.add_data(
-            name="edge_hit_reward_penalty",
-            data=self.edge_hit_reward_penalty,
-            save_copy_and_apply_at_reset=True,
-        )
-        data_dict.add_data(
-            name="step_rewards",
-            data=self.step_rewards,
-        )
-        data_dict.add_data(name="edge_hit_penalty", data=self.edge_hit_penalty)
-        data_dict.add_data(name="max_speed", data=self.max_speed)
-        data_dict.add_data(name="acceleration_actions", data=self.acceleration_actions)
-        data_dict.add_data(name="turn_actions", data=self.turn_actions)
-        data_dict.add_data(name="skill_levels", data=self.skill_levels)
-        data_dict.add_data(
-            name="distance_margin_for_reward", data=self.distance_margin_for_reward
-        )
-        data_dict.add_data(
-            name="tag_reward_for_tagger", data=self.tag_reward_for_tagger
-        )
-        data_dict.add_data(
-            name="tag_penalty_for_runner", data=self.tag_penalty_for_runner
-        )
-        data_dict.add_data(
-            name="end_of_game_reward_for_runner",
-            data=self.end_of_game_reward_for_runner,
-        )
-        data_dict.add_data(
-            name="neighbor_distances",
-            data=np.zeros((self.num_agents, self.num_agents - 1), dtype=np.float32),
-            save_copy_and_apply_at_reset=True,
-        )
-        data_dict.add_data(
-            name="neighbor_ids_sorted_by_distance",
-            data=np.zeros((self.num_agents, self.num_agents - 1), dtype=np.int32),
-            save_copy_and_apply_at_reset=True,
-        )
-        data_dict.add_data(
-            name="nearest_neighbor_ids",
-            data=np.zeros(
-                (self.num_agents, self.num_other_agents_observed), dtype=np.int32
-            ),
-            save_copy_and_apply_at_reset=True,
-        )
-        data_dict.add_data(
-            name="runner_exits_game_after_tagged",
-            data=self.agent_exits_game_after_run_out_of_energy,
-        )
-        return data_dict
+# class CUDACrowdSim(CrowdSim, CUDAEnvironmentContext):
+#     """
+#     CUDA version of the TagGridWorld environment.
+#     Note: this class subclasses the Python environment class TagGridWorld,
+#     and also the  CUDAEnvironmentContext
+#     """
+#     def get_data_dictionary(self):
+#         """
+#         Create a dictionary of data to push to the device
+#         """
+#         data_dict = DataFeed()
+#         for feature in [_LOC_X, _LOC_Y, _SP, _DIR, _ACC]:
+#             data_dict.add_data(
+#                 name=feature,
+#                 data=self.global_state[feature][0],
+#                 save_copy_and_apply_at_reset=True,
+#             )
+#         data_dict.add_data(
+#             name="agent_types",
+#             data=[self.agent_type[agent_id] for agent_id in range(self.num_agents)],
+#         )
+#         data_dict.add_data(
+#             name="num_runners", data=self.num_runners, save_copy_and_apply_at_reset=True
+#         )
+#         data_dict.add_data(
+#             name="num_other_agents_observed", data=self.num_other_agents_observed
+#         )
+#         data_dict.add_data(name="grid_length", data=self.grid_length)
+#         data_dict.add_data(
+#             name="edge_hit_reward_penalty",
+#             data=self.edge_hit_reward_penalty,
+#             save_copy_and_apply_at_reset=True,
+#         )
+#         data_dict.add_data(
+#             name="step_rewards",
+#             data=self.step_rewards,
+#         )
+#         data_dict.add_data(name="edge_hit_penalty", data=self.edge_hit_penalty)
+#         data_dict.add_data(name="max_speed", data=self.max_speed)
+#         data_dict.add_data(name="acceleration_actions", data=self.acceleration_actions)
+#         data_dict.add_data(name="turn_actions", data=self.turn_actions)
+#         data_dict.add_data(name="skill_levels", data=self.skill_levels)
+#         data_dict.add_data(
+#             name="distance_margin_for_reward", data=self.distance_margin_for_reward
+#         )
+#         data_dict.add_data(
+#             name="tag_reward_for_tagger", data=self.tag_reward_for_tagger
+#         )
+#         data_dict.add_data(
+#             name="tag_penalty_for_runner", data=self.tag_penalty_for_runner
+#         )
+#         data_dict.add_data(
+#             name="end_of_game_reward_for_runner",
+#             data=self.end_of_game_reward_for_runner,
+#         )
+#         data_dict.add_data(
+#             name="neighbor_distances",
+#             data=np.zeros((self.num_agents, self.num_agents - 1), dtype=np.float32),
+#             save_copy_and_apply_at_reset=True,
+#         )
+#         data_dict.add_data(
+#             name="neighbor_ids_sorted_by_distance",
+#             data=np.zeros((self.num_agents, self.num_agents - 1), dtype=np.int32),
+#             save_copy_and_apply_at_reset=True,
+#         )
+#         data_dict.add_data(
+#             name="nearest_neighbor_ids",
+#             data=np.zeros(
+#                 (self.num_agents, self.num_other_agents_observed), dtype=np.int32
+#             ),
+#             save_copy_and_apply_at_reset=True,
+#         )
+#         data_dict.add_data(
+#             name="runner_exits_game_after_tagged",
+#             data=self.agent_exits_game_after_run_out_of_energy,
+#         )
+#         return data_dict
     
 
-    def step(self, actions=None):
-        self.timestep += 1
-        args = [
-            _LOC_X,
-            _LOC_Y,
-            _SP,
-            _DIR,
-            _ACC,
-            "agent_types",
-            "edge_hit_reward_penalty",
-            "edge_hit_penalty",
-            "grid_length",
-            "acceleration_actions",
-            "turn_actions",
-            "max_speed",
-            "num_other_agents_observed",
-            "skill_levels",
-            "runner_exits_game_after_tagged",
-            _OBSERVATIONS,
-            _ACTIONS,
-            "neighbor_distances",
-            "neighbor_ids_sorted_by_distance",
-            "nearest_neighbor_ids",
-            _REWARDS,
-            "step_rewards",
-            "num_runners",
-            "distance_margin_for_reward",
-            "tag_reward_for_tagger",
-            "tag_penalty_for_runner",
-            "end_of_game_reward_for_runner",
-            "_done_",
-            "_timestep_",
-            ("n_agents", "meta"),
-            ("episode_length", "meta"),
-        ]
-        if self.env_backend == "pycuda":
-            self.cuda_step(
-                *self.cuda_step_function_feed(args),
-                block=self.cuda_function_manager.block,
-                grid=self.cuda_function_manager.grid,
-            )
-        else:
-            raise Exception("CUDATagGridWorld expects env_backend = 'pycuda' ")
+#     def step(self, actions=None):
+#         self.timestep += 1
+#         args = [
+#             _LOC_X,
+#             _LOC_Y,
+#             _SP,
+#             _DIR,
+#             _ACC,
+#             "agent_types",
+#             "edge_hit_reward_penalty",
+#             "edge_hit_penalty",
+#             "grid_length",
+#             "acceleration_actions",
+#             "turn_actions",
+#             "max_speed",
+#             "num_other_agents_observed",
+#             "skill_levels",
+#             "runner_exits_game_after_tagged",
+#             _OBSERVATIONS,
+#             _ACTIONS,
+#             "neighbor_distances",
+#             "neighbor_ids_sorted_by_distance",
+#             "nearest_neighbor_ids",
+#             _REWARDS,
+#             "step_rewards",
+#             "num_runners",
+#             "distance_margin_for_reward",
+#             "tag_reward_for_tagger",
+#             "tag_penalty_for_runner",
+#             "end_of_game_reward_for_runner",
+#             "_done_",
+#             "_timestep_",
+#             ("n_agents", "meta"),
+#             ("episode_length", "meta"),
+#         ]
+#         if self.env_backend == "pycuda":
+#             self.cuda_step(
+#                 *self.cuda_step_function_feed(args),
+#                 block=self.cuda_function_manager.block,
+#                 grid=self.cuda_function_manager.grid,
+#             )
+#         else:
+#             raise Exception("CUDATagGridWorld expects env_backend = 'pycuda' ")

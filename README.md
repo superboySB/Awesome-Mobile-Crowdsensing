@@ -50,7 +50,7 @@ python warp_drive/trainer_pytorch.py --env tag_continuous --auto_scale
 ```
 Run random policy and debug the environment.
 ```sh
-python run_random_policy.py
+python run_random_policy.py --plot_loop --moving_line --output_dir="./logs.html"
 ```
 Run RL policy (PPO/A2C)
 ```sh
@@ -60,7 +60,7 @@ Note that our drl-framework is based on [warp-drive](https://github.com/salesfor
 
 ## Roadmap
 - [X] Finish Simple Air-Ground Collaborative Simulation for MCS
-- [X] Finish CUDA implementation
+- [ ] Finish CUDA implementation
 - [X] Finish PPO baseline
 - [X] Add mobile users as PoIs
 - [ ] Add macro stragies of mobile users as PoIs

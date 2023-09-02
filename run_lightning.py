@@ -63,7 +63,7 @@ run_config = dict(
             gamma=0.98,  # discount rate
             lr=0.005,  # learning rate
             model=dict(
-                type="fully_connected", fc_dims=[256, 256], model_ckpt_filepath=""
+                type="fully_connected", fc_dims=[512, 512], model_ckpt_filepath=""
             ),  # policy model settings
         ),
         tagger=dict(    # 或许可以给无人车
@@ -72,7 +72,7 @@ run_config = dict(
             gamma=0.98,
             lr=0.002,
             model=dict(
-                type="fully_connected", fc_dims=[256, 256], model_ckpt_filepath=""
+                type="fully_connected", fc_dims=[512, 512], model_ckpt_filepath=""
             ),
         ),
     ),
