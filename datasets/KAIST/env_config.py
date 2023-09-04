@@ -30,7 +30,7 @@ class BaseEnvConfig(object):
     env.end_timestamp = 1519896600
     env.energy_factor = 3  # TODO: energy factor in reward function
 
-    # TODO: KAIST
+    # KAIST
     env.lower_left = [127.3475, 36.3597]
     env.upper_right = [127.3709, 36.3793]
     env.nlon = 2340
@@ -42,7 +42,7 @@ class BaseEnvConfig(object):
                                 [-210, -210]])
     env.drone_sensing_range = 220  # unit  220
     env.car_action_space = env.drone_action_space / 3
-    env.car_sensing_range = env.drone_sensing_range / 2
+    env.car_sensing_range = env.drone_sensing_range  # TODO: 为方便判断，暂时设置成空地同一个sensing range
     env.drone_car_comm_range = 500
     
     env.max_x_distance = 2100.207579392558

@@ -7,4 +7,4 @@
 #include "./env_config.h"
 #include "./core_service.h"
 
-#include "/workspace/Awesome-Mobile-Crowdsensing/envs/mcs_data_collection/crowd_sim_step.cu"
+#include "/workspace/Awesome-Mobile-Crowdsensing/envs/crowd_sim/crowd_sim_step.cu"

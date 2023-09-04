@@ -1,3 +1,5 @@
+import numpy as np
+
 class Config(object):
     def __init__(self):
         pass
@@ -28,21 +30,25 @@ class BaseEnvConfig(object):
     env.start_timestamp = 1519894800
     env.end_timestamp = 1519896600
     env.energy_factor = 3  # TODO: energy factor in reward function
-    env.robot_num = 2  # TODO: 多了要用多进程
 
     # TODO: San Francisco datasets
     env.lower_left = [-122.4620, 37.7441]
     env.upper_right = [-122.3829, 37.8137]
     env.nlon = 7910
     env.nlat = 6960
-    env.human_num = 100
+    env.human_num = 536
     env.velocity = 18
-    env.dataset_dir = 'envs/crowd_sim/dataset/san/processed_train_half_100_data.csv'
+    env.dataset_dir = 'datasets/Sanfrancisco/ground_trajs.csv'
     env.start_timestamp = 1519894800
     env.end_timestamp = 1519896600
     env.sensing_range = 240  # unit  240
-    env.one_uav_action_space = [[0, 0], [300, 0], [-300, 0], [0, 300], [0, -300], [210, 210], [210, -210], [-210, 210],
-                                [-210, -210]]
+    env.drone_action_space = np.array([[0, 0], [300, 0], [-300, 0], [0, 300], [0, -300], [210, 210], [210, -210], [-210, 210],
+                                [-210, -210]])
+    env.drone_sensing_range = 240  # unit  220
+    env.car_action_space = env.drone_action_space / 3
+    env.car_sensing_range = env.drone_sensing_range / 2
+    env.drone_car_comm_range = 500
+    
     env.max_x_distance = 6951  # m
     env.max_y_distance = 7734  # m
     env.density_of_human_blockers = 1057 / env.max_x_distance / env.max_y_distance  # block/m2

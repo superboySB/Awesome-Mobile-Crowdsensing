@@ -90,6 +90,7 @@ def setup_trainer_and_train(
         env_wrapper.env.cuda_function_manager.initialize_shared_constants(
             env_wrapper.env.cuda_data_manager, constant_names=["kIndexToActionArr"]
         )
+        
     # Policy mapping to agent ids: agents can share models
     # The policy_tag_to_agent_id_map dictionary maps
     # policy model names to agent ids.

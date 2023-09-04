@@ -259,7 +259,7 @@ extern "C" {
   }
 
   // Device helper function to compute rewards
-  __device__ void CudaTagContinuousComputeReward(
+  __device__ void CudaCrowdSimComputeReward(
     float * rewards_arr,
     float * loc_x_arr,
     float * loc_y_arr,
@@ -351,7 +351,7 @@ extern "C" {
     }
   }
 
-  __global__ void CudaTagContinuousStep(
+  __global__ void CudaCrowdSimStep(
     float * loc_x_arr,
     float * loc_y_arr,
     float * speed_arr,
@@ -498,7 +498,7 @@ extern "C" {
     // -------------------------------
     // Compute reward
     // -------------------------------
-    CudaTagContinuousComputeReward(
+    CudaCrowdSimComputeReward(
       rewards_arr,
       loc_x_arr,
       loc_y_arr,
