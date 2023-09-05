@@ -114,6 +114,8 @@ extern "C" {
           obs_arr[kThisAgentIdxOffset + idx * num_features + 3] = target_aoi_arr[kThisTargetAgeArrayIdxOffset + 
                                                                                                 neighbor_target_idx];
         }
+        printf("(start-id:%d) time-%d agent-%d: %f %f %f %f\n", idx * num_features + 0, env_timestep_arr[kEnvId], kThisAgentId, obs_arr[kThisAgentIdxOffset + idx * num_features + 0], obs_arr[kThisAgentIdxOffset + idx * num_features + 1], 
+              obs_arr[kThisAgentIdxOffset + idx * num_features + 2],obs_arr[kThisAgentIdxOffset + idx * num_features + 3]); 
       }
     }
   }
@@ -198,7 +200,7 @@ extern "C" {
 
       if (is_drone){  // drone
         int nearest_car_id = -1;
-
+        neighbor_agent_ids_arr[kThisAgentArrayIdx] = -1;
         for (int other_agent_id = 0; other_agent_id < kNumAgents; other_agent_id++) {
           bool is_car = !agent_types_arr[other_agent_id];
           if (is_car) {
@@ -219,11 +221,14 @@ extern "C" {
         else {
           valid_status_arr[kThisAgentArrayIdx] = 0;
         }
+        // printf("%d valid: %d, %d\n", kThisAgentId, valid_status_arr[kThisAgentArrayIdx], neighbor_agent_ids_arr[kThisAgentArrayIdx]);
       }
       rewards_arr[kThisAgentArrayIdx] = 0.0;
-      // printf("%d valid: %d, %f, %f, %f\n", kThisAgentId, valid_status_arr[kThisAgentArrayIdx], min_dist, kDroneCarCommRange, kDroneSensingRange);
+      
     }
     __sync_env_threads(); // Make sure all agents have updated their valid status
+    // printf("%d\n", neighbor_agent_ids_arr[kEnvId * kNumAgents + 5]);
+
     // -------------------------------
     // Compute reward
     if (kThisAgentId == 0){
@@ -249,18 +254,20 @@ extern "C" {
                 nearest_agent_id = agent_idx;
             }
           }
+          // printf("t:%d a:%d valid: %d\n", target_idx, agent_idx, valid_status_arr[kEnvId * kNumAgents+agent_idx]);
         }
         if (min_dist <= kDroneSensingRange){
           bool is_drone = agent_types_arr[nearest_agent_id];
           rewards_arr[kEnvId * kNumAgents + nearest_agent_id] += (target_aoi_arr[kThisTargetAgeArrayIdxOffset + target_idx]-1) / kEpisodeLength;
           if (is_drone){
-            int drone_nearest_car_id = neighbor_agent_ids_arr[kThisAgentArrayIdx];
-            rewards_arr[kEnvId * kNumAgents+drone_nearest_car_id] += (target_aoi_arr[kThisTargetAgeArrayIdxOffset + target_idx]-1) / kEpisodeLength;
+            int drone_nearest_car_id = neighbor_agent_ids_arr[kEnvId * kNumAgents + nearest_agent_id];
+            rewards_arr[kEnvId * kNumAgents + drone_nearest_car_id] += (target_aoi_arr[kThisTargetAgeArrayIdxOffset + target_idx]-1) / kEpisodeLength;
+            // printf("t:%d a:%d na: %d rew: %f\n", target_idx, nearest_agent_id, drone_nearest_car_id, rewards_arr[kEnvId * kNumAgents + nearest_agent_id]);
           }
-          target_aoi_arr[kThisTargetAgeArrayIdxOffset + target_idx] = 1;
+          target_aoi_arr[kThisTargetAgeArrayIdxOffset + target_idx] = 1.0;
         }
         else{
-          target_aoi_arr[kThisTargetAgeArrayIdxOffset + target_idx] +=1;
+          target_aoi_arr[kThisTargetAgeArrayIdxOffset + target_idx] += 1.0;
         }
       }
     }

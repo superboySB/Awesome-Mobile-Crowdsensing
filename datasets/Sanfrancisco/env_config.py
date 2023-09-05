@@ -37,16 +37,12 @@ class BaseEnvConfig(object):
     env.nlon = 7910
     env.nlat = 6960
     env.human_num = 536
-    env.velocity = 18
     env.dataset_dir = 'datasets/Sanfrancisco/ground_trajs.csv'
-    env.start_timestamp = 1519894800
-    env.end_timestamp = 1519896600
-    env.sensing_range = 240  # unit  240
     env.drone_action_space = np.array([[0, 0], [300, 0], [-300, 0], [0, 300], [0, -300], [210, 210], [210, -210], [-210, 210],
                                 [-210, -210]])
-    env.drone_sensing_range = 240  # unit  220
+    env.drone_sensing_range = 200  # unit
     env.car_action_space = env.drone_action_space / 3
-    env.car_sensing_range = env.drone_sensing_range / 2
+    env.car_sensing_range = env.drone_sensing_range
     env.drone_car_comm_range = 500
     
     env.max_x_distance = 6951  # m

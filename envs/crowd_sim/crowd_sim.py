@@ -36,7 +36,7 @@ class CrowdSim:
         self,
         num_aerial_agents=2,
         num_ground_agents=2,
-        num_targets_observed = 30,
+        num_targets_observed = 40,
         seed=None,
         env_backend="cpu",
     ):
@@ -171,10 +171,14 @@ class CrowdSim:
         # self.drones_at_reset = copy.deepcopy(self.drones)
 
     def get_theta(self, x1, y1, x2, y2):
-        ang1 = np.arctan2(y1, x1)
-        ang2 = np.arctan2(y2, x2)
-        theta = np.rad2deg((ang1 - ang2) % (2 * np.pi))
-        return theta
+        dx = x2 -x1
+        dy = y2 - y1
+        # 使用 arctan2 计算角度
+        angles = np.arctan2(dy, dx)
+
+        # 将角度转换为 0 到 2π 之间
+        angles = np.mod(angles + 2 * np.pi, 2 * np.pi)
+        return angles
     
     def seed(self, seed=None):
         """
@@ -266,7 +270,7 @@ class CrowdSim:
         
         # generate observation
         obs = {}
-        agent_nearest_targets_ids = np.argsort(self.global_distance_matrix[:,self.num_agents:],axis=-1)[:,:self.num_targets_observed]
+        agent_nearest_targets_ids = np.argsort(self.global_distance_matrix[:,self.num_agents:],axis=-1,kind='stable')[:,:self.num_targets_observed]
         for agent_id in range(self.num_agents):
             agent_obs_part = agents_state.reshape(-1)
 
@@ -326,9 +330,9 @@ class CrowdSim:
 
         self.calculate_global_distance_matrix()
 
-        drone_nearest_car_id = np.argsort(self.global_distance_matrix[self.num_ground_agents:self.num_agents,:self.num_ground_agents], axis=-1)[:,0]
+        drone_nearest_car_id = np.argsort(self.global_distance_matrix[self.num_ground_agents:self.num_agents,:self.num_ground_agents], axis=-1, kind='stable')[:,0]
         drone_car_min_distance = self.global_distance_matrix[self.num_ground_agents:self.num_agents,:self.num_ground_agents][np.arange(self.num_aerial_agents),drone_nearest_car_id]
-        target_nearest_agent_ids = np.argsort(self.global_distance_matrix[:,self.num_agents:], axis=0)
+        target_nearest_agent_ids = np.argsort(self.global_distance_matrix[:,self.num_agents:], axis=0,kind='stable')
         target_nearest_agent_distances = self.global_distance_matrix[:,self.num_agents:][target_nearest_agent_ids,np.arange(self.num_sensing_targets)]
 
         rew = {agent_id: 0.0 for agent_id in range(self.num_agents)}
@@ -514,35 +518,35 @@ class CUDACrowdSim(CrowdSim, CUDAEnvironmentContext):
         Create a dictionary of data to push to the device
         """
         data_dict = DataFeed()
-        data_dict.add_data(name="agent_types",data=self.agent_types)
-        data_dict.add_data(name="car_action_space_dx", data=self.car_action_space_dx)
-        data_dict.add_data(name="car_action_space_dy", data=self.car_action_space_dy)
-        data_dict.add_data(name="drone_action_space_dx", data=self.drone_action_space_dx)
-        data_dict.add_data(name="drone_action_space_dy", data=self.drone_action_space_dy)
+        data_dict.add_data(name="agent_types",data=self.int_dtype(self.agent_types))
+        data_dict.add_data(name="car_action_space_dx", data=self.float_dtype(self.car_action_space_dx))
+        data_dict.add_data(name="car_action_space_dy", data=self.float_dtype(self.car_action_space_dy))
+        data_dict.add_data(name="drone_action_space_dx", data=self.float_dtype(self.drone_action_space_dx))
+        data_dict.add_data(name="drone_action_space_dy", data=self.float_dtype(self.drone_action_space_dy))
         data_dict.add_data(
             name="agent_x",
-            data=np.ones([self.num_agents,]) * self.starting_location_x,
+            data=self.float_dtype(np.ones([self.num_agents,]) * self.starting_location_x),
             save_copy_and_apply_at_reset=True,
         )
-        data_dict.add_data(name="agent_x_range", data=self.nlon)
+        data_dict.add_data(name="agent_x_range", data=self.float_dtype(self.nlon))
         data_dict.add_data(
             name="agent_y",
-            data=np.ones([self.num_agents,]) * self.starting_location_y,
+            data=self.float_dtype(np.ones([self.num_agents,]) * self.starting_location_y),
             save_copy_and_apply_at_reset=True,
         )
-        data_dict.add_data(name="agent_y_range", data=self.nlat)
+        data_dict.add_data(name="agent_y_range", data=self.float_dtype(self.nlat))
         
         data_dict.add_data(
             name="agent_energy",
-            data=np.ones([self.num_agents,]) * self.max_uav_energy,
+            data=self.float_dtype(np.ones([self.num_agents,]) * self.max_uav_energy),
             save_copy_and_apply_at_reset=True,
         )
-        data_dict.add_data(name="agent_energy_range", data=self.max_uav_energy)
-        data_dict.add_data(name="num_targets", data=self.num_sensing_targets)
-        data_dict.add_data(name="num_targets_observed", data=self.num_targets_observed)
-        data_dict.add_data(name="target_x", data=self.target_x_timelist)  # [self.episode_length + 1, self.num_sensing_targets]
-        data_dict.add_data(name="target_y", data=self.target_y_timelist)  # [self.episode_length + 1, self.num_sensing_targets]
-        data_dict.add_data(name="target_theta", data=self.target_theta_timelist)  # [self.episode_length + 1, self.num_sensing_targets]
+        data_dict.add_data(name="agent_energy_range", data=self.float_dtype(self.max_uav_energy))
+        data_dict.add_data(name="num_targets", data=self.int_dtype(self.num_sensing_targets))
+        data_dict.add_data(name="num_targets_observed", data=self.int_dtype(self.num_targets_observed))
+        data_dict.add_data(name="target_x", data=self.float_dtype(self.target_x_timelist))  # [self.episode_length + 1, self.num_sensing_targets]
+        data_dict.add_data(name="target_y", data=self.float_dtype(self.target_y_timelist))  # [self.episode_length + 1, self.num_sensing_targets]
+        data_dict.add_data(name="target_theta", data=self.float_dtype(self.target_theta_timelist))  # [self.episode_length + 1, self.num_sensing_targets]
         data_dict.add_data(name="target_aoi", 
                            data=self.float_dtype(np.ones([self.num_sensing_targets,])),
                            save_copy_and_apply_at_reset=True,
@@ -557,9 +561,9 @@ class CUDACrowdSim(CrowdSim, CUDAEnvironmentContext):
             data=self.int_dtype(np.ones([self.num_agents,])*(-1)),
             save_copy_and_apply_at_reset=True,
         )
-        data_dict.add_data(name="car_sensing_range", data=self.car_sensing_range)
-        data_dict.add_data(name="drone_sensing_range", data=self.drone_sensing_range)
-        data_dict.add_data(name="drone_car_comm_range", data=self.drone_car_comm_range)
+        data_dict.add_data(name="car_sensing_range", data=self.float_dtype(self.car_sensing_range))
+        data_dict.add_data(name="drone_sensing_range", data=self.float_dtype(self.drone_sensing_range))
+        data_dict.add_data(name="drone_car_comm_range", data=self.float_dtype(self.drone_car_comm_range))
         data_dict.add_data(
             name="neighbor_target_distances",
             data=self.float_dtype(np.zeros([self.num_agents, self.num_sensing_targets])),

@@ -17,7 +17,7 @@ will be populated from Python function_manager API based on the user configurati
 `BlocksPerEnv`: number of blocks covering one environment, default is 1
 */
 const int wkNumberEnvs = 1;
-const int wkNumberAgents = 20;
+const int wkNumberAgents = 10;
 const int wkBlocksPerEnv = 1;
 
 #endif  // CUDA_INCLUDES_TEMPLATE_ENV_CONFIG_H_

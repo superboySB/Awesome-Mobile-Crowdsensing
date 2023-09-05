@@ -25,19 +25,19 @@ env_configs = {
     #     "num_aerial_agents": 4,
     #     "seed": 274880,
     # },
-    "test3": {
-        "num_ground_agents": 4,
-        "num_aerial_agents": 1,
+    # "test3": {
+    #     "num_ground_agents": 4,
+    #     "num_aerial_agents": 1,
+    #     "seed": 274880,
+    # },
+    "test4": {
+        "num_ground_agents": 5,
+        "num_aerial_agents": 5,
         "seed": 274880,
     },
-    "test4": {
-        "num_ground_agents": 10,
-        "num_aerial_agents": 10,
-        "seed": 654208,
-    },
     # "test5": {
-    #     "num_ground_agents": 20,
-    #     "num_aerial_agents": 20,
+    #     "num_ground_agents": 6,
+    #     "num_aerial_agents": 6,
     #     "seed": 121024,
     # },
 }

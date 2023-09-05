@@ -40,7 +40,7 @@ class BaseEnvConfig(object):
     
     env.drone_action_space = np.array([[0, 0], [300, 0], [-300, 0], [0, 300], [0, -300], [210, 210], [210, -210], [-210, 210],
                                 [-210, -210]])
-    env.drone_sensing_range = 220  # unit  220
+    env.drone_sensing_range = 200  # unit
     env.car_action_space = env.drone_action_space / 3
     env.car_sensing_range = env.drone_sensing_range  # TODO: 为方便判断，暂时设置成空地同一个sensing range
     env.drone_car_comm_range = 500
