@@ -16,7 +16,7 @@ will be populated from Python function_manager API based on the user configurati
 `NumberAgents`: number of agents per environment
 `BlocksPerEnv`: number of blocks covering one environment, default is 1
 */
-const int wkNumberEnvs = 2;
+const int wkNumberEnvs = 2000;
 const int wkNumberAgents = 5;
 const int wkBlocksPerEnv = 1;
 
