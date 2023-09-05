@@ -13,7 +13,7 @@ def main(args):
         for key,value in env.action_space.items():
             action[key] = value.sample()
         
-        print(action)
+        # print(action)
         obs, rew, done, info = env.step(action)
 
         if done['__all__']:

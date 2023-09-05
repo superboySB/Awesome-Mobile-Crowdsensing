@@ -163,3 +163,4 @@ warp_drive/cuda_bin
 saved_data/
 wandb/
 mymovie.mp4
+logs.html

@@ -34,9 +34,9 @@ class CrowdSim:
     
     def __init__(
         self,
-        num_aerial_agents=2,
-        num_ground_agents=2,
-        num_targets_observed = 40,
+        num_drones=2,
+        num_cars=2,
+        num_agents_observed = 5,
         seed=None,
         env_backend="cpu",
     ):
@@ -46,18 +46,17 @@ class CrowdSim:
         self.eps = self.float_dtype(1e-10)
         self.config = BaseEnvConfig()
 
-        self.num_aerial_agents = num_aerial_agents
-        self.num_ground_agents = num_ground_agents
-        self.num_agents = self.num_aerial_agents + self.num_ground_agents
+        self.num_drones = num_drones
+        self.num_cars = num_cars
+        self.num_agents = self.num_drones + self.num_cars
         self.num_sensing_targets = self.config.env.human_num
-
+        self.num_agents_observed = num_agents_observed
         
         self.episode_length =  self.config.env.num_timestep
         self.step_time = self.config.env.step_time
         self.start_timestamp = self.config.env.start_timestamp
         self.end_timestamp = self.config.env.end_timestamp
         
-
         self.nlon = self.config.env.nlon
         self.nlat = self.config.env.nlat
         self.lower_left = self.config.env.lower_left
@@ -86,7 +85,7 @@ class CrowdSim:
                 self.target_x_timelist[timestamp_index, id_index] = row['x']
                 self.target_y_timelist[timestamp_index, id_index] = row['y']
             else:
-                print(row)
+                raise ValueError("Got invalid rows:", row)
         
         x1 = self.target_x_timelist[:-1,:]
         y1 = self.target_y_timelist[:-1,:]
@@ -120,7 +119,7 @@ class CrowdSim:
         self.cars = {}
         self.drones = {}
         for agent_id in range(self.num_agents):
-            if agent_id < self.num_ground_agents:
+            if agent_id < self.num_cars:
                 self.agent_types[agent_id] = 0  # Car
                 self.cars[agent_id] = True
             else:
@@ -132,6 +131,7 @@ class CrowdSim:
         self.timestep = None
 
         # Defining observation and action spaces
+        # obs = self type(1) + energy (1) + 5 * homo_pos(2)+ 5 * hetero_pos(2) + neighbor_aoi_grids (10 * 10) = 122
         self.observation_space = None  # Note: this will be set via the env_wrapper
         self.drone_action_space_dx = self.float_dtype(self.config.env.drone_action_space[:,0])
         self.drone_action_space_dy = self.float_dtype(self.config.env.drone_action_space[:,1])
@@ -148,9 +148,6 @@ class CrowdSim:
         # all the other agents, otherwise, each agent will only have info of
         # its k-nearest agents (k = num_other_agents_observed)
         self.init_obs = None  # Will be set later in generate_observation()
-
-        assert num_targets_observed <= self.num_sensing_targets
-        self.num_targets_observed = num_targets_observed
 
         # Distance margin between agents for non-zero rewards
         # If a tagger is closer than this to a runner, the tagger
@@ -218,7 +215,7 @@ class CrowdSim:
         for entity_id_1 in range(self.num_agents):
             for entity_id_2 in range(entity_id_1, self.num_agents+self.num_sensing_targets):
                 if entity_id_1 == entity_id_2:
-                    self.global_distance_matrix[entity_id_1,entity_id_2] = 0
+                    self.global_distance_matrix[entity_id_1,entity_id_2] = -1  # 避免正好重合
                     continue
 
                 if entity_id_1 < self.num_agents and entity_id_2 < self.num_agents:
@@ -239,48 +236,51 @@ class CrowdSim:
         """
         Generate and return the observations for every agent.
         """
-        # global states
-        agents_state = np.zeros([self.num_agents, 4])
-        for agent_id in range(self.num_agents):
-            agents_state[agent_id,:] = np.array([
-                # self.agent_x_timelist[self.timestep,agent_id]/self.nlon,
-                # self.agent_y_timelist[self.timestep,agent_id]/self.nlat,
-                # self.agent_types[agent_id],
-                # self.agent_energy_timelist[self.timestep,agent_id]/self.max_uav_energy,
-                # for debug
-                self.agent_x_timelist[self.timestep,agent_id],
-                self.agent_y_timelist[self.timestep,agent_id],
-                self.agent_types[agent_id],
-                self.agent_energy_timelist[self.timestep,agent_id],
-            ])
-        
-        targets_state = np.zeros([self.num_sensing_targets,4])
-        for target_id in range(self.num_sensing_targets):
-            targets_state[target_id,:] = np.array([
-                # self.target_x_timelist[self.timestep,target_id]/self.nlon,
-                # self.target_y_timelist[self.timestep,target_id]/self.nlat,
-                # self.target_theta_timelist[self.timestep, target_id] / (2 * np.pi),
-                # self.target_aoi_timelist[self.timestep,target_id]/self.episode_length,
-                # for debug
-                self.target_x_timelist[self.timestep,target_id],
-                self.target_y_timelist[self.timestep,target_id],
-                self.target_theta_timelist[self.timestep, target_id],
-                self.target_aoi_timelist[self.timestep,target_id],
-            ])
-        
-        # generate observation
         obs = {}
-        agent_nearest_targets_ids = np.argsort(self.global_distance_matrix[:,self.num_agents:],axis=-1,kind='stable')[:,:self.num_targets_observed]
+        agent_nearest_targets_ids = np.argsort(self.global_distance_matrix[:,:self.num_agents],axis=-1,kind='stable')
         for agent_id in range(self.num_agents):
-            agent_obs_part = agents_state.reshape(-1)
+            # self info (2,)
+            self_part = np.array([self.agent_types[agent_id], self.agent_energy_timelist[self.timestep,agent_id]/self.max_uav_energy])
+            
+            # other agent's infosw (2 * self.num_agents_observed * 2)
+            homoge_part = np.zeros([self.num_agents_observed,2])
+            hetero_part = np.zeros([self.num_agents_observed,2])
+            homoge_part_idx = 0
+            hetero_part_idx = 0
+            for other_agent_id in agent_nearest_targets_ids[agent_id,1:]:
+                if self.agent_types[other_agent_id] == self.agent_types[agent_id] and homoge_part_idx<self.num_agents_observed:
+                    homoge_part[homoge_part_idx] = np.array([
+                        (self.agent_x_timelist[self.timestep,other_agent_id] - self.agent_x_timelist[self.timestep,agent_id])/self.nlon,
+                        (self.agent_y_timelist[self.timestep,other_agent_id] - self.agent_y_timelist[self.timestep,agent_id])/self.nlat
+                    ])
+                    homoge_part_idx+=1
+                if self.agent_types[other_agent_id] != self.agent_types[agent_id] and hetero_part_idx<self.num_agents_observed:
+                    hetero_part[hetero_part_idx] = np.array([
+                        (self.agent_x_timelist[self.timestep,other_agent_id] - self.agent_x_timelist[self.timestep,agent_id])/self.nlon,
+                        (self.agent_y_timelist[self.timestep,other_agent_id] - self.agent_y_timelist[self.timestep,agent_id])/self.nlat
+                    ])
+                    hetero_part_idx+=1
 
-            nearest_target_obs = targets_state[agent_nearest_targets_ids[agent_id]]
-            target_obs_part = nearest_target_obs.reshape(-1)
+            # aoi grid (10 * 10)
+            grid_center_x, grid_center_y = self.agent_x_timelist[self.timestep,agent_id], self.agent_y_timelist[self.timestep,agent_id]
+            grid_width = self.drone_car_comm_range * 2 / 10
+            grid_min = np.array([grid_center_x - 5 * grid_width, grid_center_y - 5 * grid_width])  # 设置固定的最小值和最大值（中心点为基础）
+            grid_max = np.array([grid_center_x + 5 * grid_width, grid_center_y + 5 * grid_width])
+            point_xy = np.stack((self.target_x_timelist[self.timestep],self.target_y_timelist[self.timestep]),axis=-1) # 离散化坐标
+            discrete_points_xy = np.floor((point_xy - grid_min) / (grid_max - grid_min) * 10).astype(int)
+            aoi_grid_part = np.zeros((10,10))
+            grid_point_count = np.zeros_like(aoi_grid_part)
+            for target_idx in range(self.num_sensing_targets):
+                x, y = discrete_points_xy[target_idx]
+                if 0 <= x < 10 and 0<= y < 10:
+                    grid_point_count[x,y] +=1
+                    aoi_grid_part[x, y] += self.target_aoi_timelist[self.timestep, target_idx]
+            grid_point_count_nonzero = np.where(grid_point_count > 0, grid_point_count, 1)
+            aoi_grid_part = aoi_grid_part / grid_point_count_nonzero / self.episode_length
+            aoi_grid_part[grid_point_count == 0] = 0
 
-            assert agent_obs_part.shape[0] == self.num_agents * 4
-            assert target_obs_part.shape[0] == self.num_targets_observed * 4
-
-            obs[agent_id] = np.hstack((agent_obs_part, target_obs_part))
+            # merge these parts as the observation
+            obs[agent_id] = np.hstack((self_part, homoge_part.ravel(), hetero_part.ravel(),aoi_grid_part.ravel()),dtype=np.float32)
 
         return obs
     
@@ -320,6 +320,7 @@ class CrowdSim:
                 dx, dy = self.car_action_space_dx[actions[agent_id]], self.car_action_space_dy[actions[agent_id]]
             else:
                 dx, dy = self.drone_action_space_dx[actions[agent_id]], self.drone_action_space_dy[actions[agent_id]]
+
             # TODO: 暂缺车辆的能耗公式区分,不过目前也没有加充电桩啦，本来电量就不会耗尽
             # consume_energy = self.calculate_energy_consume(0, self.step_time) if is_stopping else self.calculate_energy_consume(self.step_time, 0)
             consume_energy = 0
@@ -330,8 +331,8 @@ class CrowdSim:
 
         self.calculate_global_distance_matrix()
 
-        drone_nearest_car_id = np.argsort(self.global_distance_matrix[self.num_ground_agents:self.num_agents,:self.num_ground_agents], axis=-1, kind='stable')[:,0]
-        drone_car_min_distance = self.global_distance_matrix[self.num_ground_agents:self.num_agents,:self.num_ground_agents][np.arange(self.num_aerial_agents),drone_nearest_car_id]
+        drone_nearest_car_id = np.argsort(self.global_distance_matrix[self.num_cars:self.num_agents,:self.num_cars], axis=-1, kind='stable')[:,0]
+        drone_car_min_distance = self.global_distance_matrix[self.num_cars:self.num_agents,:self.num_cars][np.arange(self.num_drones),drone_nearest_car_id]
         target_nearest_agent_ids = np.argsort(self.global_distance_matrix[:,self.num_agents:], axis=0,kind='stable')
         target_nearest_agent_distances = self.global_distance_matrix[:,self.num_agents:][target_nearest_agent_ids,np.arange(self.num_sensing_targets)]
 
@@ -348,10 +349,10 @@ class CrowdSim:
 
                 if self.agent_types[agent_id] == 1 \
                         and target_agent_distance <= self.drone_sensing_range \
-                        and drone_car_min_distance[agent_id-self.num_ground_agents] <= self.drone_car_comm_range:
+                        and drone_car_min_distance[agent_id-self.num_cars] <= self.drone_car_comm_range:
                     increase_aoi_flag = False
                     rew[agent_id] += (self.target_aoi_timelist[self.timestep-1, target_id]-1)/self.episode_length
-                    rew[drone_nearest_car_id[agent_id-self.num_ground_agents]] += (self.target_aoi_timelist[self.timestep-1, target_id]-1)/self.episode_length
+                    rew[drone_nearest_car_id[agent_id-self.num_cars]] += (self.target_aoi_timelist[self.timestep-1, target_id]-1)/self.episode_length
                     self.target_aoi_timelist[self.timestep, target_id] = 1
                     break
                     
@@ -446,9 +447,9 @@ class CrowdSim:
         m.add_child(border)
 
         for index, traj in enumerate(trajs.trajectories):
-            if traj.df['id'][0]<0 and traj.df['id'][0]>=(-self.num_ground_agents):
+            if traj.df['id'][0]<0 and traj.df['id'][0]>=(-self.num_cars):
                 name = f"Agent {self.num_agents - index -1} (Car)"
-            elif traj.df['id'][0]<(-self.num_ground_agents):
+            elif traj.df['id'][0]<(-self.num_cars):
                 name = f"Agent {self.num_agents - index -1} (Drone)"
             else:
                 name = f"Human {traj.df['id'][0]}"
@@ -457,7 +458,7 @@ class CrowdSim:
             color = '#%02X%02X%02X' % (randr(), randr(), randr())  # black
 
             # point
-            features = traj_to_timestamped_geojson(index, traj, self.num_ground_agents, self.num_aerial_agents, color)
+            features = traj_to_timestamped_geojson(index, traj, self.num_cars, self.num_drones, color)
             TimestampedGeoJson(
                 {
                     "type": "FeatureCollection",
@@ -543,10 +544,9 @@ class CUDACrowdSim(CrowdSim, CUDAEnvironmentContext):
         )
         data_dict.add_data(name="agent_energy_range", data=self.float_dtype(self.max_uav_energy))
         data_dict.add_data(name="num_targets", data=self.int_dtype(self.num_sensing_targets))
-        data_dict.add_data(name="num_targets_observed", data=self.int_dtype(self.num_targets_observed))
+        data_dict.add_data(name="num_agents_observed", data=self.int_dtype(self.num_agents_observed))
         data_dict.add_data(name="target_x", data=self.float_dtype(self.target_x_timelist))  # [self.episode_length + 1, self.num_sensing_targets]
         data_dict.add_data(name="target_y", data=self.float_dtype(self.target_y_timelist))  # [self.episode_length + 1, self.num_sensing_targets]
-        data_dict.add_data(name="target_theta", data=self.float_dtype(self.target_theta_timelist))  # [self.episode_length + 1, self.num_sensing_targets]
         data_dict.add_data(name="target_aoi", 
                            data=self.float_dtype(np.ones([self.num_sensing_targets,])),
                            save_copy_and_apply_at_reset=True,
@@ -565,13 +565,13 @@ class CUDACrowdSim(CrowdSim, CUDAEnvironmentContext):
         data_dict.add_data(name="drone_sensing_range", data=self.float_dtype(self.drone_sensing_range))
         data_dict.add_data(name="drone_car_comm_range", data=self.float_dtype(self.drone_car_comm_range))
         data_dict.add_data(
-            name="neighbor_target_distances",
-            data=self.float_dtype(np.zeros([self.num_agents, self.num_sensing_targets])),
+            name="neighbor_agent_distances",
+            data=self.float_dtype(np.zeros([self.num_agents, self.num_agents-1])),
             save_copy_and_apply_at_reset=True,
         )
         data_dict.add_data(
-            name="neighbor_target_ids_sorted",
-            data=self.int_dtype(np.zeros([self.num_agents, self.num_sensing_targets])),
+            name="neighbor_agent_ids_sorted",
+            data=self.int_dtype(np.zeros([self.num_agents, self.num_agents-1])),
             save_copy_and_apply_at_reset=True,
         )
 
@@ -597,18 +597,17 @@ class CUDACrowdSim(CrowdSim, CUDAEnvironmentContext):
             "agent_energy",
             "agent_energy_range",
             "num_targets",
-            "num_targets_observed",
+            "num_agents_observed",
             "target_x",
             "target_y",
-            "target_theta",
             "target_aoi",
             "valid_status",
             "neighbor_agent_ids",
             "car_sensing_range",
             "drone_sensing_range",
             "drone_car_comm_range",
-            "neighbor_target_distances",
-            "neighbor_target_ids_sorted",
+            "neighbor_agent_distances",
+            "neighbor_agent_ids_sorted",
             "_done_",
             "_timestep_",
             ("n_agents", "meta"),

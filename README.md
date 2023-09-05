@@ -1,5 +1,7 @@
 # Awesome-Mobile-Crowdsensing
-This is a list of research resources on **Human-Machine Collaborative Sensing** by AI-Driven Unmanned Vehicles, including related papers, simulation codes and default algorithms. This repository will be continuously updated to help readers get inspired by our researches and realize their ideas in their own field.
+This is a list of research resources on **Human-Machine Collaborative Sensing** by AI-Driven Unmanned Vehicles, including related papers, simulation codes and default algorithms. 
+
+Prof. Liu often admonishes us with the phrase "**Talk is cheap, show me your code.**" We should focus on making practical contributions to the Internet of Things and Artificial Intelligence communities. To this end, this repository is continuously updated to help readers get inspired by our researches (including not only our papers but also our codes), and realize their ideas in their own field. To better align our research with industrial-grade applications, we always need to consider much more factors, including: larger scales, more agents, higher model training throughput, and faster simulation speeds. To this end, we explore several industrial tools and improve our somewhat outdated implementations of our previous research. For example, we adopted Salaforce's distributed training framework, called [Warp-Drive](https://catalog.ngc.nvidia.com/orgs/partners/teams/salesforce/containers/warpdrive), an extremely fast end-to-end reinforcement learning architecture on a single or multiple Nvidia GPUs. 
 
 ## Related Papers
 - [Ensuring Threshold AoI for UAV-assisted Mobile Crowdsensing by Multi-Agent Deep Reinforcement Learning with Transformer](https://ieeexplore.ieee.org/abstract/document/10181012)
@@ -25,43 +27,51 @@ This is a list of research resources on **Human-Machine Collaborative Sensing** 
 - [Learning-based Energy-Efficient Data Collection by Unmanned Vehicles in Smart Cities](https://ieeexplore.ieee.org/abstract/document/8207610/)
 
 
-## Quick Start
-To always get the latest GPU optimized software, we recommend you to use [Nvidia NGC](https://catalog.ngc.nvidia.com/orgs/partners/teams/salesforce/containers/warpdrive) to start our simulation and baseline algorithms.
+## Install
+To always get the latest GPU optimized software, we recommend you to use [Nvidia NGC](https://catalog.ngc.nvidia.com/orgs/partners/teams/salesforce/containers/warpdrive)(which fully supports all kinds of Nvidia devices, such as A100, H100), following:
 ```sh
 docker build -t linc_image:v1.0 .
 docker run -itd --runtime=nvidia --network=host --user=user --name=mcs linc_image:v1.0 /bin/bash
 docker exec -it mcs /bin/bash
 ```
-Install our drl-framework.
+In the NGC containerFirst, we first install our drl-framework.
 ```sh
 conda create --name mcs python=3.9 --yes && conda activate mcs
 cd /workspace/movingpandas && python setup.py develop && cd ..
 git clone https://github.com/BIT-MCS/Awesome-Mobile-Crowdsensing.git && cd Awesome-Mobile-Crowdsensing && pip install -e .
 ```
-Do the following unittests to make sure the whole architecture can run successfully.
+We recommend you do the following unittests to make sure the whole simulation and training architecture can run successfully.
 ```sh
-# cd warp_drive/cuda_includes && make compile-test # [Optional]
 python -m warp_drive.utils.unittests.run_unittests_pycuda
 python -m warp_drive.utils.unittests.run_trainer_tests
+python envs/crowd_sim/run_cpu_gpu_env_consistency_checks.py
 ```
-[Optional] Do auto-scaling, and drl-framework will automatically determine the best block size and training batch size to use. It will also determine the number of available GPUs and perform training on all the GPUs.
-```sh
-python warp_drive/trainer_pytorch.py --env tag_continuous --auto_scale
-```
-Run random policy and debug the environment.
+Now you can start our simulation and baseline algorithms. 
+
+## QuickStart
+Run random policy and debug the environment, and you will interactive with an generated html file:
 ```sh
 python run_random_policy.py --plot_loop --moving_line --output_dir="./logs.html"
 ```
-Run RL policy (PPO/A2C)
+Train independent PPO as the baseline policies:
+```sh
+python train_rl_policy.py
+```
+Run the trained RL policy
 ```sh
 python run_rl_policy.py
 ```
 Note that our drl-framework is based on [warp-drive](https://github.com/salesforce/warp-drive), an extremely fast end-to-end MARL architecture on GPUs.
 
+[Optional] Do auto-scaling, and drl-framework will automatically determine the best block size and training batch size to use. It will also determine the number of available GPUs and perform training on all the GPUs.
+```sh
+python warp_drive/trainer_pytorch.py --env tag_continuous --auto_scale
+```
+
 ## Roadmap
 - [X] Finish Simple Air-Ground Collaborative Simulation for MCS
-- [ ] Finish CUDA implementation
-- [X] Finish PPO baseline
+- [X] Finish CUDA implementation
+- [ ] Finish PPO baseline
 - [X] Add mobile users as PoIs
 - [ ] Add macro stragies of mobile users as PoIs
 - [ ] Add our proposed key metrics for [emergency response](https://github.com/BIT-MCS/DRL-UCS-AoI-Threshold), inspired by Age of Information (AoI)

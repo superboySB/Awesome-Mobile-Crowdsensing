@@ -10,36 +10,41 @@ from envs.crowd_sim.crowd_sim import CrowdSim, CUDACrowdSim
 env_registrar = EnvironmentRegistrar()
 env_registrar.add_cuda_env_src_path(CrowdSim.name, os.path.join(get_project_root(), "envs", "crowd_sim", "crowd_sim_step.cu"))
 env_configs = {
-    # "test0": {
-    #     "num_ground_agents": 1,
-    #     "num_aerial_agents": 1,
-    #     "seed": 274880,
-    # },
-    # "test1": {
-    #     "num_ground_agents": 2,
-    #     "num_aerial_agents": 2,
-    #     "seed": 274880,
-    # },
-    # "test2": {
-    #     "num_ground_agents": 1,
-    #     "num_aerial_agents": 4,
-    #     "seed": 274880,
-    # },
-    # "test3": {
-    #     "num_ground_agents": 4,
-    #     "num_aerial_agents": 1,
-    #     "seed": 274880,
-    # },
-    "test4": {
-        "num_ground_agents": 5,
-        "num_aerial_agents": 5,
+    "test0": {
+        "num_cars": 1,
+        "num_drones": 1,
         "seed": 274880,
     },
-    # "test5": {
-    #     "num_ground_agents": 6,
-    #     "num_aerial_agents": 6,
-    #     "seed": 121024,
-    # },
+    "test1": {
+        "num_cars": 2,
+        "num_drones": 2,
+        "seed": 274880,
+    },
+    "test2": {
+        "num_cars": 1,
+        "num_drones": 4,
+        "seed": 274880,
+    },
+    "test3": {
+        "num_cars": 4,
+        "num_drones": 1,
+        "seed": 274880,
+    },
+    "test4": {
+        "num_cars": 5,
+        "num_drones": 5,
+        "seed": 274880,
+    },
+    "test5": {
+        "num_cars": 10,
+        "num_drones": 10,
+        "seed": 121024,
+    },
+    "test6": {
+        "num_cars": 50,
+        "num_drones": 50,
+        "seed": 121024,
+    },
 }
 
 
@@ -47,7 +52,7 @@ testing_class = EnvironmentCPUvsGPU(
     cpu_env_class=CrowdSim,
     cuda_env_class=CUDACrowdSim,
     env_configs=env_configs,
-    num_envs=1,
+    num_envs=2,
     num_episodes=2,
     env_wrapper=CrowdSimEnvWrapper,
     env_registrar=env_registrar,
