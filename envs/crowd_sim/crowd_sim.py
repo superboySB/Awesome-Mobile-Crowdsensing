@@ -8,7 +8,7 @@ from gym import spaces
 from shapely.geometry import Point
 from folium.plugins import TimestampedGeoJson, AntPath
 from datasets.KAIST.env_config import BaseEnvConfig
-# from datasets.Sanfrancisco.env_config import BaseEnvConfig
+# from datasets.Sanfrancisco.env_config import BaseEnvConfig # TODO：可以在这里切换为更大的San，一定需要更多agents
 from .utils import *
 
 
@@ -44,8 +44,9 @@ class CrowdSim:
         self.int_dtype = np.int32
         # small number to prevent indeterminate cases
         self.eps = self.float_dtype(1e-10)
-        self.config = BaseEnvConfig()
 
+        self.config = BaseEnvConfig()
+        
         self.num_drones = num_drones
         self.num_cars = num_cars
         self.num_agents = self.num_drones + self.num_cars

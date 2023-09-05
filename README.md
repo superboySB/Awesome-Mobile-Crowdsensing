@@ -71,7 +71,7 @@ python warp_drive/trainer_pytorch.py --env tag_continuous --auto_scale
 ## Roadmap
 - [X] Finish Simple Air-Ground Collaborative Simulation for MCS
 - [X] Finish CUDA implementation
-- [ ] Finish PPO baseline
+- [X] Finish PPO baseline
 - [X] Add mobile users as PoIs
 - [ ] Add macro stragies of mobile users as PoIs
 - [ ] Add our proposed key metrics for [emergency response](https://github.com/BIT-MCS/DRL-UCS-AoI-Threshold), inspired by Age of Information (AoI)
