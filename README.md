@@ -73,6 +73,8 @@ python warp_drive/trainer_pytorch.py --env tag_continuous --auto_scale
 - [X] Finish CUDA implementation
 - [X] Finish PPO baseline
 - [X] Add mobile users as PoIs
+- [ ] Add RLlib wrapper to support more popular RL baselines
+- [ ] Try to improve the PPO in warp-drive (currently so naive.)
 - [ ] Add macro stragies of mobile users as PoIs
 - [ ] Add our proposed key metrics for [emergency response](https://github.com/BIT-MCS/DRL-UCS-AoI-Threshold), inspired by Age of Information (AoI)
 - [ ] Add apis for using available actions
