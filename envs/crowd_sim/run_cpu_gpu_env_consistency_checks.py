@@ -11,8 +11,8 @@ env_registrar = EnvironmentRegistrar()
 env_registrar.add_cuda_env_src_path(CrowdSim.name, os.path.join(get_project_root(), "envs", "crowd_sim", "crowd_sim_step.cu"))
 env_configs = {
     "test0": {
-        "num_cars": 1,
-        "num_drones": 1,
+        "num_cars": 4,
+        "num_drones": 0,
         "seed": 274880,
     },
     "test1": {
