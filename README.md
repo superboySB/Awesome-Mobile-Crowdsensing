@@ -31,7 +31,7 @@ Prof. Liu often admonishes us with the phrase "**Talk is cheap, show me your cod
 To always get the latest GPU optimized software, we recommend you to use [Nvidia NGC](https://catalog.ngc.nvidia.com/orgs/partners/teams/salesforce/containers/warpdrive)(which fully supports all kinds of Nvidia devices, such as A100, H100), following:
 ```sh
 docker build -t linc_image:v1.0 .
-docker run -itd --runtime=nvidia --network=host --name=mcs linc_image:v1.0 /bin/bash
+docker run -itd --gpus=all --network=host --name=mcs linc_image:v1.0 /bin/bash
 docker exec -it mcs /bin/bash
 ```
 In the NGC container, we first install our drl-framework.
