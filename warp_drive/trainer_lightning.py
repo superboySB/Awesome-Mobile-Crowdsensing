@@ -799,7 +799,7 @@ class WarpDriveModule(LightningModule):
             )
 
     def training_step(
-        self, batch: Tuple[Tensor, Tensor, Tensor, Tensor], batch_idx=0, optimizer_idx=0
+        self, batch: Tuple[Tensor, Tensor, Tensor, Tensor], batch_idx=0
     ):
         """
         Carries out a single training step based on a batch of rollout data.
@@ -808,11 +808,11 @@ class WarpDriveModule(LightningModule):
         Returns: loss.
         """
         assert batch_idx >= 0
-        assert optimizer_idx >= 0
+        # assert optimizer_idx >= 0
 
-        if optimizer_idx == 0:
+        # if optimizer_idx == 0:
             # Do this only once for all the optimizers
-            self.iters += 1
+        self.iters += 1
 
         # Flag for logging (which also happens after the last iteration)
         logging_flag = (
@@ -820,71 +820,71 @@ class WarpDriveModule(LightningModule):
             or self.iters == self.num_iters - 1
         )
 
-        policy = self.policies_to_train[optimizer_idx]
+        policies = self.policies_to_train
+        for policy in policies:
+            actions_batch, rewards_batch, done_flags_batch, processed_obs_batch = batch[
+                policy
+            ]
 
-        actions_batch, rewards_batch, done_flags_batch, processed_obs_batch = batch[
-            policy
-        ]
-
-        # Policy evaluation for the entire batch
-        probabilities_batch, value_functions_batch = self.models[policy](
-            obs=processed_obs_batch
-        )
-
-        # Loss and metrics computation
-        loss, metrics = self.trainers[policy].compute_loss_and_metrics(
-            self.current_timestep[policy],
-            actions_batch,
-            rewards_batch,
-            done_flags_batch,
-            probabilities_batch,
-            value_functions_batch,
-            perform_logging=logging_flag,
-        )
-
-        # Compute the gradient norm
-        grad_norm = 0.0
-        for param in list(
-            filter(lambda p: p.grad is not None, self.models[policy].parameters())
-        ):
-            grad_norm += param.grad.data.norm(2).item()
-
-        # Update the timestep and learning rate based on the schedule
-        self.current_timestep[policy] += self.training_batch_size
-
-        # Logging
-        if logging_flag:
-            assert isinstance(metrics, dict)
-            # Update the metrics dictionary
-            metrics.update(
-                {
-                    "Current timestep": self.current_timestep[policy],
-                    "Gradient norm": grad_norm,
-                    "Mean episodic reward": self.episodic_reward_sum[policy].item()
-                    / (self.num_completed_episodes[policy] + _EPSILON),
-                }
+            # Policy evaluation for the entire batch
+            probabilities_batch, value_functions_batch = self.models[policy](
+                obs=processed_obs_batch
             )
 
-            # Reset sum and counter
-            self.episodic_reward_sum[policy] = (
-                torch.tensor(0).type(torch.float32).cuda()
+            # Loss and metrics computation
+            loss, metrics = self.trainers[policy].compute_loss_and_metrics(
+                self.current_timestep[policy],
+                actions_batch,
+                rewards_batch,
+                done_flags_batch,
+                probabilities_batch,
+                value_functions_batch,
+                perform_logging=logging_flag,
             )
-            self.num_completed_episodes[policy] = 0
 
-            self._log_metrics({policy: metrics})
+            # Compute the gradient norm
+            grad_norm = 0.0
+            for param in list(
+                filter(lambda p: p.grad is not None, self.models[policy].parameters())
+            ):
+                grad_norm += param.grad.data.norm(2).item()
+
+            # Update the timestep and learning rate based on the schedule
+            self.current_timestep[policy] += self.training_batch_size
 
             # Logging
-            self.log(
-                f"loss_{policy}", loss, prog_bar=True, on_step=False, on_epoch=True
-            )
-            for key in metrics:
-                self.log(
-                    f"{key}_{policy}",
-                    metrics[key],
-                    prog_bar=False,
-                    on_step=False,
-                    on_epoch=True,
+            if logging_flag:
+                assert isinstance(metrics, dict)
+                # Update the metrics dictionary
+                metrics.update(
+                    {
+                        "Current timestep": self.current_timestep[policy],
+                        "Gradient norm": grad_norm,
+                        "Mean episodic reward": self.episodic_reward_sum[policy].item()
+                        / (self.num_completed_episodes[policy] + _EPSILON),
+                    }
                 )
+
+                # Reset sum and counter
+                self.episodic_reward_sum[policy] = (
+                    torch.tensor(0).type(torch.float32).cuda()
+                )
+                self.num_completed_episodes[policy] = 0
+
+                self._log_metrics({policy: metrics})
+
+                # Logging
+                self.log(
+                    f"loss_{policy}", loss, prog_bar=True, on_step=False, on_epoch=True
+                )
+                for key in metrics:
+                    self.log(
+                        f"{key}_{policy}",
+                        metrics[key],
+                        prog_bar=False,
+                        on_step=False,
+                        on_epoch=True,
+                    )
 
         # Save the model checkpoint
         self.save_model_checkpoint(self.iters)

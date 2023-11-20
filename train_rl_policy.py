@@ -14,6 +14,7 @@ from warp_drive.utils.env_registrar import EnvironmentRegistrar
 from warp_drive.trainer_lightning import CUDACallback,PerfStatsCallback,WarpDriveModule
 from warp_drive.utils.common import get_project_root
 
+torch.set_float32_matmul_precision('medium')
 run_config = dict(
     name="crowd_sim",
     # Environment settings.

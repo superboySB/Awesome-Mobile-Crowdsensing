@@ -429,10 +429,18 @@ class CrowdSim:
         m.add_child(folium.LatLngPopup())
         minimap = folium.plugins.MiniMap()
         m.add_child(minimap)
-        folium.TileLayer('Stamen Terrain').add_to(m)
-        folium.TileLayer('Stamen Toner').add_to(m)
-        folium.TileLayer('cartodbpositron').add_to(m)
-        folium.TileLayer('OpenStreetMap').add_to(m)
+        folium.TileLayer('Stamen Terrain',
+                         attr='Map tiles by Stamen Design, under CC BY 3.0. Data by OpenStreetMap, under ODbL').add_to(
+            m)
+
+        folium.TileLayer('Stamen Toner',
+                         attr='Map tiles by Stamen Design, under CC BY 3.0. Data by OpenStreetMap, under ODbL').add_to(
+            m)
+
+        folium.TileLayer('cartodbpositron',
+                         attr='Map tiles by Carto, under CC BY 3.0. Data by OpenStreetMap, under ODbL').add_to(m)
+
+        folium.TileLayer('OpenStreetMap', attr='© OpenStreetMap contributors').add_to(m)
 
         # 锁定范围
         grid_geo_json = get_border(self.upper_right, self.lower_left)
