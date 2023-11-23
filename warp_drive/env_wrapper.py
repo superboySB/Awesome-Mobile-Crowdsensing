@@ -87,7 +87,7 @@ class EnvWrapper:
 
         # Need to pass in an environment instance
         if env_obj is not None:
-            self.env = env_obj
+            self.env: CUDAEnvironmentContext = env_obj
         else:
             assert (
                 env_name is not None

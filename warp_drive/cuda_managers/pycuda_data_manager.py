@@ -40,7 +40,7 @@ class PyCUDADataManager(CUDADataManager):
                                                [0, 0, 0, 0, 0]])
                       )
         data1.add_data(name="a", data=100)
-        cuda_data_manager.push_data_to_device(data)
+        cuda_data_manager.push_data_to_device(data1, torch_accessible=True)
 
         data2 = DataFeed()
         data2.add_data(name="Y", data=[[0.1,0.2,0.3,0.4,0.5],

@@ -206,7 +206,8 @@ def create_and_push_data_placeholders(
             )
         for pol_mod_tag in policy_tag_to_agent_id_map:
             agent_ids = policy_tag_to_agent_id_map[pol_mod_tag]
-            _log_obs_action_spaces(pol_mod_tag, agent_ids[0], env_wrapper)
+            if len(agent_ids) > 0:
+                _log_obs_action_spaces(pol_mod_tag, agent_ids[0], env_wrapper)
 
     if training_batch_size_per_env is not None and training_batch_size_per_env > 1:
         for pol_mod_tag in policy_tag_to_agent_id_map:
@@ -346,6 +347,8 @@ def _create_observation_placeholders_helper(
     obs = [env_wrapper.obs_at_reset() for _ in range(num_envs)]
     assert len(obs) == num_envs
     first_env_id = 0
+    if len(agent_ids) == 0:
+        return
     first_agent_id = agent_ids[0]
 
     if isinstance(obs[first_env_id][first_agent_id], (list, np.ndarray)):
@@ -394,6 +397,8 @@ def _create_processed_observation_batches_helper(
 
     num_envs = env_wrapper.n_envs
     num_agents = len(agent_ids)
+    if num_agents == 0:
+        return
     first_agent_id = agent_ids[0]
 
     name = f"{_PROCESSED_OBSERVATIONS}_batch" + batch_suffix
@@ -425,6 +430,8 @@ def _create_action_placeholders_helper(
 
     num_envs = env_wrapper.n_envs
     num_agents = len(agent_ids)
+    if num_agents == 0:
+        return
     first_agent_id = agent_ids[0]
     action_space = env_wrapper.env.action_space[first_agent_id]
 
@@ -485,6 +492,8 @@ def _create_action_batches_helper(
 
     num_envs = env_wrapper.n_envs
     num_agents = len(agent_ids)
+    if num_agents == 0:
+        return
     first_agent_id = agent_ids[0]
     action_space = env_wrapper.env.action_space[first_agent_id]
     if isinstance(action_space, MultiDiscrete):
@@ -519,7 +528,8 @@ def _prepare_action_sampler_helper(
     agent_ids,
     policy_suffix="",
     ):
-
+    if len(agent_ids) == 0:
+        return
     first_agent_id = agent_ids[0]
     action_space = env_wrapper.env.action_space[first_agent_id]
 
@@ -554,7 +564,8 @@ def _create_reward_placeholders_helper(
     tensor_feed = DataFeed()
     num_envs = env_wrapper.n_envs
     num_agents = len(agent_ids)
-
+    if num_agents == 0:
+        return
     # Push rewards to the device
     rewards_placeholder = np.zeros((num_envs, num_agents), dtype=np.float32)
     tensor_feed.add_data(name=_REWARDS + policy_suffix, data=rewards_placeholder)
@@ -575,7 +586,8 @@ def _create_reward_batches_helper(
 
     num_envs = env_wrapper.n_envs
     num_agents = len(agent_ids)
-
+    if num_agents == 0:
+        return
     name = f"{_REWARDS}_batch" + batch_suffix
     if not env_wrapper.cuda_data_manager.is_data_on_device(name):
         tensor_feed.add_data(

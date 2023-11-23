@@ -23,7 +23,7 @@ class PPO:
     def __init__(
         self,
         discount_factor_gamma=1.0,
-        clip_param=0.1,
+        clip_param=0.2,
         normalize_advantage=False,
         normalize_return=False,
         vf_loss_coeff=0.01,

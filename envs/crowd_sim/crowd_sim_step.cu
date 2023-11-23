@@ -238,7 +238,7 @@ extern "C" {
         }
 
         if (min_dist <= kDroneCarCommRange) {
-          neighbor_agent_ids_arr[kThisAgentArrayIdx] = nearest_car_id;
+        neighbor_agent_ids_arr[kThisAgentArrayIdx] = nearest_car_id;
         }
         else {
           valid_status_arr[kThisAgentArrayIdx] = 0;

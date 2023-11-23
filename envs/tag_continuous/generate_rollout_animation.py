@@ -7,10 +7,11 @@ import numpy as np
 from matplotlib import animation
 from matplotlib.patches import Polygon
 from mpl_toolkits.mplot3d import art3d
+from warp_drive.trainer_lightning import WarpDriveModule
 
 
 def generate_tag_env_rollout_animation(
-    trainer,
+    trainer: WarpDriveModule,
     fps=50,
     tagger_color="#C843C3",
     runner_color="#245EB6",

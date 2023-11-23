@@ -1,6 +1,6 @@
 import logging
 from warp_drive.utils.data_feed import DataFeed
-
+from warp_drive.cuda_managers.data_manager import CUDADataManager
 
 class CUDAEnvironmentContext:
     """
@@ -9,7 +9,7 @@ class CUDAEnvironmentContext:
     """
 
     def __init__(self):
-        self.cuda_data_manager = None
+        self.cuda_data_manager: CUDADataManager = None
         self.cuda_function_manager = None
         self.cuda_step = None
         self.cuda_step_function_feed = None

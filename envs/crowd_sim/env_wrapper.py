@@ -36,7 +36,7 @@ class CrowdSimEnvWrapper:
     all happen on the GPU.
 
     Note: Versions <= 1.7.0 has `use_cuda = True or False`. For users who are using the
-    old API for their application but have the new library installed, we add a runtime
+    old API for their application, but have the new library installed, we add a runtime
     arg fixer that if old API arg is seen by the new library, it will raise a warning
     and convert to the new syntax. It will not do anything otherwise.
     """
@@ -341,12 +341,11 @@ class CrowdSimEnvWrapper:
         """
         Step through all the environments
         """
-        if not self.env_backend == "cpu":
-            self.env.step()
-            result = None  # Do not return anything
-        else:
+        if self.env_backend == "cpu":
             assert actions is not None, "Please provide actions to step with."
             result = self.env.step(actions)
+        else:
+            return self.env.step()
         return result
 
     def obs_at_reset(self):

@@ -7,133 +7,136 @@ import numpy as np
 from matplotlib import animation
 from matplotlib.patches import Polygon
 from mpl_toolkits.mplot3d import art3d
+from warp_drive.trainer_lightning import WarpDriveModule
+from envs.crowd_sim.crowd_sim import CUDACrowdSim
 
 
-def generate_tag_env_rollout_animation(
-    trainer,
-    fps=50,
-    tagger_color="#C843C3",
-    runner_color="#245EB6",
-    runner_not_in_game_color="#666666",
-    fig_width=6,
-    fig_height=6,
+def generate_crowd_sim_animations(
+        trainer: WarpDriveModule
 ):
     assert trainer is not None
-
     episode_states = trainer.fetch_episode_states(
-        ["loc_x", "loc_y", "still_in_the_game"]
+        ["agent_x", "agent_y"]
     )
     assert isinstance(episode_states, dict)
-    env = trainer.cuda_envs.env
+    env: CUDACrowdSim = trainer.cuda_envs.env
+    # TODO: Hack at here, env is filled with the last timestep or something else, need to figure out why
+    env.agent_x_timelist = episode_states['agent_x']
+    env.agent_y_timelist = episode_states['agent_y']
+    env.render(args.output_dir, args.plot_loop, args.moving_line)
 
-    fig, ax = plt.subplots(
-        1, 1, figsize=(fig_width, fig_height)
-    )  # , constrained_layout=True
-    ax.remove()
-    ax = fig.add_subplot(1, 1, 1, projection="3d")
 
-    # Bounds
-    ax.set_xlim(0, 1)
-    ax.set_ylim(0, 1)
-    ax.set_zlim(-0.01, 0.01)
-
-    # Surface
-    corner_points = [(0, 0), (0, 1), (1, 1), (1, 0)]
-
-    poly = Polygon(corner_points, color=(0.1, 0.2, 0.5, 0.15))
-    ax.add_patch(poly)
-    art3d.pathpatch_2d_to_3d(poly, z=0, zdir="z")
-
-    # "Hide" side panes
-    ax.xaxis.set_pane_color((1.0, 1.0, 1.0, 0.0))
-    ax.yaxis.set_pane_color((1.0, 1.0, 1.0, 0.0))
-    ax.zaxis.set_pane_color((1.0, 1.0, 1.0, 0.0))
-
-    # Hide grid lines
-    ax.grid(False)
-
-    # Hide axes ticks
-    ax.set_xticks([])
-    ax.set_yticks([])
-    ax.set_zticks([])
-
-    # Hide axes
-    ax.set_axis_off()
-
-    # Set camera
-    ax.elev = 40
-    ax.azim = -55
-    ax.dist = 10
-
-    # Try to reduce whitespace
-    fig.subplots_adjust(left=0, right=1, bottom=-0.2, top=1)
-
-    # Plot init data
-    lines = [None for _ in range(env.num_agents)]
-
-    for idx in range(env.num_agents):
-        if idx in env.taggers:
-            lines[idx] = ax.plot3D(
-                episode_states["loc_x"][:1, idx] / env.grid_length,
-                episode_states["loc_y"][:1, idx] / env.grid_length,
-                0,
-                color=tagger_color,
-                marker="o",
-                markersize=10,
-            )[0]
-        else:  # runners
-            lines[idx] = ax.plot3D(
-                episode_states["loc_x"][:1, idx] / env.grid_length,
-                episode_states["loc_y"][:1, idx] / env.grid_length,
-                [0],
-                color=runner_color,
-                marker="o",
-                markersize=5,
-            )[0]
-
-    init_num_runners = env.num_agents - env.num_taggers
-
-    def _get_label(timestep, n_runners_alive, init_n_runners):
-        line1 = "Continuous Tag\n"
-        line2 = "Time Step:".ljust(14) + f"{timestep:4.0f}\n"
-        frac_runners_alive = n_runners_alive / init_n_runners
-        pct_runners_alive = f"{n_runners_alive:4} ({frac_runners_alive * 100:.0f}%)"
-        line3 = "Runners Left:".ljust(14) + pct_runners_alive
-        return line1 + line2 + line3
-
-    label = ax.text(
-        0,
-        0,
-        0.02,
-        _get_label(0, init_num_runners, init_num_runners).lower(),
+def setup_cuda_crowd_sim_env():
+    """
+    common setup for cuda_crowd_sim_env
+    """
+    import os
+    torch.set_float32_matmul_precision('medium')
+    run_config = dict(
+        name="crowd_sim",
+        # Environment settings.
+        env=dict(
+            num_cars=4,  # number of drones in the environment
+            num_drones=4,  # number of runners in the environment
+        ),
+        # 框架重要参数，当前两个环境均为 episode_length = 120
+        # Trainer settings.
+        trainer=dict(
+            num_envs=500,  # number of environment replicas (number of GPU blocks used)
+            train_batch_size=1000,  # total batch size used for training per iteration (across all the environments)
+            num_episodes=5000000,
+            # total number of episodes to run the training for (can be arbitrarily high!)   # 120 x 50000 = 6M
+        ),
+        # Policy network settings.
+        policy=dict(
+            car=dict(  # 无人车
+                to_train=True,  # flag indicating whether the model needs to be trained
+                algorithm="PPO",  # algorithm used to train the policy
+                vf_loss_coeff=1,  # loss coefficient for the value function loss
+                entropy_coeff=0.01,  # coefficient for the entropy component of the loss
+                clip_grad_norm=True,  # flag indicating whether to clip the gradient norm or not
+                max_grad_norm=10,  # when clip_grad_norm is True, the clip level
+                normalize_advantage=True,  # flag indicating whether to normalize advantage or not
+                normalize_return=False,  # flag indicating whether to normalize return or not
+                gamma=0.99,  # discount rate
+                lr=1e-5,  # learning rate
+                model=dict(
+                    type="fully_connected",
+                    fc_dims=[512, 512],
+                    model_ckpt_filepath=""
+                ),  # policy model settings
+            ),
+            drone=dict(  # 无人机
+                to_train=True,
+                algorithm="PPO",
+                vf_loss_coeff=1,
+                entropy_coeff=0.01,  # [[0, 0.5],[3000000, 0.01]]
+                clip_grad_norm=True,
+                max_grad_norm=0.5,
+                normalize_advantage=True,
+                normalize_return=False,
+                gamma=0.99,
+                lr=1e-5,
+                model=dict(
+                    type="fully_connected",
+                    fc_dims=[512, 512],
+                    model_ckpt_filepath=""
+                ),
+            ),
+        ),
+        # Checkpoint saving setting.
+        saving=dict(
+            metrics_log_freq=100,  # how often (in iterations) to print the metrics
+            model_params_save_freq=5000,  # how often (in iterations) to save the model parameters
+            basedir="./saved_data",  # base folder used for saving
+            name="crowd_sim",  # experiment name
+            tag="infocom2022",  # experiment tag
+        ),
     )
-
-    label.set_fontsize(14)
-    label.set_fontweight("normal")
-    label.set_color("#666666")
-
-    def animate(i):
-        for idx, line in enumerate(lines):
-            line.set_data_3d(
-                episode_states["loc_x"][i : i + 1, idx] / env.grid_length,
-                episode_states["loc_y"][i : i + 1, idx] / env.grid_length,
-                np.zeros(1),
-            )
-
-            still_in_game = episode_states["still_in_the_game"][i, idx]
-
-            if still_in_game:
-                pass
-            else:
-                line.set_color(runner_not_in_game_color)
-                line.set_marker("")
-
-        n_runners_alive = episode_states["still_in_the_game"][i].sum() - env.num_taggers
-        label.set_text(_get_label(i, n_runners_alive, init_num_runners).lower())
-
-    ani = animation.FuncAnimation(
-        fig, animate, np.arange(0, env.episode_length + 1), interval=1000.0 / fps
+    env_registrar = EnvironmentRegistrar()
+    env_registrar.add_cuda_env_src_path(CUDACrowdSim.name,
+                                        os.path.join(get_project_root(), "envs", "crowd_sim", "crowd_sim_step.cu"))
+    env_wrapper = CrowdSimEnvWrapper(
+        CUDACrowdSim(**run_config["env"]),
+        num_envs=run_config["trainer"]["num_envs"],
+        env_backend="pycuda",
+        env_registrar=env_registrar
     )
-    plt.close()
+    # Agents can share policy models: this dictionary maps policy model names to agent ids.
+    policy_tag_to_agent_id_map = {
+        "car": list(env_wrapper.env.cars),
+        "drone": list(env_wrapper.env.drones),
+    }
+    new_wd_module = WarpDriveModule(
+        env_wrapper=env_wrapper,
+        config=run_config,
+        policy_tag_to_agent_id_map=policy_tag_to_agent_id_map,
+        create_separate_placeholders_for_each_policy=False,  # TODO: True -> IPPO?
+        obs_dim_corresponding_to_num_agents="first",
+        verbose=True,
+    )
+    return new_wd_module
 
-    return ani
+
+if __name__ == "__main__":
+    import torch
+    import argparse
+    from envs.crowd_sim.crowd_sim import CUDACrowdSim
+    from envs.crowd_sim.env_wrapper import CrowdSimEnvWrapper
+    from warp_drive.utils.env_registrar import EnvironmentRegistrar
+    from warp_drive.utils.common import get_project_root
+
+    parser = argparse.ArgumentParser()
+    # parser.add_argument(
+    #     '--ckpts_path', type=str
+    # )
+    parser.add_argument('--output_dir', type=str, default='./logs.html')
+    parser.add_argument('--plot_loop', action='store_true')
+    parser.add_argument('--moving_line', action='store_true')
+    args = parser.parse_args()
+    wd_module = setup_cuda_crowd_sim_env()
+    wd_module.load_model_checkpoint({"car":
+                                         "./saved_data/crowd_sim/infocom2022/1700472331/car_50000000.state_dict",
+                                     "drone":
+                                         "./saved_data/crowd_sim/infocom2022/1700472331/drone_50000000.state_dict"})
+    generate_crowd_sim_animations(wd_module)

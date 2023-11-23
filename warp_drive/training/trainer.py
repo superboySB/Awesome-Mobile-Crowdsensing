@@ -1031,7 +1031,10 @@ class Metrics:
 
         for policy in metrics:
             print("=" * 40)
-            print(f"Metrics for policy '{policy}'")
+            title_string = f"Metrics for policy '{policy}'" if 'env' not in policy else f"Metrics for env"
+            print(title_string)
             print("=" * 40)
             for k, v in metrics[policy].items():
+                if isinstance(v, torch.Tensor):
+                    v = v.mean().item()
                 print(f"{k:40}: {v:10.5f}")
