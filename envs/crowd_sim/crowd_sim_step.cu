@@ -33,7 +33,7 @@ extern "C" {
       int kEpisodeLength,
       const int kEnvId,
       const int kThisAgentId,
-      const int kThisAgentArrayIdx  
+      const int kThisAgentArrayIdx
   ) {
     const int num_features = 2 + 2 * kNumAgentsObserved * 2 + 100;
     if (kThisAgentId < kNumAgents) {
@@ -174,7 +174,9 @@ extern "C" {
     int * done_arr,
     int * env_timestep_arr,
     int kNumAgents,
-    int kEpisodeLength    
+    int kEpisodeLength,
+    const int max_distance_x,
+    const int max_distance_y
   ) {
     const int kEnvId = getEnvID(blockIdx.x);
     const int kThisAgentId = getAgentID(threadIdx.x, blockIdx.x, blockDim.x);
@@ -189,7 +191,7 @@ extern "C" {
     __sync_env_threads(); // Wait here until timestep has been updated
     assert(env_timestep_arr[kEnvId] > 0 && env_timestep_arr[kEnvId] <=
       kEpisodeLength);
-
+    bool over_range = false;
     // -------------------------------
     // Load Actions to update agent positions
     if (kThisAgentId < kNumAgents) {
@@ -207,10 +209,17 @@ extern "C" {
       }
       
       float consume_energy = 0.0;  //TODO: lack uav/ugv energy consumption
-      agent_x_arr[kThisAgentArrayIdx] += dx;
-      agent_y_arr[kThisAgentArrayIdx] += dy;
-      agent_energy_arr[kThisAgentArrayIdx] -= consume_energy;
-   
+      float new_x = agent_x_arr[kThisAgentArrayIdx] + dx;
+      float new_y = agent_y_arr[kThisAgentArrayIdx] + dy;
+      if (new_x < max_distance_x && new_y < max_distance_y && new_x > 0 && new_y > 0){
+        agent_x_arr[kThisAgentArrayIdx] = new_x;
+        agent_y_arr[kThisAgentArrayIdx] = new_y;
+        agent_energy_arr[kThisAgentArrayIdx] -= consume_energy;
+      }
+      else{
+        over_range = true;
+        // printf("agent %d out of bound\n", kThisAgentId);
+      }
     }
     __sync_env_threads();  // Make sure all agents have updated their positions
     // -------------------------------
@@ -326,7 +335,7 @@ extern "C" {
     // -------------------------------
     // Use only agent 0's thread to set done_arr
     if (kThisAgentId == 0) {
-      if (env_timestep_arr[kEnvId] == kEpisodeLength) {
+      if (env_timestep_arr[kEnvId] == kEpisodeLength || over_range) {
           done_arr[kEnvId] = 1;
       }
     }

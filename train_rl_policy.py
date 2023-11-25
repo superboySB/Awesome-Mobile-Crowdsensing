@@ -152,4 +152,7 @@ trainer.fit(wd_module)
 # anim.save("./mymovie.mp4")
 
 
-# wd_module.graceful_close()
+wd_module.graceful_close()
+
+# example shell
+# CUDA_VISIBLE_DEVICES=1 PATH=/usr/local/cuda/bin:$PATH python train_rl_policy.py

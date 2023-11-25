@@ -57,6 +57,15 @@ Train independent PPO as the baseline policies:
 ```sh
 python train_rl_policy.py
 ```
+To Debug, run the following command to expose docker ssh interface
+```shell
+sudo docker run -itd --gpus=all --name=mcs -p 40731:22 aequatiospace/linc_image:v1.2 /bin/bash
+sudo docker exec -it mcs /bin/bash
+# restart ssh within the docker
+/etc/init.d/ssh restart
+# you can now login from outside with
+ssh root@localhost -p 40731
+```
 [Developing] Run the trained RL policy
 ```sh
 python run_rl_policy.py

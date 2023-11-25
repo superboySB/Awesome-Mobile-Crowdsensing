@@ -522,6 +522,10 @@ class WarpDriveModule(LightningModule):
                 self.metrics.pretty_print(metrics)
 
             results_filename = os.path.join(self.save_dir, "results.json")
+            # try:
+            #     del metrics['__all__']
+            # except KeyError:
+            #     pass
             for k, v in metrics.items():
                 if isinstance(v, torch.Tensor):
                     metrics[k] = v.mean().item()
@@ -765,8 +769,7 @@ class WarpDriveModule(LightningModule):
         dataset = WarpDriveDataset(
             self._generate_training_data, batch_size=self.training_batch_size_per_env
         )
-        return DataLoader(dataset, batch_size=self.training_batch_size_per_env)
-                          # num_workers=8, persistent_workers=True)
+        return DataLoader(dataset, batch_size=self.training_batch_size_per_env, num_workers=8, persistent_workers=True)
 
     def configure_optimizers(self):
         """Optimizers and LR Schedules"""
@@ -910,6 +913,7 @@ class WarpDriveModule(LightningModule):
                     )
         if logging_flag:
             _ENV_INFO = 'env_info'
+            del batch[_ENV_INFO]['__all__']
             for k, v in batch[_ENV_INFO].items():
                 if isinstance(v, torch.Tensor):
                     batch[_ENV_INFO][k] = v.mean().item()

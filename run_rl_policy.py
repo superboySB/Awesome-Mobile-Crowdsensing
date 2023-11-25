@@ -136,7 +136,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
     wd_module = setup_cuda_crowd_sim_env()
     wd_module.load_model_checkpoint({"car":
-                                         "./saved_data/crowd_sim/infocom2022/1700472331/car_50000000.state_dict",
+                                         "./saved_data/crowd_sim/infocom2022/1700900185/car_80000000.state_dict",
                                      "drone":
-                                         "./saved_data/crowd_sim/infocom2022/1700472331/drone_50000000.state_dict"})
+                                         "./saved_data/crowd_sim/infocom2022/1700900185/drone_80000000.state_dict"})
     generate_crowd_sim_animations(wd_module)

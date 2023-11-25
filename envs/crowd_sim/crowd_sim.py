@@ -7,8 +7,8 @@ import copy
 from gym import spaces
 from shapely.geometry import Point
 from folium.plugins import TimestampedGeoJson, AntPath
-from datasets.KAIST.env_config import BaseEnvConfig
-# from datasets.Sanfrancisco.env_config import BaseEnvConfig # TODO：可以在这里切换为更大的San，一定需要更多agents
+# from datasets.KAIST.env_config import BaseEnvConfig
+from datasets.Sanfrancisco.env_config import BaseEnvConfig # TODO：可以在这里切换为更大的San，一定需要更多agents
 from .utils import *
 
 from warp_drive.utils.constants import Constants
@@ -57,6 +57,11 @@ class CrowdSim:
         self.nlat = self.config.env.nlat
         self.lower_left = self.config.env.lower_left
         self.upper_right = self.config.env.upper_right
+        from movingpandas.geometry_utils import measure_distance_geodesic
+        self.max_distance_x = measure_distance_geodesic(Point(self.lower_left[0], self.lower_left[1]),
+                                                        Point(self.upper_right[0], self.lower_left[1]))
+        self.max_distance_y = measure_distance_geodesic(Point(self.lower_left[0], self.lower_left[1]),
+                                                        Point(self.lower_left[0], self.upper_right[1]))
         self.human_df = pd.read_csv(self.config.env.dataset_dir)
         logging.info("Finished reading {} rows".format(len(self.human_df)))
         self.human_df['t'] = pd.to_datetime(self.human_df['timestamp'], unit='s')  # s表示时间戳转换
@@ -325,7 +330,7 @@ class CrowdSim:
         self.timestep += 1
         assert isinstance(actions, dict)
         assert len(actions) == self.num_agents
-
+        over_range = False
         for agent_id in range(self.num_agents):
 
             # is_stopping = True if actions[agent_id] == 0 else False
@@ -337,9 +342,16 @@ class CrowdSim:
             # TODO: 暂缺车辆的能耗公式区分,不过目前也没有加充电桩啦，本来电量就不会耗尽
             # consume_energy = self.calculate_energy_consume(0, self.step_time) if is_stopping else self.calculate_energy_consume(self.step_time, 0)
             consume_energy = 0
+            new_x = self.agent_x_timelist[self.timestep - 1, agent_id] + dx
+            new_y = self.agent_y_timelist[self.timestep - 1, agent_id] + dy
+            if new_x <= self.max_distance_x and new_y <= self.max_distance_y:
+                self.agent_x_timelist[self.timestep, agent_id] = new_x
+                self.agent_y_timelist[self.timestep, agent_id] = new_y
+            else:
+                self.agent_x_timelist[self.timestep, agent_id] = self.agent_x_timelist[self.timestep - 1, agent_id]
+                self.agent_y_timelist[self.timestep, agent_id] = self.agent_y_timelist[self.timestep - 1, agent_id]
+                over_range = True
 
-            self.agent_x_timelist[self.timestep, agent_id] = self.agent_x_timelist[self.timestep - 1, agent_id] + dx
-            self.agent_y_timelist[self.timestep, agent_id] = self.agent_y_timelist[self.timestep - 1, agent_id] + dy
             self.agent_energy_timelist[self.timestep, agent_id] = self.agent_energy_timelist[
                                                                       self.timestep - 1, agent_id] - consume_energy
 
@@ -359,7 +371,8 @@ class CrowdSim:
             for agent_id, target_agent_distance in zip(target_nearest_agent_ids[:, target_id],
                                                        target_nearest_agent_distances[:, target_id]):
                 if self.agent_types[agent_id] == 0 \
-                        and target_agent_distance <= self.drone_sensing_range:  # TODO：目前假设car和drone的sensing range相同，便于判断
+                        and target_agent_distance <= self.drone_sensing_range:  # TODO：目前假设car和drone的sensing
+                    # range相同，便于判断
                     increase_aoi_flag = False
                     rew[agent_id] += (self.target_aoi_timelist[self.timestep - 1, target_id] - 1) / self.episode_length
                     self.target_aoi_timelist[self.timestep, target_id] = 1
@@ -387,7 +400,7 @@ class CrowdSim:
         obs = self.generate_observation()
 
         done = {
-            "__all__": (self.timestep >= self.episode_length)
+            "__all__": (self.timestep >= self.episode_length) or over_range
         }
 
         result = obs, rew, done, self.collect_info()
@@ -409,11 +422,6 @@ class CrowdSim:
     def render(self, output_file=None, plot_loop=False, moving_line=False):
         import geopandas as gpd
         import movingpandas as mpd
-        from movingpandas.geometry_utils import measure_distance_geodesic
-        max_distance_x = measure_distance_geodesic(Point(self.lower_left[0], self.lower_left[1]),
-                                                   Point(self.upper_right[0], self.lower_left[1]))
-        max_distance_y = measure_distance_geodesic(Point(self.lower_left[0], self.lower_left[1]),
-                                                   Point(self.lower_left[0], self.upper_right[1]))
 
         mixed_df = self.human_df.copy()
 
@@ -425,8 +433,8 @@ class CrowdSim:
             aoi_list = np.ones_like(x_list) * (-1)
             energy_list = self.agent_energy_timelist[:, i]
             timestamp_list = [self.start_timestamp + i * self.step_time for i in range(self.episode_length + 1)]
-            x_distance_list = x_list * max_distance_x / self.nlon + max_distance_x / self.nlon / 2
-            y_distance_list = y_list * max_distance_y / self.nlat + max_distance_y / self.nlat / 2
+            x_distance_list = x_list * self.max_distance_x / self.nlon + self.max_distance_x / self.nlon / 2
+            y_distance_list = y_list * self.max_distance_y / self.nlat + self.max_distance_y / self.nlat / 2
             max_longitude = abs(self.lower_left[0] - self.upper_right[0])
             max_latitude = abs(self.lower_left[1] - self.upper_right[1])
             longitude_list = x_list * max_longitude / self.nlon + max_longitude / self.nlon / 2 + self.lower_left[0]
@@ -472,7 +480,7 @@ class CrowdSim:
         grid_geo_json = get_border(self.upper_right, self.lower_left)
         color = "red"
         border = folium.GeoJson(grid_geo_json,
-                                style_function=lambda feature, color=color: {
+                                style_function=lambda feature, clr=color: {
                                     'fillColor': color,
                                     'color': "black",
                                     'weight': 2,
@@ -482,15 +490,20 @@ class CrowdSim:
         m.add_child(border)
 
         for index, traj in enumerate(trajs.trajectories):
-            if traj.df['id'].iloc[0] < 0 and traj.df['id'].iloc[0] >= (-self.num_cars):
+            if 0 > traj.df['id'].iloc[0] >= (-self.num_cars):
                 name = f"Agent {self.num_agents - index - 1} (Car)"
             elif traj.df['id'].iloc[0] < (-self.num_cars):
                 name = f"Agent {self.num_agents - index - 1} (Drone)"
             else:
                 name = f"Human {traj.df['id'].iloc[0]}"
 
-            randr = lambda: np.random.randint(0, 255)
-            color = '#%02X%02X%02X' % (randr(), randr(), randr())  # black
+            def rand_byte():
+                """
+                return a random integer between 0 and 255 ( a byte)
+                """
+                return np.random.randint(0, 255)
+
+            color = '#%02X%02X%02X' % (rand_byte(), rand_byte(), rand_byte())  # black
 
             # point
             features = traj_to_timestamped_geojson(index, traj, self.num_cars, self.num_drones, color)
@@ -612,7 +625,14 @@ class CUDACrowdSim(CrowdSim, CUDAEnvironmentContext):
             data=self.int_dtype(np.zeros([self.num_agents, self.num_agents - 1])),
             save_copy_and_apply_at_reset=True,
         )
-
+        data_dict.add_data(
+            name="max_distance_x",
+            data=self.float_dtype(self.max_distance_x),
+        )
+        data_dict.add_data(
+            name="max_distance_y",
+            data=self.float_dtype(self.max_distance_y),
+        )
         return data_dict
 
     def step(self, actions=None):
@@ -648,6 +668,8 @@ class CUDACrowdSim(CrowdSim, CUDAEnvironmentContext):
             "_timestep_",
             ("n_agents", "meta"),
             ("episode_length", "meta"),
+            "max_distance_x",
+            "max_distance_y"
         ]
         if self.env_backend == "pycuda":
             self.cuda_step(
