@@ -13,10 +13,12 @@ from pytorch_lightning import Trainer
 
 from envs.crowd_sim.crowd_sim import CUDACrowdSim
 from envs.crowd_sim.env_wrapper import CrowdSimEnvWrapper
+from envs.crowd_sim.crowd_sim import AOI_METRIC_NAME, DATA_METRIC_NAME, ENERGY_METRIC_NAME, COVERAGE_METRIC_NAME
 from warp_drive.utils.env_registrar import EnvironmentRegistrar
 from warp_drive.trainer_lightning import CUDACallback, PerfStatsCallback, WarpDriveModule
 from warp_drive.utils.common import get_project_root
 import multiprocessing as mp
+import setproctitle
 
 parser = argparse.ArgumentParser()
 parser.add_argument(
@@ -29,8 +31,8 @@ run_config = dict(
     name="crowd_sim",
     # Environment settings.
     env=dict(
-        num_cars=4,  # number of drones in the environment
-        num_drones=4,  # number of runners in the environment
+        num_cars=3,  # number of drones in the environment
+        num_drones=3,  # number of runners in the environment
     ),
     # 框架重要参数，当前两个环境均为 episode_length = 120
     # Trainer settings.
@@ -83,10 +85,12 @@ run_config = dict(
         model_params_save_freq=5000,  # how often (in iterations) to save the model parameters
         basedir="./saved_data",  # base folder used for saving
         name="crowd_sim",  # experiment name
-        tag="infocom2022",  # experiment tag
+        tag="kdd2024",  # experiment tag
     ),
 )
 
+expr_name = f"car{run_config['env']['num_cars']}_drone{run_config['env']['num_drones']}_kdd2024"
+setproctitle.setproctitle(expr_name)
 env_registrar = EnvironmentRegistrar()
 env_registrar.add_cuda_env_src_path(CUDACrowdSim.name,
                                     os.path.join(get_project_root(), "envs", "crowd_sim", "crowd_sim_step.cu"))
@@ -134,7 +138,16 @@ num_epochs = int(num_episodes * episode_length / training_batch_size)
 # Set reload_dataloaders_every_n_epochs=1 to invoke
 # train_dataloader() each epoch.
 if args.track:
-    wandb_logger = WandbLogger(project="awesome-mcs", name="infocom2022")
+    import wandb
+
+    # Initialize a wandb run
+    wandb_logger = WandbLogger(project="awesome-mcs", name=expr_name)
+    wandb.init(project="awesome-mcs", name=expr_name)
+    prefix = 'env/'
+    wandb.define_metric(prefix + COVERAGE_METRIC_NAME, summary="max")
+    wandb.define_metric(prefix + ENERGY_METRIC_NAME, summary="min")
+    wandb.define_metric(prefix + DATA_METRIC_NAME, summary="max")
+    wandb.define_metric(prefix + AOI_METRIC_NAME, summary="min")
 else:
     wandb_logger = None
 trainer = Trainer(
@@ -145,13 +158,12 @@ trainer = Trainer(
     reload_dataloaders_every_n_epochs=1,
     logger=wandb_logger
 )
+# Define a metric
 
 trainer.fit(wd_module)
 
 # anim = generate_tag_env_rollout_animation(wd_module, fps=25)
 # anim.save("./mymovie.mp4")
-
-
 wd_module.graceful_close()
 
 # example shell

@@ -4,12 +4,39 @@
 // For full license text, see the LICENSE file in the repo root
 // or https://opensource.org/licenses/BSD-3-Clause
 #include <stdio.h>
-
+#include <math.h>
 __constant__ float kTwoPi = 6.28318530718;
 __constant__ float kEpsilon = 1.0e-10;  // to prevent indeterminate cases
 __constant__ float kMaxDistance = 1.0e10;
 
 extern "C" {
+  __device__ float calculateEnergy(const int& slot_time, const float& move_time, const int& agent_speed){
+     float stop_time = slot_time - move_time;
+     if (agent_speed < 10){
+        float idle_cost = 17.49;
+        float energy_factor = 7.4;
+        return (idle_cost + energy_factor) * agent_speed * move_time + idle_cost * stop_time;
+     }
+     else{
+        float P0 = 79.8563;  // blade profile power, W
+        float P1 = 88.6279;  // derived power, W
+        float U_tips = 120;  // tip speed of the rotor blade of the UAV,m/s
+        float v0 = 4.03;  // the mean rotor induced velocity in the hovering state,m/s
+        float d0 = 0.6;  // fuselage drag ratio
+        float rho = 1.225;  // density of air,kg/m^3
+        float s0 = 0.05;  // the rotor solidity
+        float A = 0.503;  // the area of the rotor disk, m^2
+        int vt = agent_speed;
+        int vt_2 = vt * vt;
+        int vt_4 = vt_2 * vt_2;
+        float v0_2 = v0 * v0;
+        float v0_4 = v0_2 * v0_2;
+        float flying_energy = P0 * (1 + 3 * vt_2 / (U_tips * U_tips)) + \
+                           P1 * sqrt(sqrt(1 + vt_4 / (4 * v0_4)) - vt_2 / (2 * v0_2)) + \
+                           0.5 * d0 * rho * s0 * A * vt_2 * vt;
+        return move_time * flying_energy + stop_time * (P0 + P1);
+     }
+  }
   // Device helper function to generate observation
   __device__ void CudaCrowdSimGenerateObservation(
       float * obs_arr,
@@ -57,11 +84,9 @@ extern "C" {
         if (agent_idx == kThisAgentId){
           continue;
         }
-        float dist = sqrt(
-            pow(agent_x_arr[kThisAgentArrayIdx] - agent_x_arr[kEnvId * kNumAgents+agent_idx], 2) +
-            pow(agent_y_arr[kThisAgentArrayIdx] - agent_y_arr[kEnvId * kNumAgents+agent_idx], 2)
-              );
-            
+        float temp_x = agent_x_arr[kThisAgentArrayIdx] - agent_x_arr[kEnvId * kNumAgents+agent_idx];
+        float temp_y = agent_y_arr[kThisAgentArrayIdx] - agent_y_arr[kEnvId * kNumAgents+agent_idx];
+        float dist = sqrt(temp_x * temp_x + temp_y * temp_y);
         neighbor_agent_distances_arr[kThisDistanceArrayIdxOffset + i_index] = dist;
         neighbor_agent_ids_sorted_by_distances_arr[kThisDistanceArrayIdxOffset + i_index] = agent_idx;
         i_index++;
@@ -164,6 +189,7 @@ extern "C" {
     const float * target_x_timelist,
     const float * target_y_timelist,
     float * target_aoi_arr,
+    int * target_coverage_arr,
     int * valid_status_arr,
     int * neighbor_agent_ids_arr,
     const float kCarSensingRange,
@@ -176,7 +202,9 @@ extern "C" {
     int kNumAgents,
     int kEpisodeLength,
     const int max_distance_x,
-    const int max_distance_y
+    const int max_distance_y,
+    const float slot_time,
+    const int* agent_speed_arr
   ) {
     const int kEnvId = getEnvID(blockIdx.x);
     const int kThisAgentId = getAgentID(threadIdx.x, blockIdx.x, blockDim.x);
@@ -207,14 +235,23 @@ extern "C" {
         dx = drone_action_space_dx_arr[action_indices_arr[kThisAgentActionIdxOffset]];
         dy = drone_action_space_dy_arr[action_indices_arr[kThisAgentActionIdxOffset]];
       }
-      
-      float consume_energy = 0.0;  //TODO: lack uav/ugv energy consumption
+
       float new_x = agent_x_arr[kThisAgentArrayIdx] + dx;
       float new_y = agent_y_arr[kThisAgentArrayIdx] + dy;
       if (new_x < max_distance_x && new_y < max_distance_y && new_x > 0 && new_y > 0){
+        float distance = sqrt(dx * dx + dy * dy);
         agent_x_arr[kThisAgentArrayIdx] = new_x;
         agent_y_arr[kThisAgentArrayIdx] = new_y;
-        agent_energy_arr[kThisAgentArrayIdx] -= consume_energy;
+        int my_speed = agent_speed_arr[is_drone];
+        float move_time = distance / my_speed;
+        float consume_energy = calculateEnergy(slot_time, move_time, my_speed);
+        if (agent_energy_arr[kThisAgentArrayIdx] < consume_energy){
+          over_range = true;
+          // printf("agent %d out of energy\n", kThisAgentId);
+        }
+        else{
+          agent_energy_arr[kThisAgentArrayIdx] -= consume_energy;
+        }
       }
       else{
         over_range = true;
@@ -235,10 +272,9 @@ extern "C" {
         for (int other_agent_id = 0; other_agent_id < kNumAgents; other_agent_id++) {
           bool is_car = !agent_types_arr[other_agent_id];
           if (is_car) {
-            float dist = sqrt(
-                pow(agent_x_arr[kEnvId * kNumAgents+kThisAgentId] - agent_x_arr[kEnvId * kNumAgents+other_agent_id], 2) +
-                pow(agent_y_arr[kEnvId * kNumAgents+kThisAgentId] - agent_y_arr[kEnvId * kNumAgents+other_agent_id], 2));
-            
+            float temp_x = agent_x_arr[kEnvId * kNumAgents+kThisAgentId] - agent_x_arr[kEnvId * kNumAgents+other_agent_id];
+            float temp_y = agent_y_arr[kEnvId * kNumAgents+kThisAgentId] - agent_y_arr[kEnvId * kNumAgents+other_agent_id];
+            float dist = sqrt(temp_x * temp_x + temp_y * temp_y);
             if (dist < min_dist) {
               min_dist = dist;
               nearest_car_id = other_agent_id;
@@ -275,11 +311,9 @@ extern "C" {
             continue;
           }
           else{
-            float dist = sqrt(
-                pow(agent_x_arr[kEnvId * kNumAgents+agent_idx] - target_x_timelist[kThisTargetPositionTimelistIdxOffset+target_idx], 2) +
-                pow(agent_y_arr[kEnvId * kNumAgents+agent_idx] - target_y_timelist[kThisTargetPositionTimelistIdxOffset+target_idx], 2)
-              );
-            
+          float temp_x = agent_x_arr[kEnvId * kNumAgents+agent_idx] - target_x_timelist[kThisTargetPositionTimelistIdxOffset+target_idx];
+          float temp_y = agent_y_arr[kEnvId * kNumAgents+agent_idx] - target_y_timelist[kThisTargetPositionTimelistIdxOffset+target_idx];
+            float dist = sqrt(temp_x * temp_x + temp_y * temp_y);
             if (dist < min_dist) {
                 min_dist = dist;
                 nearest_agent_id = agent_idx;
@@ -296,6 +330,7 @@ extern "C" {
             // printf("t:%d a:%d na: %d rew: %f\n", target_idx, nearest_agent_id, drone_nearest_car_id, rewards_arr[kEnvId * kNumAgents + nearest_agent_id]);
           }
           target_aoi_arr[kThisTargetAgeArrayIdxOffset + target_idx] = 1.0;
+          target_coverage_arr[kThisTargetAgeArrayIdxOffset + target_idx] = 1.0;
         }
         else{
           target_aoi_arr[kThisTargetAgeArrayIdxOffset + target_idx] += 1.0;

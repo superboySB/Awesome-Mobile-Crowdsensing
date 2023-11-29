@@ -8,13 +8,23 @@ from gym import spaces
 from shapely.geometry import Point
 from folium.plugins import TimestampedGeoJson, AntPath
 # from datasets.KAIST.env_config import BaseEnvConfig
-from datasets.Sanfrancisco.env_config import BaseEnvConfig # TODO：可以在这里切换为更大的San，一定需要更多agents
+from datasets.Sanfrancisco.env_config import BaseEnvConfig
+# TODO：可以在这里切换为更大的San，一定需要更多agents
 from .utils import *
 
 from warp_drive.utils.constants import Constants
 from warp_drive.utils.data_feed import DataFeed
 from warp_drive.utils.gpu_environment_context import CUDAEnvironmentContext
 
+COVERAGE_METRIC_NAME = "target_coverage"
+
+DATA_METRIC_NAME = "collected_data_ratio"
+
+ENERGY_METRIC_NAME = "mean_energy_consumption"
+
+AOI_METRIC_NAME = "mean_aoi"
+
+_AGENT_ENERGY = "agent_energy"
 _OBSERVATIONS = Constants.OBSERVATIONS
 _ACTIONS = Constants.ACTIONS
 _REWARDS = Constants.REWARDS
@@ -67,6 +77,7 @@ class CrowdSim:
         self.human_df['t'] = pd.to_datetime(self.human_df['timestamp'], unit='s')  # s表示时间戳转换
         self.human_df['aoi'] = -1  # 加入aoi记录aoi
         self.human_df['energy'] = -1  # 加入energy记录energy
+        self.agent_speed = {'car': self.config.env.car_velocity, 'drone': self.config.env.drone_velocity}
 
         # human infos
         unique_ids = np.arange(0, self.num_sensing_targets)  # id from 0 to 91
@@ -76,7 +87,7 @@ class CrowdSim:
         self.target_x_timelist = np.full([self.episode_length + 1, self.num_sensing_targets], np.nan)
         self.target_y_timelist = np.full([self.episode_length + 1, self.num_sensing_targets], np.nan)
         self.target_aoi_timelist = np.ones([self.episode_length + 1, self.num_sensing_targets])
-        self.target_coveraged_timelist = np.zeros([self.episode_length, self.num_sensing_targets])
+        self.target_coveraged_timelist = np.zeros([self.episode_length + 1, self.num_sensing_targets])
 
         # Fill the new array with data from the full DataFrame
         for _, row in self.human_df.iterrows():
@@ -106,12 +117,12 @@ class CrowdSim:
         self.starting_location_x = self.nlon / 2
         self.starting_location_y = self.nlat / 2
         self.max_uav_energy = self.config.env.max_uav_energy
-        self.agent_energy_timelist = np.ones([self.episode_length + 1, self.num_agents],
-                                             dtype=float) * self.max_uav_energy
-        self.agent_x_timelist = np.ones([self.episode_length + 1, self.num_agents],
-                                        dtype=float) * self.starting_location_x
-        self.agent_y_timelist = np.ones([self.episode_length + 1, self.num_agents],
-                                        dtype=float) * self.starting_location_y
+        self.agent_energy_timelist = np.full([self.episode_length + 1, self.num_agents],
+                                             fill_value=self.max_uav_energy, dtype=float)
+        self.agent_x_timelist = np.full([self.episode_length + 1, self.num_agents],
+                                        fill_value=self.starting_location_x, dtype=float)
+        self.agent_y_timelist = np.full([self.episode_length + 1, self.num_agents],
+                                        fill_value=self.starting_location_y, dtype=float)
         self.data_collection = 0
 
         # Seeding
@@ -198,20 +209,20 @@ class CrowdSim:
         self.timestep = 0
 
         # Re-initialize the global state
-        for agent_id in range(self.num_agents):
-            self.agent_x_timelist[self.timestep, agent_id] = self.starting_location_x
-            self.agent_y_timelist[self.timestep, agent_id] = self.starting_location_y
-            self.agent_energy_timelist[self.timestep, agent_id] = self.max_uav_energy
+        # for agent_id in range(self.num_agents):
+        self.agent_x_timelist[self.timestep, :] = self.starting_location_x
+        self.agent_y_timelist[self.timestep, :] = self.starting_location_y
+        self.agent_energy_timelist[self.timestep, :] = self.max_uav_energy
 
-        for target_id in range(self.num_sensing_targets):
-            self.target_aoi_timelist[self.timestep, target_id] = 1
+        # for target_id in range(self.num_sensing_targets):
+        self.target_aoi_timelist[self.timestep, :] = 1
 
         # reset global distance matrix
         self.calculate_global_distance_matrix()
 
         # for logging
         self.data_collection = 0
-        self.target_coveraged_timelist = np.zeros([self.episode_length, self.num_sensing_targets])
+        self.target_coveraged_timelist = np.zeros([self.episode_length + 1, self.num_sensing_targets])
 
         return self.generate_observation()
 
@@ -302,26 +313,34 @@ class CrowdSim:
 
         return obs
 
-    def calculate_energy_consume(self, fly_time, hover_time):
-        # configs
-        Pu = 0.5  # the average transmitted power of each user, W,  e.g. mobile phone
-        P0 = 79.8563  # blade profile power, W
-        P1 = 88.6279  # derived power, W
-        U_tips = 120  # tip speed of the rotor blade of the UAV,m/s
-        v0 = 4.03  # the mean rotor induced velocity in the hovering state,m/s
-        d0 = 0.6  # fuselage drag ratio
-        rho = 1.225  # density of air,kg/m^3
-        s0 = 0.05  # the rotor solidity
-        A = 0.503  # the area of the rotor disk, m^2
-        vt = self.config.env.velocity  # velocity of the UAV,m/s
+    def calculate_energy_consume(self, move_time, agent_id):
+        stop_time = self.step_time - move_time
+        if self.cars[agent_id]:
+            idle_cost = 17.49
+            energy_factor = 7.4
+            return (idle_cost + energy_factor) * self.agent_speed['car'] * move_time + idle_cost * stop_time
+        elif self.drones[agent_id]:
+            # configs
+            Pu = 0.5  # the average transmitted power of each user, W,  e.g. mobile phone
+            P0 = 79.8563  # blade profile power, W
+            P1 = 88.6279  # derived power, W
+            U_tips = 120  # tip speed of the rotor blade of the UAV,m/s
+            v0 = 4.03  # the mean rotor induced velocity in the hovering state,m/s
+            d0 = 0.6  # fuselage drag ratio
+            rho = 1.225  # density of air,kg/m^3
+            s0 = 0.05  # the rotor solidity
+            A = 0.503  # the area of the rotor disk, m^2
+            vt = self.config.env.velocity  # velocity of the UAV, m/s
 
-        Power_flying = P0 * (1 + 3 * vt ** 2 / U_tips ** 2) + \
-                       P1 * np.sqrt((np.sqrt(1 + vt ** 4 / (4 * v0 ** 4)) - vt ** 2 / (2 * v0 ** 2))) + \
-                       0.5 * d0 * rho * s0 * A * vt ** 3
+            flying_energy = P0 * (1 + 3 * vt ** 2 / U_tips ** 2) + \
+                            P1 * np.sqrt((np.sqrt(1 + vt ** 4 / (4 * v0 ** 4)) - vt ** 2 / (2 * v0 ** 2))) + \
+                            0.5 * d0 * rho * s0 * A * vt ** 3
 
-        Power_hovering = P0 + P1
+            hovering_energy = P0 + P1
+            return move_time * flying_energy + stop_time * hovering_energy
+        else:
+            raise NotImplementedError("Energy model not supported for the agent.")
 
-        return fly_time * Power_flying + hover_time * Power_hovering
 
     def step(self, actions=None):
         """
@@ -340,16 +359,21 @@ class CrowdSim:
                 dx, dy = self.drone_action_space_dx[actions[agent_id]], self.drone_action_space_dy[actions[agent_id]]
 
             # TODO: 暂缺车辆的能耗公式区分,不过目前也没有加充电桩啦，本来电量就不会耗尽
-            # consume_energy = self.calculate_energy_consume(0, self.step_time) if is_stopping else self.calculate_energy_consume(self.step_time, 0)
-            consume_energy = 0
             new_x = self.agent_x_timelist[self.timestep - 1, agent_id] + dx
             new_y = self.agent_y_timelist[self.timestep - 1, agent_id] + dy
             if new_x <= self.max_distance_x and new_y <= self.max_distance_y:
                 self.agent_x_timelist[self.timestep, agent_id] = new_x
                 self.agent_y_timelist[self.timestep, agent_id] = new_y
+                # calculate distance between last time step and current time step
+                distance = np.sqrt((new_x - self.agent_x_timelist[self.timestep - 1, agent_id]) ** 2
+                                   + (new_y - self.agent_y_timelist[self.timestep - 1, agent_id]) ** 2)
+                move_time = distance / (
+                    self.agent_speed['car'] if self.agent_types[agent_id] == 0 else self.agent_speed['drone'])
+                consume_energy = self.calculate_energy_consume(move_time, agent_id)
             else:
                 self.agent_x_timelist[self.timestep, agent_id] = self.agent_x_timelist[self.timestep - 1, agent_id]
                 self.agent_y_timelist[self.timestep, agent_id] = self.agent_y_timelist[self.timestep - 1, agent_id]
+                consume_energy = 0
                 over_range = True
 
             self.agent_energy_timelist[self.timestep, agent_id] = self.agent_energy_timelist[
@@ -373,7 +397,6 @@ class CrowdSim:
                 if self.agent_types[agent_id] == 0 \
                         and target_agent_distance <= self.drone_sensing_range:  # TODO：目前假设car和drone的sensing
                     # range相同，便于判断
-                    increase_aoi_flag = False
                     rew[agent_id] += (self.target_aoi_timelist[self.timestep - 1, target_id] - 1) / self.episode_length
                     self.target_aoi_timelist[self.timestep, target_id] = 1
                     break
@@ -381,7 +404,6 @@ class CrowdSim:
                 if self.agent_types[agent_id] == 1 \
                         and target_agent_distance <= self.drone_sensing_range \
                         and drone_car_min_distance[agent_id - self.num_cars] <= self.drone_car_comm_range:
-                    increase_aoi_flag = False
                     rew[agent_id] += (self.target_aoi_timelist[self.timestep - 1, target_id] - 1) / self.episode_length
                     rew[drone_nearest_car_id[agent_id - self.num_cars]] += (self.target_aoi_timelist[
                                                                                 self.timestep - 1, target_id] - 1) / self.episode_length
@@ -407,14 +429,20 @@ class CrowdSim:
         return result
 
     def collect_info(self):
-        timestep = self.timestep if self.timestep <= self.episode_length else self.episode_length
+        if isinstance(self, CUDACrowdSim):
+            self.target_aoi_timelist[self.timestep, :] = self.cuda_data_manager.pull_data_from_device(
+                "target_aoi").mean(axis=0)
+            self.agent_energy_timelist[self.timestep, :] = self.cuda_data_manager.pull_data_from_device(
+                _AGENT_ENERGY).mean(axis=0)
+            self.target_coveraged_timelist[self.timestep, :] = self.cuda_data_manager.pull_data_from_device(
+                "target_coverage").mean(axis=0)
         self.data_collection += np.sum(
-            self.target_aoi_timelist[timestep] - self.target_aoi_timelist[timestep - 1])
-        info = {"mean_aoi": np.mean(self.target_aoi_timelist[timestep]),
-                "mean_energy_consumption": 1.0 - (
-                        np.mean(self.agent_energy_timelist[timestep]) / self.max_uav_energy),
-                "collected_data_ratio": self.data_collection / (self.episode_length * self.num_sensing_targets),
-                "target_coverage": np.sum(self.target_coveraged_timelist) / (
+            self.target_aoi_timelist[self.timestep] - self.target_aoi_timelist[self.timestep - 1])
+        info = {AOI_METRIC_NAME: np.mean(self.target_aoi_timelist[self.timestep]),
+                ENERGY_METRIC_NAME: 1.0 - (
+                        np.mean(self.agent_energy_timelist[self.timestep]) / self.max_uav_energy),
+                DATA_METRIC_NAME: self.data_collection / (self.episode_length * self.num_sensing_targets),
+                COVERAGE_METRIC_NAME: np.sum(self.target_coveraged_timelist) / (
                         self.episode_length * self.num_sensing_targets)
                 }
         return info
@@ -422,15 +450,14 @@ class CrowdSim:
     def render(self, output_file=None, plot_loop=False, moving_line=False):
         import geopandas as gpd
         import movingpandas as mpd
-
         mixed_df = self.human_df.copy()
 
         # 可将机器人traj，可以载入到human的dataframe中，id从-1开始递减
         for i in range(self.num_agents):
             x_list = self.agent_x_timelist[:, i]
             y_list = self.agent_y_timelist[:, i]
-            id_list = np.ones_like(x_list) * (-i - 1)
-            aoi_list = np.ones_like(x_list) * (-1)
+            id_list = np.full_like(x_list, -i - 1)
+            aoi_list = np.full_like(x_list, -1)
             energy_list = self.agent_energy_timelist[:, i]
             timestamp_list = [self.start_timestamp + i * self.step_time for i in range(self.episode_length + 1)]
             x_distance_list = x_list * self.max_distance_x / self.nlon + self.max_distance_x / self.nlon / 2
@@ -575,20 +602,20 @@ class CUDACrowdSim(CrowdSim, CUDAEnvironmentContext):
         data_dict.add_data(name="drone_action_space_dy", data=self.float_dtype(self.drone_action_space_dy))
         data_dict.add_data(
             name="agent_x",
-            data=self.float_dtype(np.ones([self.num_agents, ]) * self.starting_location_x),
+            data=self.float_dtype(np.full([self.num_agents, ], self.starting_location_x)),
             save_copy_and_apply_at_reset=True,
         )
         data_dict.add_data(name="agent_x_range", data=self.float_dtype(self.nlon))
         data_dict.add_data(
             name="agent_y",
-            data=self.float_dtype(np.ones([self.num_agents, ]) * self.starting_location_y),
+            data=self.float_dtype(np.full([self.num_agents, ], self.starting_location_y)),
             save_copy_and_apply_at_reset=True,
         )
         data_dict.add_data(name="agent_y_range", data=self.float_dtype(self.nlat))
 
         data_dict.add_data(
             name="agent_energy",
-            data=self.float_dtype(np.ones([self.num_agents, ]) * self.max_uav_energy),
+            data=self.float_dtype(self.agent_energy_timelist[self.timestep, :]),
             save_copy_and_apply_at_reset=True,
         )
         data_dict.add_data(name="agent_energy_range", data=self.float_dtype(self.max_uav_energy))
@@ -603,13 +630,18 @@ class CUDACrowdSim(CrowdSim, CUDAEnvironmentContext):
                            save_copy_and_apply_at_reset=True,
                            )
         data_dict.add_data(
+            name="target_coverage",
+            data=self.int_dtype(np.zeros([self.num_sensing_targets, ])),
+            save_copy_and_apply_at_reset=True,
+        )
+        data_dict.add_data(
             name="valid_status",  # TODO:是否暂时移出游戏，目前valid的主要原因是lost connection，引入能耗之后可能会有电量耗尽
             data=self.int_dtype(np.ones([self.num_agents, ])),
             save_copy_and_apply_at_reset=True,
         )
         data_dict.add_data(
             name="neighbor_agent_ids",
-            data=self.int_dtype(np.ones([self.num_agents, ]) * (-1)),
+            data=self.int_dtype(np.full([self.num_agents, ], -1)),
             save_copy_and_apply_at_reset=True,
         )
         data_dict.add_data(name="car_sensing_range", data=self.float_dtype(self.car_sensing_range))
@@ -633,10 +665,21 @@ class CUDACrowdSim(CrowdSim, CUDAEnvironmentContext):
             name="max_distance_y",
             data=self.float_dtype(self.max_distance_y),
         )
+        data_dict.add_data(
+            name="slot_time",
+            data=self.float_dtype(self.step_time),
+        )
+        data_dict.add_data(
+            name="agent_speed",
+            data=self.int_dtype(list(self.agent_speed.values())),
+        )
         return data_dict
 
     def step(self, actions=None):
-        self.timestep += 1
+        if self.timestep >= self.episode_length:
+            self.timestep = 0
+        else:
+            self.timestep += 1
         args = [
             _OBSERVATIONS,
             _ACTIONS,
@@ -650,13 +693,14 @@ class CUDACrowdSim(CrowdSim, CUDAEnvironmentContext):
             "agent_x_range",
             "agent_y",
             "agent_y_range",
-            "agent_energy",
+            _AGENT_ENERGY,
             "agent_energy_range",
             "num_targets",
             "num_agents_observed",
             "target_x",
             "target_y",
             "target_aoi",
+            "target_coverage",
             "valid_status",
             "neighbor_agent_ids",
             "car_sensing_range",
@@ -669,7 +713,9 @@ class CUDACrowdSim(CrowdSim, CUDAEnvironmentContext):
             ("n_agents", "meta"),
             ("episode_length", "meta"),
             "max_distance_x",
-            "max_distance_y"
+            "max_distance_y",
+            "slot_time",
+            "agent_speed",
         ]
         if self.env_backend == "pycuda":
             self.cuda_step(
@@ -684,4 +730,5 @@ class CUDACrowdSim(CrowdSim, CUDAEnvironmentContext):
         done = {
             "__all__": (self.timestep >= self.episode_length)
         }
+
         return done, self.collect_info()

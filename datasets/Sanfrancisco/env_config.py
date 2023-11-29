@@ -9,12 +9,13 @@ class BaseEnvConfig(object):
     env = Config()
     env.num_timestep = 120  # 120x15=1800s=30min
     env.step_time = 15  # second per step
-    env.max_uav_energy = 359640  # 359640 J <-- 359.64 kJ (4500mah, 22.2v) 大疆经纬
+    env.max_uav_energy = 359640  # 359640 J <-- 359.64 kJ (4500mAh, 22.2v) 大疆经纬
     env.rotation_limit = 360
     env.diameter_of_human_blockers = 0.5  # m
     env.h_rx = 1.3  # m, height of RX
     env.h_b = 1.7  # m, height of a human blocker
-    env.velocity = 18
+    env.car_velocity = 8
+    env.drone_velocity = 18
     env.frequence_band = 28  # GHz
     env.h_d = 120  # m, height of drone-BS
     env.alpha_nlos = 66.25

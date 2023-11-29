@@ -2,13 +2,7 @@
 Helper file for generating an environment rollout
 """
 
-import matplotlib.pyplot as plt
-import numpy as np
-from matplotlib import animation
-from matplotlib.patches import Polygon
-from mpl_toolkits.mplot3d import art3d
 from warp_drive.trainer_lightning import WarpDriveModule
-from envs.crowd_sim.crowd_sim import CUDACrowdSim
 
 
 def generate_crowd_sim_animations(
@@ -127,16 +121,13 @@ if __name__ == "__main__":
     from warp_drive.utils.common import get_project_root
 
     parser = argparse.ArgumentParser()
-    # parser.add_argument(
-    #     '--ckpts_path', type=str
-    # )
     parser.add_argument('--output_dir', type=str, default='./logs.html')
     parser.add_argument('--plot_loop', action='store_true')
     parser.add_argument('--moving_line', action='store_true')
     args = parser.parse_args()
     wd_module = setup_cuda_crowd_sim_env()
     wd_module.load_model_checkpoint({"car":
-                                         "./saved_data/crowd_sim/infocom2022/1700900185/car_80000000.state_dict",
+                                         "./saved_data/crowd_sim/infocom2022/1700917493/car_50000000.state_dict",
                                      "drone":
-                                         "./saved_data/crowd_sim/infocom2022/1700900185/drone_80000000.state_dict"})
+                                         "./saved_data/crowd_sim/infocom2022/1700917493/drone_50000000.state_dict"})
     generate_crowd_sim_animations(wd_module)

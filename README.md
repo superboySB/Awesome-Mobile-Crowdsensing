@@ -63,7 +63,7 @@ sudo docker run -itd --gpus=all --name=mcs -p 40731:22 aequatiospace/linc_image:
 sudo docker exec -it mcs /bin/bash
 # restart ssh within the docker
 /etc/init.d/ssh restart
-# you can now login from outside with
+# you can now login from outside with ssh
 ssh root@localhost -p 40731
 ```
 [Developing] Run the trained RL policy

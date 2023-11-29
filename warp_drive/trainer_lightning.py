@@ -769,7 +769,7 @@ class WarpDriveModule(LightningModule):
         dataset = WarpDriveDataset(
             self._generate_training_data, batch_size=self.training_batch_size_per_env
         )
-        return DataLoader(dataset, batch_size=self.training_batch_size_per_env, num_workers=8, persistent_workers=True)
+        return DataLoader(dataset, batch_size=self.training_batch_size_per_env)
 
     def configure_optimizers(self):
         """Optimizers and LR Schedules"""
@@ -900,12 +900,12 @@ class WarpDriveModule(LightningModule):
                 self._log_metrics({policy: metrics})
 
                 # Logging
-                self.log(
-                    f"loss_{policy}", loss, prog_bar=True, on_step=False, on_epoch=True
-                )
+                # self.log(
+                #     f"loss_{policy}", loss, prog_bar=True, on_step=False, on_epoch=True
+                # )
                 for key in metrics:
                     self.log(
-                        f"{key}_{policy}",
+                        f"{policy}/{key}",
                         metrics[key],
                         prog_bar=False,
                         on_step=False,
@@ -917,6 +917,7 @@ class WarpDriveModule(LightningModule):
             for k, v in batch[_ENV_INFO].items():
                 if isinstance(v, torch.Tensor):
                     batch[_ENV_INFO][k] = v.mean().item()
+                    self.log(f"env/{k}", batch[_ENV_INFO][k], prog_bar=False, on_step=False, on_epoch=True)
             self._log_metrics({_ENV_INFO : batch[_ENV_INFO]})
         # Save the model checkpoint
         self.save_model_checkpoint(self.iters)

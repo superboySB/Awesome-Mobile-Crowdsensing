@@ -15,7 +15,8 @@ class BaseEnvConfig(object):
     env.diameter_of_human_blockers = 0.5  # m
     env.h_rx = 1.3  # m, height of RX
     env.h_b = 1.7  # m, height of a human blocker
-    env.velocity = 18
+    env.drone_velocity = 18
+    env.car_velocity = 8
     env.frequence_band = 28  # GHz
     env.h_d = 120  # m, height of drone-BS
     env.alpha_nlos = 113.63
