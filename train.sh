@@ -3,7 +3,7 @@
 dataset_name='SanFrancisco'
 exp_name='WARP'_$dataset_name
 session_name=$exp_name
-cards=(0 1)
+cards=(1 2)
 card_num=${#cards[@]}
 dry_run=false
 # Process command-line arguments
@@ -21,6 +21,7 @@ while [[ $# -gt 0 ]]; do
 done
 trains=(
   "--track"
+  "--track --use_gae"
 )
 train_num=${#trains[@]}
 if [ "$dry_run" = "false" ]

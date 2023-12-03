@@ -17,12 +17,11 @@ import json
 import logging
 import os
 import time
-from typing import Callable, Iterable, Tuple, Dict
+from typing import Callable, Iterable, Tuple, Dict, List, Union
 
 import numpy as np
 import torch
 import yaml
-from gym.spaces import Discrete, MultiDiscrete
 from pytorch_lightning import LightningModule, seed_everything
 from pytorch_lightning.callbacks import Callback
 from torch import Tensor
@@ -39,7 +38,7 @@ from warp_drive.utils.constants import Constants
 from warp_drive.env_wrapper import EnvWrapper
 
 _ROOT_DIR = get_project_root()
-
+_ENV_INFO = 'env_info'
 _ACTIONS = Constants.ACTIONS
 _REWARDS = Constants.REWARDS
 _DONE_FLAGS = Constants.DONE_FLAGS
@@ -48,9 +47,46 @@ _COMBINED = "combined"
 _EPSILON = 1e-10  # small number to prevent indeterminate divisions
 
 
+def shuffle_and_divide_data(data, n):
+    """
+    data: a dictionary containing the data for each policy
+    n: number of parts to divide the data into
+    """
+    # Initialize empty dictionaries for the n parts
+    divided_data = [{} for _ in range(n)]
+
+    # Iterate over each key (e.g., 'car', 'drone') in the data
+    for key in data.keys() - {'env_info'}:
+        actions, observations, rewards, dones = data[key]
+
+        # Ensure all tensors have the same first dimension size
+        assert actions.size(0) == observations.size(0) == rewards.size(0) == dones.size(0)
+
+        # Generate shuffled indices
+        indices = torch.randperm(actions.size(0))
+
+        # Calculate the size of each chunk
+        chunk_size = actions.size(0) // n
+
+        # Divide the data into n parts using the shuffled indices
+        for i in range(n):
+            start_idx = i * chunk_size
+            end_idx = None if i == n - 1 else start_idx + chunk_size
+            shuffled_indices = indices[start_idx:end_idx]
+
+            divided_data[i][key] = (
+                actions[shuffled_indices],
+                observations[shuffled_indices],
+                rewards[shuffled_indices],
+                dones[shuffled_indices]
+            )
+
+    return divided_data
+
+
 def all_equal(iterable):
     """
-    Check all elements of an iterable (e.g., list) are identical
+    Check all elements of iterable (e.g., list) are identical
     """
     return len(set(iterable)) <= 1
 
@@ -147,6 +183,7 @@ class WarpDriveModule(LightningModule):
 
         """
         super().__init__()
+        self.to(torch.device("cuda" if torch.cuda.is_available() else "cpu"))
         self.automatic_optimization = False
 
         assert env_wrapper is not None
@@ -285,17 +322,17 @@ class WarpDriveModule(LightningModule):
 
         for policy in self.policies:
             # Push the models to the GPU
-            self.models[policy].cuda()
+            self.models[policy].to(device=self.device)
 
             # Initialize episodic rewards and push to the GPU
             num_agents_for_policy = len(self.policy_tag_to_agent_id_map[policy])
             self.num_completed_episodes[policy] = 0
             self.episodic_reward_sum[policy] = (
-                torch.tensor(0).type(torch.float32).cuda()
+                torch.tensor(0).type(torch.float32).to(device=self.device)
             )
             self.reward_running_sum[policy] = torch.zeros(
                 (self.num_envs, num_agents_for_policy)
-            ).cuda()
+            ).to(device=self.device)
 
         # Initialize the trainers
         self.trainers = {}
@@ -337,6 +374,7 @@ class WarpDriveModule(LightningModule):
         elif algorithm == "PPO":
             # Proximal Policy Optimization
             clip_param = self._get_config(["policy", policy, "clip_param"])
+            use_gae = self._get_config(["policy", policy, "use_gae"])
             self.trainers[policy] = PPO(
                 discount_factor_gamma=gamma,
                 clip_param=clip_param,
@@ -344,6 +382,7 @@ class WarpDriveModule(LightningModule):
                 normalize_return=normalize_return,
                 vf_loss_coeff=vf_loss_coeff,
                 entropy_coeff=entropy_coeff,
+                use_gae=use_gae
             )
             logging.info(f"Initializing the PPO trainer for policy {policy}")
         else:
@@ -410,15 +449,13 @@ class WarpDriveModule(LightningModule):
                 action_dim = probabilities[first_policy][action_type_id].shape[-1]
                 combined_probabilities[action_type_id] = torch.zeros(
                     (num_envs, num_agents, action_dim)
-                ).cuda()
+                ).to(device=self.device)
 
             # Combine the probabilities across policies
             for action_type_id in range(num_action_types):
                 for policy, prob_values in probabilities.items():
                     agent_to_id_mapping = self.policy_tag_to_agent_id_map[policy]
-                    combined_probabilities[action_type_id][
-                    :, agent_to_id_mapping
-                    ] = prob_values[action_type_id]
+                    combined_probabilities[action_type_id][:, agent_to_id_mapping] = prob_values[action_type_id]
 
             probabilities = {_COMBINED: combined_probabilities}
 
@@ -580,8 +617,8 @@ class WarpDriveModule(LightningModule):
         """
         # Save model checkpoints if specified (and also for the last iteration)
         if (
-            iteration % self.config["saving"]["model_params_save_freq"] == 0
-            or iteration == self.num_iters - 1
+                iteration % self.config["saving"]["model_params_save_freq"] == 0
+                or iteration == self.num_iters - 1
         ):
             for policy, model in self.models.items():
                 filepath = os.path.join(
@@ -606,9 +643,9 @@ class WarpDriveModule(LightningModule):
             verbose_print("Trainer exits gracefully")
 
     def fetch_episode_states(
-        self,
-        list_of_states=None,  # list of states (data array names) to fetch
-        env_id=0,  # environment id to fetch the states from
+            self,
+            list_of_states=None,  # list of states (data array names) to fetch
+            env_id=0,  # environment id to fetch the states from
     ):
         """
         Step through env and fetch the desired states (data arrays on the GPU)
@@ -660,7 +697,7 @@ class WarpDriveModule(LightningModule):
                 for state in list_of_states:
                     episode_states[state][
                         timestep + 1
-                    ] = self.cuda_envs.cuda_data_manager.pull_data_from_device(state)[
+                        ] = self.cuda_envs.cuda_data_manager.pull_data_from_device(state)[
                         env_id
                     ]
                 break
@@ -782,7 +819,7 @@ class WarpDriveModule(LightningModule):
             init_timestep = self.current_timestep[policy]
             initial_lr = ParamScheduler(lr_schedule).get_param_value(init_timestep)
             optimizer = torch.optim.Adam(
-                self.models[policy].parameters(), lr=initial_lr
+                self.models[policy].parameters(), lr=initial_lr, eps=1e-5
             )
 
             # Initialize the learning rate scheduler
@@ -793,16 +830,16 @@ class WarpDriveModule(LightningModule):
                 timesteps_per_iteration=self.training_batch_size,
             )
 
-            lr_schedules += [{"scheduler": lr_scheduler}]
-            optimizers += [optimizer]
+            lr_schedules.append({"scheduler": lr_scheduler})
+            optimizers.append(optimizer)
         return optimizers, lr_schedules
 
     def configure_gradient_clipping(
-        self,
-        optimizer,
-        optimizer_idx,
-        gradient_clip_val=None,
-        gradient_clip_algorithm=None,
+            self,
+            optimizer,
+            optimizer_idx,
+            gradient_clip_val=None,
+            gradient_clip_algorithm=None,
     ):
         policy = self.policies_to_train[optimizer_idx]
         if gradient_clip_val is None:
@@ -815,7 +852,7 @@ class WarpDriveModule(LightningModule):
             )
 
     def training_step(
-        self, batch: Dict[str, Tuple[Tensor, Tensor, Tensor, Tensor]], batch_idx=0
+            self, batch: Dict[str, Union[List[Tensor], dict]], batch_idx=0
     ):
         """
         Carries out a single training step based on a batch of rollout data.
@@ -841,84 +878,94 @@ class WarpDriveModule(LightningModule):
         lr_schedulers = self.lr_schedulers()
         lr_schedulers = [lr_schedulers] if not isinstance(lr_schedulers, list) else lr_schedulers
         losses = None
+        num_mini_batches = self.config['trainer']['num_mini_batches']
+        train_batch_size = self.config['trainer']['train_batch_size']
+        num_envs = self.config['trainer']['num_envs']
+        assert train_batch_size / num_envs >= num_mini_batches, "Batch size should be divisible by num_mini_batches"
+        env_info = batch[_ENV_INFO]
+        del batch[_ENV_INFO]
+        divided_data = shuffle_and_divide_data(batch, num_mini_batches)
         for index, policy in enumerate(self.policies_to_train):
-            actions_batch, rewards_batch, done_flags_batch, processed_obs_batch = batch[
-                policy
-            ]
+            batch_loss = torch.tensor(0.0, device=self.device)
+            for batch in divided_data:
+                actions_batch, rewards_batch, done_flags_batch, processed_obs_batch = batch[
+                    policy
+                ]
 
-            # Policy evaluation for the entire batch
-            probabilities_batch, value_functions_batch = self.models[policy](
-                obs=processed_obs_batch
-            )
-            optimizers[index].zero_grad()
-            # Loss and metrics computation
-            loss, metrics = self.trainers[policy].compute_loss_and_metrics(
-                self.current_timestep[policy],
-                actions_batch,
-                rewards_batch,
-                done_flags_batch,
-                probabilities_batch,
-                value_functions_batch,
-                perform_logging=logging_flag,
-            )
-            self.manual_backward(loss)
-            optimizers[index].step()
-            lr_schedulers[index].step()
-            if losses is None:
-                losses = loss
-            else:
-                losses += loss
-            # Compute the gradient norm
-            grad_norm = 0.0
-            for param in list(
-                    filter(lambda p: p.grad is not None, self.models[policy].parameters())
-            ):
-                grad_norm += param.grad.data.norm(2).item()
-
-            # Update the timestep and learning rate based on the schedule
-            self.current_timestep[policy] += self.training_batch_size
-
-            # Logging
-            if logging_flag:
-                assert isinstance(metrics, dict)
-                # Update the metrics dictionary
-                metrics.update(
-                    {
-                        "Current timestep": self.current_timestep[policy],
-                        "Gradient norm": grad_norm,
-                        "Mean episodic reward": self.episodic_reward_sum[policy].item()
-                        / (self.num_completed_episodes[policy] + _EPSILON),
-                    }
+                # Policy evaluation for the entire batch
+                probabilities_batch, value_functions_batch = self.models[policy](
+                    obs=processed_obs_batch
                 )
-
-                # Reset sum and counter
-                self.episodic_reward_sum[policy] = (
-                    torch.tensor(0).type(torch.float32).cuda()
+                optimizers[index].zero_grad()
+                # Loss and metrics computation
+                loss, metrics = self.trainers[policy].compute_loss_and_metrics(
+                    self.current_timestep[policy],
+                    actions_batch,
+                    rewards_batch,
+                    done_flags_batch,
+                    probabilities_batch,
+                    value_functions_batch,
+                    perform_logging=logging_flag,
                 )
-                self.num_completed_episodes[policy] = 0
+                self.manual_backward(loss)
+                self.configure_gradient_clipping(optimizers[index], index)
+                optimizers[index].step()
+                lr_schedulers[index].step()
+                batch_loss += loss
+                # Compute the gradient norm
+                grad_norm = 0.0
+                for param in list(
+                        filter(lambda p: p.grad is not None, self.models[policy].parameters())
+                ):
+                    grad_norm += param.grad.data.norm(2).item()
 
-                self._log_metrics({policy: metrics})
+                # Update the timestep and learning rate based on the schedule
+                self.current_timestep[policy] += self.training_batch_size
 
                 # Logging
-                # self.log(
-                #     f"loss_{policy}", loss, prog_bar=True, on_step=False, on_epoch=True
-                # )
-                for key in metrics:
-                    self.log(
-                        f"{policy}/{key}",
-                        metrics[key],
-                        prog_bar=False,
-                        on_step=False,
-                        on_epoch=True,
+                if logging_flag:
+                    assert isinstance(metrics, dict)
+                    # Update the metrics dictionary
+                    metrics.update(
+                        {
+                            "Current timestep": self.current_timestep[policy],
+                            "Gradient norm": grad_norm,
+                            "Mean episodic reward": self.episodic_reward_sum[policy].item()
+                                                    / (self.num_completed_episodes[policy] + _EPSILON),
+                        }
                     )
+
+                    # Reset sum and counter
+                    self.episodic_reward_sum[policy] = (
+                        torch.tensor(0).type(torch.float32).to(device=self.device)
+                    )
+                    self.num_completed_episodes[policy] = 0
+
+                    self._log_metrics({policy: metrics})
+
+                    # Logging
+                    # self.log(
+                    #     f"loss_{policy}", loss, prog_bar=True, on_step=False, on_epoch=True
+                    # )
+                    for key in metrics:
+                        self.log(
+                            f"{policy}/{key}",
+                            metrics[key],
+                            prog_bar=False,
+                            on_step=False,
+                            on_epoch=True,
+                        )
+                if losses is None:
+                    losses = batch_loss.mean()
+                else:
+                    losses += batch_loss.mean()
         if logging_flag:
-            _ENV_INFO = 'env_info'
-            del batch[_ENV_INFO]['__all__']
-            for k, v in batch[_ENV_INFO].items():
+            del env_info['__all__']
+            for k, v in env_info.items():
                 if isinstance(v, torch.Tensor):
-                    batch[_ENV_INFO][k] = v.mean().item()
-                    self.log(f"env/{k}", batch[_ENV_INFO][k], prog_bar=False, on_step=False, on_epoch=True)
-            self._log_metrics({_ENV_INFO : batch[_ENV_INFO]})
+                    env_info[k] = v.mean().item()
+                    self.log(f"env/{k}", env_info[k], prog_bar=False, on_step=False, on_epoch=True)
+            self._log_metrics({_ENV_INFO: env_info})
         # Save the model checkpoint
         self.save_model_checkpoint(self.iters)
 

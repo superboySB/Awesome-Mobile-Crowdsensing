@@ -1028,17 +1028,22 @@ class Metrics:
     def pretty_print(self, metrics):
         assert metrics is not None
         assert isinstance(metrics, dict)
-
-        for policy in metrics:
-            print("=" * 40)
-            title_string = f"Metrics for policy '{policy}'" if 'env' not in policy else f"Metrics for env"
-            print(title_string)
-            print("=" * 40)
-            try:
-                del metrics[policy]['__all__']
-            except KeyError:
-                pass
-            for k, v in metrics[policy].items():
+        if isinstance(next(iter(metrics.values())), dict):
+            for policy in metrics:
+                print("=" * 40)
+                title_string = f"Metrics for policy '{policy}'" if 'env' not in policy else f"Metrics for env"
+                print(title_string)
+                print("=" * 40)
+                try:
+                    del metrics[policy]['__all__']
+                except KeyError:
+                    pass
+                for k, v in metrics[policy].items():
+                    if isinstance(v, torch.Tensor) and '__all__' != k:
+                        v = v.mean().item()
+                    print(f"{k:40}: {v:10.5f}")
+        else:
+            for k, v in metrics.items():
                 if isinstance(v, torch.Tensor) and '__all__' != k:
                     v = v.mean().item()
                 print(f"{k:40}: {v:10.5f}")

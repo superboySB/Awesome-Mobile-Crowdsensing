@@ -1,20 +1,19 @@
-import numpy as np
-import pandas as pd
 import logging
-import folium
-import copy
 
+import folium
+from pyproj import Proj, transform
+import pandas as pd
+from folium.plugins import TimestampedGeoJson, AntPath
 from gym import spaces
 from shapely.geometry import Point
-from folium.plugins import TimestampedGeoJson, AntPath
+
 # from datasets.KAIST.env_config import BaseEnvConfig
 from datasets.Sanfrancisco.env_config import BaseEnvConfig
-# TODO：可以在这里切换为更大的San，一定需要更多agents
-from .utils import *
-
 from warp_drive.utils.constants import Constants
 from warp_drive.utils.data_feed import DataFeed
 from warp_drive.utils.gpu_environment_context import CUDAEnvironmentContext
+# TODO：可以在这里切换为更大的San，一定需要更多agents
+from .utils import *
 
 COVERAGE_METRIC_NAME = "target_coverage"
 
@@ -28,6 +27,15 @@ _AGENT_ENERGY = "agent_energy"
 _OBSERVATIONS = Constants.OBSERVATIONS
 _ACTIONS = Constants.ACTIONS
 _REWARDS = Constants.REWARDS
+
+
+class pair:
+    distance: float
+    index: int
+
+    def __init__(self):
+        self.distance = 0.0
+        self.index = 0
 
 
 class CrowdSim:
@@ -44,13 +52,17 @@ class CrowdSim:
             num_agents_observed=5,
             seed=None,
             env_backend="cpu",
+            zero_shot=False,
     ):
         self.float_dtype = np.float32
         self.int_dtype = np.int32
         # small number to prevent indeterminate cases
         self.eps = self.float_dtype(1e-10)
-
         self.config = BaseEnvConfig()
+        # Seeding
+        self.np_random: np.random = np.random
+        if seed is not None:
+            self.seed(seed)
 
         self.num_drones = num_drones
         self.num_cars = num_cars
@@ -78,14 +90,31 @@ class CrowdSim:
         self.human_df['aoi'] = -1  # 加入aoi记录aoi
         self.human_df['energy'] = -1  # 加入energy记录energy
         self.agent_speed = {'car': self.config.env.car_velocity, 'drone': self.config.env.drone_velocity}
-
+        if zero_shot:
+            num_centers = int(self.num_sensing_targets * 0.05)
+            num_points_per_center = 3
+            max_distance_from_center = 10
+            centers = np.concatenate([self.np_random.randint(0, self.max_distance_x, (num_centers, 1)),
+                                      self.np_random.randint(0, self.max_distance_y, (num_centers, 1))], axis=1)
+            points_x = np.zeros((num_centers * num_points_per_center,), dtype=int)
+            points_y = np.zeros((num_centers * num_points_per_center,), dtype=int)
+            for i, (cx, cy) in enumerate(centers):
+                for j in range(num_points_per_center):
+                    index = i * num_points_per_center + j
+                    points_x[index] = self.np_random.randint(max(cx - max_distance_from_center, 0),
+                                                             min(cx + max_distance_from_center + 1,
+                                                                 self.max_distance_x))
+                    points_y[index] = self.np_random.randint(max(cy - max_distance_from_center, 0),
+                                                             min(cy + max_distance_from_center + 1,
+                                                                 self.max_distance_y))
+            self.num_sensing_targets += (num_centers * num_points_per_center)
         # human infos
         unique_ids = np.arange(0, self.num_sensing_targets)  # id from 0 to 91
         unique_timestamps = np.arange(self.start_timestamp, self.end_timestamp + self.step_time, self.step_time)
         id_to_index = {id: index for index, id in enumerate(unique_ids)}
         timestamp_to_index = {timestamp: index for index, timestamp in enumerate(unique_timestamps)}
-        self.target_x_timelist = np.full([self.episode_length + 1, self.num_sensing_targets], np.nan)
-        self.target_y_timelist = np.full([self.episode_length + 1, self.num_sensing_targets], np.nan)
+        self.target_x_timelist = np.zeros([self.episode_length + 1, self.num_sensing_targets])
+        self.target_y_timelist = np.zeros([self.episode_length + 1, self.num_sensing_targets])
         self.target_aoi_timelist = np.ones([self.episode_length + 1, self.num_sensing_targets])
         self.target_coveraged_timelist = np.zeros([self.episode_length + 1, self.num_sensing_targets])
 
@@ -93,11 +122,15 @@ class CrowdSim:
         for _, row in self.human_df.iterrows():
             id_index = id_to_index.get(row['id'], None)
             timestamp_index = timestamp_to_index.get(row['timestamp'], None)
-            if id_index is not None and timestamp_index is not None:
+            if not (id_index is None or timestamp_index is None):
                 self.target_x_timelist[timestamp_index, id_index] = row['x']
                 self.target_y_timelist[timestamp_index, id_index] = row['y']
             else:
                 raise ValueError("Got invalid rows:", row)
+        if zero_shot:
+            self.target_x_timelist[:, self.num_sensing_targets - num_centers * num_points_per_center:] = points_x
+            self.target_y_timelist[:, self.num_sensing_targets - num_centers * num_points_per_center:] = points_y
+            # rebuild DataFrame from longitude and latitude
 
         x1 = self.target_x_timelist[:-1, :]
         y1 = self.target_y_timelist[:-1, :]
@@ -124,12 +157,6 @@ class CrowdSim:
         self.agent_y_timelist = np.full([self.episode_length + 1, self.num_agents],
                                         fill_value=self.starting_location_y, dtype=float)
         self.data_collection = 0
-
-        # Seeding
-        self.np_random = np.random
-        if seed is not None:
-            self.seed(seed)
-
         # Types and Status of vehicles
         self.agent_types = self.int_dtype(np.ones([self.num_agents, ]))
         self.cars = {}
@@ -340,7 +367,6 @@ class CrowdSim:
             return move_time * flying_energy + stop_time * hovering_energy
         else:
             raise NotImplementedError("Energy model not supported for the agent.")
-
 
     def step(self, actions=None):
         """
@@ -594,85 +620,47 @@ class CUDACrowdSim(CrowdSim, CUDAEnvironmentContext):
         """
         Create a dictionary of data to push to the device
         """
+        # TODO: Note: valid status
+        #  是否暂时移出游戏，目前valid的主要原因是lost connection，引入能耗之后可能会有电量耗尽
         data_dict = DataFeed()
-        data_dict.add_data(name="agent_types", data=self.int_dtype(self.agent_types))
-        data_dict.add_data(name="car_action_space_dx", data=self.float_dtype(self.car_action_space_dx))
-        data_dict.add_data(name="car_action_space_dy", data=self.float_dtype(self.car_action_space_dy))
-        data_dict.add_data(name="drone_action_space_dx", data=self.float_dtype(self.drone_action_space_dx))
-        data_dict.add_data(name="drone_action_space_dy", data=self.float_dtype(self.drone_action_space_dy))
-        data_dict.add_data(
-            name="agent_x",
-            data=self.float_dtype(np.full([self.num_agents, ], self.starting_location_x)),
-            save_copy_and_apply_at_reset=True,
-        )
-        data_dict.add_data(name="agent_x_range", data=self.float_dtype(self.nlon))
-        data_dict.add_data(
-            name="agent_y",
-            data=self.float_dtype(np.full([self.num_agents, ], self.starting_location_y)),
-            save_copy_and_apply_at_reset=True,
-        )
-        data_dict.add_data(name="agent_y_range", data=self.float_dtype(self.nlat))
-
-        data_dict.add_data(
-            name="agent_energy",
-            data=self.float_dtype(self.agent_energy_timelist[self.timestep, :]),
-            save_copy_and_apply_at_reset=True,
-        )
-        data_dict.add_data(name="agent_energy_range", data=self.float_dtype(self.max_uav_energy))
-        data_dict.add_data(name="num_targets", data=self.int_dtype(self.num_sensing_targets))
-        data_dict.add_data(name="num_agents_observed", data=self.int_dtype(self.num_agents_observed))
-        data_dict.add_data(name="target_x", data=self.float_dtype(
-            self.target_x_timelist))  # [self.episode_length + 1, self.num_sensing_targets]
-        data_dict.add_data(name="target_y", data=self.float_dtype(
-            self.target_y_timelist))  # [self.episode_length + 1, self.num_sensing_targets]
-        data_dict.add_data(name="target_aoi",
-                           data=self.float_dtype(np.ones([self.num_sensing_targets, ])),
-                           save_copy_and_apply_at_reset=True,
-                           )
-        data_dict.add_data(
-            name="target_coverage",
-            data=self.int_dtype(np.zeros([self.num_sensing_targets, ])),
-            save_copy_and_apply_at_reset=True,
-        )
-        data_dict.add_data(
-            name="valid_status",  # TODO:是否暂时移出游戏，目前valid的主要原因是lost connection，引入能耗之后可能会有电量耗尽
-            data=self.int_dtype(np.ones([self.num_agents, ])),
-            save_copy_and_apply_at_reset=True,
-        )
-        data_dict.add_data(
-            name="neighbor_agent_ids",
-            data=self.int_dtype(np.full([self.num_agents, ], -1)),
-            save_copy_and_apply_at_reset=True,
-        )
-        data_dict.add_data(name="car_sensing_range", data=self.float_dtype(self.car_sensing_range))
-        data_dict.add_data(name="drone_sensing_range", data=self.float_dtype(self.drone_sensing_range))
-        data_dict.add_data(name="drone_car_comm_range", data=self.float_dtype(self.drone_car_comm_range))
-        data_dict.add_data(
-            name="neighbor_agent_distances",
-            data=self.float_dtype(np.zeros([self.num_agents, self.num_agents - 1])),
-            save_copy_and_apply_at_reset=True,
-        )
-        data_dict.add_data(
-            name="neighbor_agent_ids_sorted",
-            data=self.int_dtype(np.zeros([self.num_agents, self.num_agents - 1])),
-            save_copy_and_apply_at_reset=True,
-        )
-        data_dict.add_data(
-            name="max_distance_x",
-            data=self.float_dtype(self.max_distance_x),
-        )
-        data_dict.add_data(
-            name="max_distance_y",
-            data=self.float_dtype(self.max_distance_y),
-        )
-        data_dict.add_data(
-            name="slot_time",
-            data=self.float_dtype(self.step_time),
-        )
-        data_dict.add_data(
-            name="agent_speed",
-            data=self.int_dtype(list(self.agent_speed.values())),
-        )
+        # add all data with add_data_list method
+        data_dict.add_data_list([("agent_types", self.int_dtype(self.agent_types)),  # [n_agents, ]
+                                 ("car_action_space_dx", self.float_dtype(self.car_action_space_dx)),
+                                 ("car_action_space_dy", self.float_dtype(self.car_action_space_dy)),
+                                 ("drone_action_space_dx", self.float_dtype(self.drone_action_space_dx)),
+                                 ("drone_action_space_dy", self.float_dtype(self.drone_action_space_dy)),
+                                 ("agent_x", self.float_dtype(np.full([self.num_agents, ], self.starting_location_x)),
+                                  True),
+                                 ("agent_x_range", self.float_dtype(self.nlon)),
+                                 ("agent_y", self.float_dtype(np.full([self.num_agents, ], self.starting_location_y)),
+                                  True),
+                                 ("agent_y_range", self.float_dtype(self.nlat)),
+                                 ("agent_energy", self.float_dtype(self.agent_energy_timelist[self.timestep, :]), True),
+                                 ("agent_energy_range", self.float_dtype(self.max_uav_energy)),
+                                 ("num_targets", self.int_dtype(self.num_sensing_targets)),
+                                 ("num_agents_observed", self.int_dtype(self.num_agents_observed)),
+                                 ("target_x", self.float_dtype(self.target_x_timelist), True),
+                                 # [self.episode_length + 1, self.num_sensing_targets]
+                                 ("target_y", self.float_dtype(self.target_y_timelist), True),
+                                 # [self.episode_length + 1, self.num_sensing_targets]
+                                 ("target_aoi", self.float_dtype(np.ones([self.num_sensing_targets, ])), True),
+                                 ("target_coverage", self.int_dtype(np.zeros([self.num_sensing_targets, ])), True),
+                                 ("valid_status", self.int_dtype(np.ones([self.num_agents, ])), True),
+                                 ("neighbor_agent_ids", self.int_dtype(np.full([self.num_agents, ], -1)), True),
+                                 ("car_sensing_range", self.float_dtype(self.car_sensing_range)),
+                                 ("drone_sensing_range", self.float_dtype(self.drone_sensing_range)),
+                                 ("drone_car_comm_range", self.float_dtype(self.drone_car_comm_range)),
+                                 # ("neighbor_pairs", [[pair() for _ in range(self.num_agents)] for _ in range(self.num_agents - 1)], True),
+                                 ("neighbor_agent_distances",
+                                  self.float_dtype(np.zeros([self.num_agents, self.num_agents - 1])), True),
+                                 ("neighbor_agent_ids_sorted",
+                                  self.int_dtype(np.zeros([self.num_agents, self.num_agents - 1])), True),
+                                 # ("timestep", self.int_dtype(self.timestep), True),
+                                 ("max_distance_x", self.float_dtype(self.max_distance_x)),
+                                 ("max_distance_y", self.float_dtype(self.max_distance_y)),
+                                 ("slot_time", self.float_dtype(self.step_time)),
+                                 ("agent_speed", self.int_dtype(list(self.agent_speed.values()))),
+                                 ])
         return data_dict
 
     def step(self, actions=None):
@@ -706,6 +694,7 @@ class CUDACrowdSim(CrowdSim, CUDAEnvironmentContext):
             "car_sensing_range",
             "drone_sensing_range",
             "drone_car_comm_range",
+            # "neighbor_pairs",
             "neighbor_agent_distances",
             "neighbor_agent_ids_sorted",
             "_done_",

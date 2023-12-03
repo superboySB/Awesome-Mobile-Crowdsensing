@@ -5,11 +5,14 @@
 // or https://opensource.org/licenses/BSD-3-Clause
 #include <stdio.h>
 #include <math.h>
+// #include <algorithm>
+// using namespace std;
 __constant__ float kTwoPi = 6.28318530718;
 __constant__ float kEpsilon = 1.0e-10;  // to prevent indeterminate cases
 __constant__ float kMaxDistance = 1.0e10;
 
 extern "C" {
+// typedef pair<int, float> dis_pair;
   __device__ float calculateEnergy(const int& slot_time, const float& move_time, const int& agent_speed){
      float stop_time = slot_time - move_time;
      if (agent_speed < 10){
@@ -37,6 +40,13 @@ extern "C" {
         return move_time * flying_energy + stop_time * (P0 + P1);
      }
   }
+// __device__ int SortCompare(const void* a, const void* b) {
+//     const dis_pair* pa = (const dis_pair*) a;
+//     const dis_pair* pb = (const dis_pair*) b;
+//     if (pa->second < pb->second) return -1;
+//     else if (pa->second > pb->second) return 1;
+//     else return 0;
+// }
   // Device helper function to generate observation
   __device__ void CudaCrowdSimGenerateObservation(
       float * obs_arr,
@@ -52,6 +62,7 @@ extern "C" {
       const float * target_x_timelist,
       const float * target_y_timelist,
       float * target_aoi_arr,
+//       dis_pair * neighbor_pairs,
       float * neighbor_agent_distances_arr,
       int * neighbor_agent_ids_sorted_by_distances_arr,
       const float kDroneCarCommRange,
@@ -72,28 +83,30 @@ extern "C" {
       obs_arr[kThisAgentIdxOffset + 1] = (agent_energy_arr[kThisAgentArrayIdx] / kAgentEnergyRange);
 
       // ------------------------------------
-      // [Part 2] other agent's infosw (2 * self.num_agents_observed * 2)
+      // [Part 2] other agent's infos (2 * self.num_agents_observed * 2)
+      // Other agents displacements are sorted by distance
       for (int idx = 0; idx < 2 * kNumAgentsObserved; idx++) {
         obs_arr[kThisAgentIdxOffset + 2 + idx * 2 + 0] = 0.0;
         obs_arr[kThisAgentIdxOffset + 2 + idx * 2 + 1] = 0.0;
       }
       // Sort the neighbor homogeneous and heterogeneous agents as the following part of observations
+      int i_index = 0;
       const int kThisDistanceArrayIdxOffset = kEnvId * kNumAgents * (kNumAgents-1) + kThisAgentId * (kNumAgents-1);
-      int i_index=0;
       for (int agent_idx = 0; agent_idx < kNumAgents; agent_idx++){
+//         dis_pair & current = neighbor_pairs[kThisDistanceArrayIdxOffset + i_index];
         if (agent_idx == kThisAgentId){
           continue;
         }
         float temp_x = agent_x_arr[kThisAgentArrayIdx] - agent_x_arr[kEnvId * kNumAgents+agent_idx];
         float temp_y = agent_y_arr[kThisAgentArrayIdx] - agent_y_arr[kEnvId * kNumAgents+agent_idx];
-        float dist = sqrt(temp_x * temp_x + temp_y * temp_y);
-        neighbor_agent_distances_arr[kThisDistanceArrayIdxOffset + i_index] = dist;
+//         current.first = sqrt(temp_x * temp_x + temp_y * temp_y);
+//         current.second = agent_idx;
+        neighbor_agent_distances_arr[kThisDistanceArrayIdxOffset + i_index] = sqrt(temp_x * temp_x + temp_y * temp_y);
         neighbor_agent_ids_sorted_by_distances_arr[kThisDistanceArrayIdxOffset + i_index] = agent_idx;
         i_index++;
       }
-
       int j_index;  // A simple bubble sort within one gpu thread
-      for (int i = 0; i < kNumAgents-2; i++) {  
+      for (int i = 0; i < kNumAgents-2; i++) {
         for (int j = 0; j < kNumAgents-i-2; j++) {
           j_index = kThisDistanceArrayIdxOffset + j;
 
@@ -115,17 +128,18 @@ extern "C" {
       const int kThisHeteroAgentIdxOffset = kEnvId * kNumAgents * num_features + kThisAgentId * num_features + 2 + 2 * kNumAgentsObserved;
       for (int i = 0; i < kNumAgents-1; i ++){
         int other_agent_idx = neighbor_agent_ids_sorted_by_distances_arr[kThisDistanceArrayIdxOffset + i];
+//         int other_agent_idx = neighbor_pairs[kThisDistanceArrayIdxOffset + i].first;
         // printf("agent %d - other idx: %d\n", kThisAgentId,other_agent_idx);
-        if ((agent_types_arr[kThisAgentId] == agent_types_arr[other_agent_idx]) && (homoge_part_idx<kNumAgentsObserved)){
-          float delta_x = (agent_x_arr[kEnvId * kNumAgents + other_agent_idx]  - agent_x_arr[kThisAgentArrayIdx])/kAgentXRange;
-          float delta_y = (agent_y_arr[kEnvId * kNumAgents + other_agent_idx]  - agent_y_arr[kThisAgentArrayIdx])/kAgentYRange;
+        if ((agent_types_arr[kThisAgentId] == agent_types_arr[other_agent_idx]) && (homoge_part_idx < kNumAgentsObserved)){
+          float delta_x = (agent_x_arr[kEnvId * kNumAgents + other_agent_idx]  - agent_x_arr[kThisAgentArrayIdx]) / kAgentXRange;
+          float delta_y = (agent_y_arr[kEnvId * kNumAgents + other_agent_idx]  - agent_y_arr[kThisAgentArrayIdx]) / kAgentYRange;
           obs_arr[kThisHomogeAgentIdxOffset + homoge_part_idx*2 + 0] = delta_x;
           obs_arr[kThisHomogeAgentIdxOffset + homoge_part_idx*2 + 1] = delta_y;
           homoge_part_idx++;
         }
-        if ((agent_types_arr[kThisAgentId] != agent_types_arr[other_agent_idx]) && (hetero_part_idx<kNumAgentsObserved)){
-          float delta_x = (agent_x_arr[kEnvId * kNumAgents + other_agent_idx]  - agent_x_arr[kThisAgentArrayIdx])/kAgentXRange;
-          float delta_y = (agent_y_arr[kEnvId * kNumAgents + other_agent_idx]  - agent_y_arr[kThisAgentArrayIdx])/kAgentYRange;
+        if ((agent_types_arr[kThisAgentId] != agent_types_arr[other_agent_idx]) && (hetero_part_idx < kNumAgentsObserved)){
+          float delta_x = (agent_x_arr[kEnvId * kNumAgents + other_agent_idx] - agent_x_arr[kThisAgentArrayIdx]) / kAgentXRange;
+          float delta_y = (agent_y_arr[kEnvId * kNumAgents + other_agent_idx] - agent_y_arr[kThisAgentArrayIdx]) / kAgentYRange;
           obs_arr[kThisHeteroAgentIdxOffset + hetero_part_idx*2 + 0] = delta_x;
           obs_arr[kThisHeteroAgentIdxOffset + hetero_part_idx*2 + 1] = delta_y;
           hetero_part_idx++;
@@ -152,7 +166,7 @@ extern "C" {
 
         if (0 <= x && x < 10 && 0 <= y && y < 10) {
             int idx = x * 10 + y;
-            grid_point_count[idx] += 1;
+            grid_point_count[idx]++;
             temp_aoi_grid[idx] += target_aoi_arr[kThisTargetAgeArrayIdxOffset+i];
         }
       }
@@ -194,7 +208,8 @@ extern "C" {
     int * neighbor_agent_ids_arr,
     const float kCarSensingRange,
     const float kDroneSensingRange,
-    const float kDroneCarCommRange,    
+    const float kDroneCarCommRange,
+//     dis_pair * neighbor_pairs,
     float * neighbor_agent_distances_arr,
     int * neighbor_agent_ids_sorted_by_distances_arr,
     int * done_arr,
@@ -214,7 +229,10 @@ extern "C" {
     // Update Timestep
     // Increment time ONCE -- only 1 thread can do this.
     if (kThisAgentId == 0) {
-      env_timestep_arr[kEnvId] += 1;
+      int original = env_timestep_arr[kEnvId]++;
+      if (original > kEpisodeLength) {
+        env_timestep_arr[kEnvId] = 0;
+      }
     }
     __sync_env_threads(); // Wait here until timestep has been updated
     assert(env_timestep_arr[kEnvId] > 0 && env_timestep_arr[kEnvId] <=
@@ -355,6 +373,7 @@ extern "C" {
       target_x_timelist,
       target_y_timelist,
       target_aoi_arr,
+//       neighbor_pairs,
       neighbor_agent_distances_arr,
       neighbor_agent_ids_sorted_by_distances_arr,
       kDroneCarCommRange,

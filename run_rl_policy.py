@@ -3,10 +3,15 @@ Helper file for generating an environment rollout
 """
 
 from warp_drive.trainer_lightning import WarpDriveModule
-
+from warp_drive.training.trainer import Metrics
+from envs.crowd_sim.crowd_sim import COVERAGE_METRIC_NAME
+from tqdm.std import trange
+import matplotlib.pyplot as plt
 
 def generate_crowd_sim_animations(
-        trainer: WarpDriveModule
+        trainer: WarpDriveModule,
+        animate: bool = False,
+        verbose: bool = False,
 ):
     assert trainer is not None
     episode_states = trainer.fetch_episode_states(
@@ -17,10 +22,16 @@ def generate_crowd_sim_animations(
     # TODO: Hack at here, env is filled with the last timestep or something else, need to figure out why
     env.agent_x_timelist = episode_states['agent_x']
     env.agent_y_timelist = episode_states['agent_y']
-    env.render(args.output_dir, args.plot_loop, args.moving_line)
+    metrics = env.collect_info()
+    if verbose:
+        printer = Metrics()
+        printer.pretty_print(metrics)
+    if animate:
+        env.render(args.output_dir, args.plot_loop, args.moving_line)
+    return metrics
 
 
-def setup_cuda_crowd_sim_env():
+def setup_cuda_crowd_sim_env(enable_zero_shot: bool = False):
     """
     common setup for cuda_crowd_sim_env
     """
@@ -32,6 +43,7 @@ def setup_cuda_crowd_sim_env():
         env=dict(
             num_cars=4,  # number of drones in the environment
             num_drones=4,  # number of runners in the environment
+            zero_shot=enable_zero_shot,
         ),
         # 框架重要参数，当前两个环境均为 episode_length = 120
         # Trainer settings.
@@ -112,6 +124,41 @@ def setup_cuda_crowd_sim_env():
     return new_wd_module
 
 
+def benchmark_coverage(parent_path: str):
+    coverage_list = []
+    timesteps = []
+    best_coverage = 0
+    best_timestep = -1
+    for timestep in trange(50000000, 600000000, 5000000):
+        wd_module.load_model_checkpoint({"car":
+                                             f"{parent_path}/car_{timestep}.state_dict",
+                                         "drone":
+                                             f"{parent_path}/drone_{timestep}.state_dict"})
+        metrics = generate_crowd_sim_animations(wd_module)
+        coverage_list.append(metrics[COVERAGE_METRIC_NAME])
+        # select the time step with best coverage
+        if metrics[COVERAGE_METRIC_NAME] > best_coverage:
+            best_coverage = metrics[COVERAGE_METRIC_NAME]
+            best_timestep = timestep
+        timesteps.append(timestep)
+    print(f"best zero shot coverage: {best_coverage}, timestep: {best_timestep}")
+    # plot coverage and timestep
+    # x label: timestep
+    plt.xlabel('timestep')
+    # y label: target coverage
+    plt.ylabel('target coverage')
+    # title: change of target coverage vs timestep
+    plt.title('change of target coverage vs timestep')
+    # x ticks change scale to 10^6
+    plt.ticklabel_format(style='sci', axis='x', scilimits=(0, 0))
+    plt.plot(timesteps, coverage_list)
+    # get parent_path last dir name
+    expr_name = parent_path.split('/')[-1]
+    # save figure as image
+    plt.savefig(f'./{expr_name}_coverage.png')
+    return best_timestep
+
+
 if __name__ == "__main__":
     import torch
     import argparse
@@ -124,10 +171,19 @@ if __name__ == "__main__":
     parser.add_argument('--output_dir', type=str, default='./logs.html')
     parser.add_argument('--plot_loop', action='store_true')
     parser.add_argument('--moving_line', action='store_true')
+    parser.add_argument("--zero_shot", action="store_true")
     args = parser.parse_args()
-    wd_module = setup_cuda_crowd_sim_env()
+    wd_module = setup_cuda_crowd_sim_env(args.zero_shot)
+    # generalized from KAIST to San Francisco
+    # parent_path = "./saved_data/crowd_sim/infocom2022/1700917493"
+    parent_path = "./saved_data/crowd_sim/kdd2024/1701264833"
+    # 1701321935 San Fran from scratch
+    # 1701264833 KAIST from scratch, the best generalization at 260000000
+    # best generalization for new points at
+    # timestep = benchmark_coverage(parent_path)
+    timestep = 260000000
     wd_module.load_model_checkpoint({"car":
-                                         "./saved_data/crowd_sim/infocom2022/1700917493/car_50000000.state_dict",
+                                         f"{parent_path}/car_{timestep}.state_dict",
                                      "drone":
-                                         "./saved_data/crowd_sim/infocom2022/1700917493/drone_50000000.state_dict"})
-    generate_crowd_sim_animations(wd_module)
+                                         f"{parent_path}/drone_{timestep}.state_dict"})
+    generate_crowd_sim_animations(wd_module, animate=True, verbose=True)

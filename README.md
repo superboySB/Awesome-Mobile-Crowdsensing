@@ -1,7 +1,18 @@
 # Awesome-Mobile-Crowdsensing
-This is a list of research resources on **Human-Machine Collaborative Sensing** by AI-Driven Unmanned Vehicles, including related papers, simulation codes and default algorithms. 
 
-Prof. Liu often admonishes us with the phrase "**Talk is cheap, show me your code.**" We should focus on making practical contributions to the Internet of Things and Artificial Intelligence communities. To this end, this repository is continuously updated to help readers get inspired by our researches (including **not only our papers but also our codes**), and realize their ideas in their own field. To better align our research with industrial-grade applications, we always need to consider much more factors, including: larger scales, more agents, higher model training throughput, and faster simulation speeds. To this end, we explore several industrial tools and improve our somewhat outdated implementations of our previous research. For example, we adopted Salasforce's distributed training framework, called [Warp-Drive](https://catalog.ngc.nvidia.com/orgs/partners/teams/salesforce/containers/warpdrive), an extremely fast end-to-end reinforcement learning architecture on a single or multiple Nvidia GPUs. 
+This is a list of research resources on **Human-Machine Collaborative Sensing**
+by AI-Driven Unmanned Vehicles, including related papers, simulation codes and default algorithms.
+
+Prof. Liu often admonishes us with the phrase "**Talk is cheap, show me your code.**"
+We should focus on making practical contributions to the Internet of Things and Artificial Intelligence communities.
+To this end, this repository is continuously updated to help readers get inspired by our researches
+(including **not only our papers but also our codes**), and realize their ideas in their own field.
+To better align our research with industrial-grade applications, we always need to consider much more factors,
+including: larger scales, more agents, higher model training throughput, and faster simulation speeds.
+To this end, we explore several industrial tools and improve our somewhat outdated implementations of
+our previous research. For example, we adopted Salasforce's distributed training framework,
+called [Warp-Drive](https://catalog.ngc.nvidia.com/orgs/partners/teams/salesforce/containers/warpdrive),
+an extremely fast end-to-end reinforcement learning architecture on a single or multiple Nvidia GPUs.
 
 ## Related Papers
 - [Ensuring Threshold AoI for UAV-assisted Mobile Crowdsensing by Multi-Agent Deep Reinforcement Learning with Transformer](https://ieeexplore.ieee.org/abstract/document/10181012)
@@ -59,7 +70,9 @@ python train_rl_policy.py
 ```
 To Debug, run the following command to expose docker ssh interface
 ```shell
-sudo docker run -itd --gpus=all --name=mcs -p 40731:22 aequatiospace/linc_image:v1.2 /bin/bash
+# Note we need to expose SSH port via a custom port
+# we also need to sync local time from host to container as well.
+sudo docker run -itd --gpus=all --name=mcs -p 40731:22 -v /etc/localtime:/etc/localtime:ro aequatiospace/linc_image:v1.2 /bin/bash
 sudo docker exec -it mcs /bin/bash
 # restart ssh within the docker
 /etc/init.d/ssh restart
@@ -84,9 +97,10 @@ python warp_drive/trainer_pytorch.py --env tag_continuous --auto_scale
 - [X] Add mobile users as PoIs
 - [ ] Add RLlib wrapper to support more popular RL baselines
 - [ ] Try to improve the PPO in warp-drive (currently so naive.)
-- [ ] Add Charging Stations with alive-and-dead settings (currently the electroncity is unlimited)
+- [ ] Add Charging Stations with alive-and-dead settings (currently the electricity is unlimited)
 - [ ] Add macro stragies of mobile users as fixed PoIs
-- [ ] Add our proposed key metrics for [emergency response](https://github.com/BIT-MCS/DRL-UCS-AoI-Threshold), inspired by Age of Information (AoI)
+- [X] Add our proposed key metrics for [emergency response](https://github.com/BIT-MCS/DRL-UCS-AoI-Threshold), inspired
+  by Age of Information (AoI)
 - [ ] Add apis for using available actions
 - [ ] Add more realistic uav PnC mechanism, e.g., PD controller and A* planner (RL cannot do everything with one DNN. Traditonal methods are very necessary to achieve low-level control with collision avoidance)
 - [ ] Add more realistic environment dynamics, e.g., [4G MIMO](https://github.com/BIT-MCS/DRL-freshMCS), [5G NOMA](https://github.com/BIT-MCS/hi-MADRL)

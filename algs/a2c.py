@@ -12,7 +12,7 @@ from torch.distributions import Categorical
 from warp_drive.training.param_scheduler import ParamScheduler
 
 _EPSILON = 1e-10  # small number to prevent indeterminate division
-
+from algs.utils import normalize_batch
 
 class A2C:
     """
@@ -87,14 +87,7 @@ class A2C:
         advantages_batch = normalized_returns_batch - value_functions_batch_detached
 
         # Normalize across the agents and env dimensions
-        if self.normalize_advantage:
-            normalized_advantages_batch = (
-                advantages_batch - advantages_batch.mean(dim=(1, 2), keepdim=True)
-            ) / (
-                advantages_batch.std(dim=(1, 2), keepdim=True) + torch.tensor(_EPSILON)
-            )
-        else:
-            normalized_advantages_batch = advantages_batch
+        normalize_batch(advantages_batch, self.normalize_advantage)
 
         log_prob = 0.0
         mean_entropy = 0.0

@@ -11,6 +11,7 @@ The Fully Connected Network class
 import numpy as np
 import torch
 import torch.nn.functional as func
+import torch.nn.init as init
 from gym.spaces import Box, Dict, Discrete, MultiDiscrete
 from torch import nn
 
@@ -87,10 +88,10 @@ class FullyConnected(nn.Module):
 
         self.fc = nn.ModuleDict()
         for fc_layer in range(num_fc_layers):
-            self.fc[str(fc_layer)] = nn.Sequential(
-                nn.Linear(input_dims[fc_layer], output_dims[fc_layer]),
-                nn.ReLU(),
-            )
+            linear = nn.Linear(input_dims[fc_layer], output_dims[fc_layer])
+            init.orthogonal_(linear.weight)  # Apply orthogonal initialization to weights
+            init.constant_(linear.bias, 0)  # Initialize biases to a constant value, e.g., 0
+            self.fc[str(fc_layer)] = nn.Sequential(linear, nn.ReLU())
 
         # policy network (list of heads)
         policy_heads = [None for _ in range(len(action_space))]
@@ -99,9 +100,15 @@ class FullyConnected(nn.Module):
             self.output_dims += [act_space]
             policy_heads[idx] = nn.Linear(fc_dims[-1], act_space)
         self.policy_head = nn.ModuleList(policy_heads)
+        # Initialize policy and value function heads
+        for head in self.policy_head:
+            init.orthogonal_(head.weight)
+            init.constant_(head.bias, 0)
 
         # value-function network head
         self.vf_head = nn.Linear(fc_dims[-1], 1)
+        init.orthogonal_(self.vf_head.weight)
+        init.constant_(self.vf_head.bias, 0)
 
         # used for action masking
         self.action_mask = None

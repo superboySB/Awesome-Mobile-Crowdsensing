@@ -1,8 +1,7 @@
 import os
 import logging
-
-logging.getLogger().setLevel(logging.ERROR)
-
+from argparse import ArgumentParser
+from datetime import datetime
 import torch
 import argparse
 
@@ -20,15 +19,31 @@ from warp_drive.utils.common import get_project_root
 import multiprocessing as mp
 import setproctitle
 
-parser = argparse.ArgumentParser()
+logging.getLogger().setLevel(logging.ERROR)
+
+PROJECT_NAME = "awesome-mcs"
+algo_name: str = "PPO"
+learning_rate: float = 4e-5
+
+parser: ArgumentParser = argparse.ArgumentParser()
 parser.add_argument(
     '--track', action='store_true'
+)
+# check point contains two digits, one is the initialization time of the experiment,
+# the other is the training timestep
+parser.add_argument(
+    '--ckpt', nargs=2, type=str, default=None
+)
+parser.add_argument(
+    "--use_gae", action='store_true'
 )
 args = parser.parse_args()
 mp.set_start_method("spawn", force=True)
 torch.set_float32_matmul_precision('medium')
+RUN_NAME = "kdd2024"
+ENV_NAME = "crowd_sim"
 run_config = dict(
-    name="crowd_sim",
+    name=ENV_NAME,
     # Environment settings.
     env=dict(
         num_cars=3,  # number of drones in the environment
@@ -38,15 +53,16 @@ run_config = dict(
     # Trainer settings.
     trainer=dict(
         num_envs=500,  # number of environment replicas (number of GPU blocks used)
-        train_batch_size=1000,  # total batch size used for training per iteration (across all the environments)
+        train_batch_size=4000,  # total batch size used for training per iteration (across all the environments)
         num_episodes=5000000,
+        num_mini_batches=4,  # number of mini-batches to split the training batch into
         # total number of episodes to run the training for (can be arbitrarily high!)   # 120 x 50000 = 6M
     ),
     # Policy network settings.
     policy=dict(
         car=dict(  # 无人车
             to_train=True,  # flag indicating whether the model needs to be trained
-            algorithm="PPO",  # algorithm used to train the policy
+            algorithm=algo_name,  # algorithm used to train the policy
             vf_loss_coeff=1,  # loss coefficient for the value function loss
             entropy_coeff=0.01,  # coefficient for the entropy component of the loss
             clip_grad_norm=True,  # flag indicating whether to clip the gradient norm or not
@@ -54,7 +70,8 @@ run_config = dict(
             normalize_advantage=True,  # flag indicating whether to normalize advantage or not
             normalize_return=False,  # flag indicating whether to normalize return or not
             gamma=0.99,  # discount rate
-            lr=1e-5,  # learning rate
+            lr=learning_rate,  # learning rate
+            use_gae=args.use_gae,
             model=dict(
                 type="fully_connected",
                 fc_dims=[512, 512],
@@ -63,7 +80,7 @@ run_config = dict(
         ),
         drone=dict(  # 无人机
             to_train=True,
-            algorithm="PPO",
+            algorithm=algo_name,
             vf_loss_coeff=1,
             entropy_coeff=0.01,  # [[0, 0.5],[3000000, 0.01]]
             clip_grad_norm=True,
@@ -71,7 +88,8 @@ run_config = dict(
             normalize_advantage=True,
             normalize_return=False,
             gamma=0.99,
-            lr=1e-5,
+            lr=learning_rate,
+            use_gae=args.use_gae,
             model=dict(
                 type="fully_connected",
                 fc_dims=[512, 512],
@@ -84,16 +102,25 @@ run_config = dict(
         metrics_log_freq=100,  # how often (in iterations) to print the metrics
         model_params_save_freq=5000,  # how often (in iterations) to save the model parameters
         basedir="./saved_data",  # base folder used for saving
-        name="crowd_sim",  # experiment name
-        tag="kdd2024",  # experiment tag
+        name=ENV_NAME,  # experiment name
+        tag=RUN_NAME,  # experiment tag
     ),
 )
 
-expr_name = f"car{run_config['env']['num_cars']}_drone{run_config['env']['num_drones']}_kdd2024"
+current_datetime = datetime.now()
+# Format the date and time as a string
+datetime_string = current_datetime.strftime("%m%d-%H%M%S")
+expr_name = f"{datetime_string}_car{run_config['env']['num_cars']}_drone{run_config['env']['num_drones']}_kdd2024"
+if args.ckpt is not None:
+    expr_start_time, train_timestep = args.ckpt
+    parent_path = os.path.join(get_project_root(), "saved_data", ENV_NAME, RUN_NAME, expr_start_time)
+    run_config['policy']['car']['model']['model_ckpt_filepath'] = f"{parent_path}/car_{train_timestep}.state_dict"
+    run_config['policy']['drone']['model']['model_ckpt_filepath'] = f"{parent_path}/drone_{train_timestep}.state_dict"
+    expr_name += '_ckpt'
 setproctitle.setproctitle(expr_name)
 env_registrar = EnvironmentRegistrar()
 env_registrar.add_cuda_env_src_path(CUDACrowdSim.name,
-                                    os.path.join(get_project_root(), "envs", "crowd_sim", "crowd_sim_step.cu"))
+                                    os.path.join(get_project_root(), "envs", ENV_NAME, "crowd_sim_step.cu"))
 
 env_wrapper = CrowdSimEnvWrapper(
     CUDACrowdSim(**run_config["env"]),
@@ -115,6 +142,7 @@ wd_module = WarpDriveModule(
     create_separate_placeholders_for_each_policy=False,  # TODO: True -> IPPO?
     obs_dim_corresponding_to_num_agents="first",
     verbose=True,
+    results_dir=expr_name
 )
 
 log_freq = run_config["saving"]["metrics_log_freq"]
@@ -141,8 +169,8 @@ if args.track:
     import wandb
 
     # Initialize a wandb run
-    wandb_logger = WandbLogger(project="awesome-mcs", name=expr_name)
-    wandb.init(project="awesome-mcs", name=expr_name)
+    wandb_logger = WandbLogger(project=PROJECT_NAME, name=expr_name)
+    wandb.init(project=PROJECT_NAME, name=expr_name)
     prefix = 'env/'
     wandb.define_metric(prefix + COVERAGE_METRIC_NAME, summary="max")
     wandb.define_metric(prefix + ENERGY_METRIC_NAME, summary="min")
@@ -156,9 +184,8 @@ trainer = Trainer(
     callbacks=[cuda_callback, perf_stats_callback],
     max_epochs=num_epochs,
     reload_dataloaders_every_n_epochs=1,
-    logger=wandb_logger
+    logger=wandb_logger,
 )
-# Define a metric
 
 trainer.fit(wd_module)
 
