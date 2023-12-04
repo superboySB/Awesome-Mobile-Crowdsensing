@@ -7,23 +7,17 @@ from folium.plugins import TimestampedGeoJson, AntPath
 from gym import spaces
 from shapely.geometry import Point
 
-# from datasets.KAIST.env_config import BaseEnvConfig
-from datasets.Sanfrancisco.env_config import BaseEnvConfig
 from warp_drive.utils.constants import Constants
 from warp_drive.utils.data_feed import DataFeed
 from warp_drive.utils.gpu_environment_context import CUDAEnvironmentContext
 # TODO：可以在这里切换为更大的San，一定需要更多agents
 from .utils import *
 
-COVERAGE_METRIC_NAME = "target_coverage"
-
-DATA_METRIC_NAME = "collected_data_ratio"
-
-ENERGY_METRIC_NAME = "mean_energy_consumption"
-
-AOI_METRIC_NAME = "mean_aoi"
-
-_AGENT_ENERGY = "agent_energy"
+COVERAGE_METRIC_NAME = Constants.COVERAGE_METRIC_NAME
+DATA_METRIC_NAME = Constants.DATA_METRIC_NAME
+ENERGY_METRIC_NAME = Constants.ENERGY_METRIC_NAME
+AOI_METRIC_NAME = Constants.AOI_METRIC_NAME
+_AGENT_ENERGY = Constants.AGENT_ENERGY
 _OBSERVATIONS = Constants.OBSERVATIONS
 _ACTIONS = Constants.ACTIONS
 _REWARDS = Constants.REWARDS
@@ -52,13 +46,14 @@ class CrowdSim:
             num_agents_observed=5,
             seed=None,
             env_backend="cpu",
-            zero_shot=False,
+            dynamic_zero_shot=False,
+            env_config=None,
     ):
         self.float_dtype = np.float32
         self.int_dtype = np.int32
         # small number to prevent indeterminate cases
         self.eps = self.float_dtype(1e-10)
-        self.config = BaseEnvConfig()
+        self.config = env_config()
         # Seeding
         self.np_random: np.random = np.random
         if seed is not None:
@@ -90,7 +85,7 @@ class CrowdSim:
         self.human_df['aoi'] = -1  # 加入aoi记录aoi
         self.human_df['energy'] = -1  # 加入energy记录energy
         self.agent_speed = {'car': self.config.env.car_velocity, 'drone': self.config.env.drone_velocity}
-        if zero_shot:
+        if dynamic_zero_shot:
             num_centers = int(self.num_sensing_targets * 0.05)
             num_points_per_center = 3
             max_distance_from_center = 10
@@ -127,7 +122,7 @@ class CrowdSim:
                 self.target_y_timelist[timestamp_index, id_index] = row['y']
             else:
                 raise ValueError("Got invalid rows:", row)
-        if zero_shot:
+        if dynamic_zero_shot:
             self.target_x_timelist[:, self.num_sensing_targets - num_centers * num_points_per_center:] = points_x
             self.target_y_timelist[:, self.num_sensing_targets - num_centers * num_points_per_center:] = points_y
             # rebuild DataFrame from longitude and latitude

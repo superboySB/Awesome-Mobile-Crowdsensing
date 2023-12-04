@@ -59,8 +59,8 @@ extern "C" {
       const float kAgentEnergyRange,
       const int kNumTargets,
       const int kNumAgentsObserved,
-      const float * target_x_timelist,
-      const float * target_y_timelist,
+      const float * target_x_time_list,
+      const float * target_y_time_list,
       float * target_aoi_arr,
 //       dis_pair * neighbor_pairs,
       float * neighbor_agent_distances_arr,
@@ -157,12 +157,12 @@ extern "C" {
       float grid_max_y = grid_center_y + 5 * grid_width;
       int grid_point_count[100] = {0}; 
       float temp_aoi_grid[100] = {0.0f};
-      const int kThisTargetPositionTimelistIdxOffset = env_timestep_arr[kEnvId] * kNumTargets; 
+      const int kThisTargetPositionTimeListIdxOffset = env_timestep_arr[kEnvId] * kNumTargets; 
       const int kThisTargetAgeArrayIdxOffset = kEnvId * kNumTargets;
 
       for (int i = 0; i < kNumTargets; ++i) {
-        int x = floorf((target_x_timelist[kThisTargetPositionTimelistIdxOffset+i] - grid_min_x) / (grid_max_x - grid_min_x) * 10);
-        int y = floorf((target_y_timelist[kThisTargetPositionTimelistIdxOffset+i] - grid_min_y) / (grid_max_y - grid_min_y) * 10);
+        int x = floorf((target_x_time_list[kThisTargetPositionTimeListIdxOffset+i] - grid_min_x) / (grid_max_x - grid_min_x) * 10);
+        int y = floorf((target_y_time_list[kThisTargetPositionTimeListIdxOffset+i] - grid_min_y) / (grid_max_y - grid_min_y) * 10);
 
         if (0 <= x && x < 10 && 0 <= y && y < 10) {
             int idx = x * 10 + y;
@@ -182,7 +182,7 @@ extern "C" {
     }
   }
 
-  // k: const with timesteps, arr: on current timestep, timelist: multiple timesteps
+  // k: const with timesteps, arr: on current timestep, time_list: multiple timesteps
   __global__ void CudaCrowdSimStep(
     float * obs_arr,
     int * action_indices_arr,
@@ -200,8 +200,8 @@ extern "C" {
     const float kAgentEnergyRange,
     const int kNumTargets,
     const int kNumAgentsObserved,
-    const float * target_x_timelist,
-    const float * target_y_timelist,
+    const float * target_x_time_list,
+    const float * target_y_time_list,
     float * target_aoi_arr,
     int * target_coverage_arr,
     int * valid_status_arr,
@@ -224,7 +224,7 @@ extern "C" {
     const int kEnvId = getEnvID(blockIdx.x);
     const int kThisAgentId = getAgentID(threadIdx.x, blockIdx.x, blockDim.x);
     const int kThisAgentArrayIdx = kEnvId * kNumAgents + kThisAgentId;
-    const int kNumActionDim = 1;  // use Discreate instead of MultiDiscrete
+    const int kNumActionDim = 1;  // use Discrete instead of MultiDiscrete
     // -------------------------------
     // Update Timestep
     // Increment time ONCE -- only 1 thread can do this.
@@ -318,7 +318,7 @@ extern "C" {
     // Compute reward
     if (kThisAgentId == 0){
       const int kThisTargetAgeArrayIdxOffset = kEnvId * kNumTargets;
-      const int kThisTargetPositionTimelistIdxOffset = env_timestep_arr[kEnvId] * kNumTargets;
+      const int kThisTargetPositionTimeListIdxOffset = env_timestep_arr[kEnvId] * kNumTargets;
 
       for (int target_idx=0; target_idx<kNumTargets; target_idx++){
         float min_dist = kMaxDistance; 
@@ -329,8 +329,8 @@ extern "C" {
             continue;
           }
           else{
-          float temp_x = agent_x_arr[kEnvId * kNumAgents+agent_idx] - target_x_timelist[kThisTargetPositionTimelistIdxOffset+target_idx];
-          float temp_y = agent_y_arr[kEnvId * kNumAgents+agent_idx] - target_y_timelist[kThisTargetPositionTimelistIdxOffset+target_idx];
+          float temp_x = agent_x_arr[kEnvId * kNumAgents+agent_idx] - target_x_time_list[kThisTargetPositionTimeListIdxOffset+target_idx];
+          float temp_y = agent_y_arr[kEnvId * kNumAgents+agent_idx] - target_y_time_list[kThisTargetPositionTimeListIdxOffset+target_idx];
             float dist = sqrt(temp_x * temp_x + temp_y * temp_y);
             if (dist < min_dist) {
                 min_dist = dist;
@@ -370,8 +370,8 @@ extern "C" {
       kAgentEnergyRange,
       kNumTargets,
       kNumAgentsObserved,
-      target_x_timelist,
-      target_y_timelist,
+      target_x_time_list,
+      target_y_time_list,
       target_aoi_arr,
 //       neighbor_pairs,
       neighbor_agent_distances_arr,

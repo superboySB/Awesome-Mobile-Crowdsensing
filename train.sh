@@ -3,7 +3,7 @@
 dataset_name='SanFrancisco'
 exp_name='WARP'_$dataset_name
 session_name=$exp_name
-cards=(1 2)
+cards=(2)
 card_num=${#cards[@]}
 dry_run=false
 # Process command-line arguments
@@ -20,8 +20,7 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 trains=(
-  "--track"
-  "--track --use_gae"
+  "--track --dataset $dataset_name"
 )
 train_num=${#trains[@]}
 if [ "$dry_run" = "false" ]
@@ -66,6 +65,6 @@ if [ "$dry_run" = "false" ]
 then
   tmux attach-session -t $session_name
 else
-  echo "Operation canceled."
+  echo "Operation not executed."
   # Add any cleanup or exit code here if needed
 fi

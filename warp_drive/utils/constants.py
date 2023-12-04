@@ -19,3 +19,8 @@ class Constants:
     DONE_FLAGS = "done_flags"
     PROCESSED_OBSERVATIONS = "processed_observations"
     ACTION_MASK = "action_mask"
+    AGENT_ENERGY = "agent_energy"
+    COVERAGE_METRIC_NAME = "target_coverage"
+    DATA_METRIC_NAME = "collected_data_ratio"
+    ENERGY_METRIC_NAME = "mean_energy_consumption"
+    AOI_METRIC_NAME = "mean_aoi"

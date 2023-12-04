@@ -1,5 +1,6 @@
 
 import numpy as np
+from datasets.env_test import try_sensing_range
 
 class Config(object):
     def __init__(self):
@@ -57,21 +58,6 @@ class BaseEnvConfig(object):
 
 # r:meters, 2d distance
 # threshold: dB
-def try_sensing_range(r):
-    import math
-    config = BaseEnvConfig().env
-    p_los = math.exp(
-        -config.density_of_human_blockers * config.diameter_of_human_blockers * r * (config.h_b - config.h_rx) / (
-                config.h_d - config.h_rx))
-    p_nlos = 1 - p_los
-    PL_los = config.alpha_los + config.beta_los * 10 * math.log10(
-        math.sqrt(r * r + config.h_d * config.h_d)) + config.zeta_los
-    PL_nlos = config.alpha_nlos + config.beta_nlos * 10 * math.log10(
-        math.sqrt(r * r + config.h_d * config.h_d)) + config.zeta_nlos
-    PL = p_los * PL_los + p_nlos * PL_nlos
-    CL = PL - config.g_tx - config.g_rx
-    print(p_los, p_nlos)
-    print(CL)
 
 
 # Maximum Coupling Loss (110dB is recommended)
@@ -84,4 +70,4 @@ def try_sensing_range(r):
 
 
 if __name__ == "__main__":
-    try_sensing_range(220)
+    try_sensing_range(220, BaseEnvConfig)

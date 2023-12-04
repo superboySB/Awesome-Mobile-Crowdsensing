@@ -14,6 +14,8 @@ from tqdm.std import trange
 from torch.distributions.categorical import Categorical
 from torch.utils.tensorboard import SummaryWriter
 
+from algs.models.network_utils import layer_init
+
 
 def parse_args():
     # fmt: off
@@ -94,11 +96,6 @@ def make_env(env_id, seed, idx, capture_video, run_name):
 
     return thunk
 
-
-def layer_init(layer, std=np.sqrt(2), bias_const=0.0):
-    torch.nn.init.orthogonal_(layer.weight, std)
-    torch.nn.init.constant_(layer.bias, bias_const)
-    return layer
 
 class Agent(nn.Module):
     def __init__(self, envs):

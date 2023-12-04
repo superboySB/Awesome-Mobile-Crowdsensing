@@ -47,41 +47,7 @@ _COMBINED = "combined"
 _EPSILON = 1e-10  # small number to prevent indeterminate divisions
 
 
-def shuffle_and_divide_data(data, n):
-    """
-    data: a dictionary containing the data for each policy
-    n: number of parts to divide the data into
-    """
-    # Initialize empty dictionaries for the n parts
-    divided_data = [{} for _ in range(n)]
 
-    # Iterate over each key (e.g., 'car', 'drone') in the data
-    for key in data.keys() - {'env_info'}:
-        actions, observations, rewards, dones = data[key]
-
-        # Ensure all tensors have the same first dimension size
-        assert actions.size(0) == observations.size(0) == rewards.size(0) == dones.size(0)
-
-        # Generate shuffled indices
-        indices = torch.randperm(actions.size(0))
-
-        # Calculate the size of each chunk
-        chunk_size = actions.size(0) // n
-
-        # Divide the data into n parts using the shuffled indices
-        for i in range(n):
-            start_idx = i * chunk_size
-            end_idx = None if i == n - 1 else start_idx + chunk_size
-            shuffled_indices = indices[start_idx:end_idx]
-
-            divided_data[i][key] = (
-                actions[shuffled_indices],
-                observations[shuffled_indices],
-                rewards[shuffled_indices],
-                dones[shuffled_indices]
-            )
-
-    return divided_data
 
 
 def all_equal(iterable):
@@ -203,6 +169,7 @@ class WarpDriveModule(LightningModule):
             default_config = yaml.safe_load(fp)
 
         self.config = config
+        del config['env']['env_config']
         # Fill in any missing configuration parameters using the default values
         # Trainer-related configurations
         self.config["trainer"] = recursive_merge_config_dicts(
@@ -754,6 +721,8 @@ class WarpDriveModule(LightningModule):
         for k, v in result.items():
             if isinstance(v, torch.Tensor):
                 result[k] = v.mean().item()
+        all_actions = None
+        all_rewards = None
         # Fetch the actions and rewards batches for all agents
         if not self.create_separate_placeholders_for_each_policy:
             all_actions = self.cuda_envs.cuda_data_manager.data_on_device_via_torch(
@@ -884,81 +853,76 @@ class WarpDriveModule(LightningModule):
         assert train_batch_size / num_envs >= num_mini_batches, "Batch size should be divisible by num_mini_batches"
         env_info = batch[_ENV_INFO]
         del batch[_ENV_INFO]
-        divided_data = shuffle_and_divide_data(batch, num_mini_batches)
         for index, policy in enumerate(self.policies_to_train):
             batch_loss = torch.tensor(0.0, device=self.device)
-            for batch in divided_data:
-                actions_batch, rewards_batch, done_flags_batch, processed_obs_batch = batch[
-                    policy
-                ]
+            actions_batch, rewards_batch, done_flags_batch, processed_obs_batch = batch[
+                policy
+            ]
 
-                # Policy evaluation for the entire batch
-                probabilities_batch, value_functions_batch = self.models[policy](
-                    obs=processed_obs_batch
-                )
-                optimizers[index].zero_grad()
-                # Loss and metrics computation
-                loss, metrics = self.trainers[policy].compute_loss_and_metrics(
-                    self.current_timestep[policy],
-                    actions_batch,
-                    rewards_batch,
-                    done_flags_batch,
-                    probabilities_batch,
-                    value_functions_batch,
-                    perform_logging=logging_flag,
-                )
-                self.manual_backward(loss)
-                self.configure_gradient_clipping(optimizers[index], index)
-                optimizers[index].step()
-                lr_schedulers[index].step()
-                batch_loss += loss
-                # Compute the gradient norm
-                grad_norm = 0.0
-                for param in list(
-                        filter(lambda p: p.grad is not None, self.models[policy].parameters())
-                ):
-                    grad_norm += param.grad.data.norm(2).item()
+            optimizers[index].zero_grad()
+            # Loss and metrics computation
+            loss, metrics = self.trainers[policy].compute_loss_and_metrics(
+                self.current_timestep[policy],
+                processed_obs_batch,
+                actions_batch,
+                rewards_batch,
+                done_flags_batch,
+                self.models[policy],
+                perform_logging=logging_flag,
+                num_mini_batches=num_mini_batches,
+            )
+            self.manual_backward(loss)
+            self.configure_gradient_clipping(optimizers[index], optimizer_idx=index, gradient_clip_algorithm='norm')
+            optimizers[index].step()
+            lr_schedulers[index].step()
+            if losses is None:
+                losses = loss.mean()
+            else:
+                losses += loss.mean()
+            # Compute the gradient norm
+            grad_norm = 0.0
+            for param in list(
+                    filter(lambda p: p.grad is not None, self.models[policy].parameters())
+            ):
+                grad_norm += param.grad.data.norm(2).item()
 
-                # Update the timestep and learning rate based on the schedule
-                self.current_timestep[policy] += self.training_batch_size
+            # Update the timestep and learning rate based on the schedule
+            self.current_timestep[policy] += self.training_batch_size
+
+            # Logging
+            if logging_flag:
+                assert isinstance(metrics, dict)
+                # Update the metrics dictionary
+                metrics.update(
+                    {
+                        "Current timestep": self.current_timestep[policy],
+                        "Gradient norm": grad_norm,
+                        "Mean episodic reward": self.episodic_reward_sum[policy].item()
+                                                / (self.num_completed_episodes[policy] + _EPSILON),
+                    }
+                )
+
+                # Reset sum and counter
+                self.episodic_reward_sum[policy] = (
+                    torch.tensor(0).type(torch.float32).to(device=self.device)
+                )
+                self.num_completed_episodes[policy] = 0
+
+                self._log_metrics({policy: metrics})
 
                 # Logging
-                if logging_flag:
-                    assert isinstance(metrics, dict)
-                    # Update the metrics dictionary
-                    metrics.update(
-                        {
-                            "Current timestep": self.current_timestep[policy],
-                            "Gradient norm": grad_norm,
-                            "Mean episodic reward": self.episodic_reward_sum[policy].item()
-                                                    / (self.num_completed_episodes[policy] + _EPSILON),
-                        }
+                # self.log(
+                #     f"loss_{policy}", loss, prog_bar=True, on_step=False, on_epoch=True
+                # )
+                for key in metrics:
+                    self.log(
+                        f"{policy}/{key}",
+                        metrics[key],
+                        prog_bar=False,
+                        on_step=False,
+                        on_epoch=True,
                     )
 
-                    # Reset sum and counter
-                    self.episodic_reward_sum[policy] = (
-                        torch.tensor(0).type(torch.float32).to(device=self.device)
-                    )
-                    self.num_completed_episodes[policy] = 0
-
-                    self._log_metrics({policy: metrics})
-
-                    # Logging
-                    # self.log(
-                    #     f"loss_{policy}", loss, prog_bar=True, on_step=False, on_epoch=True
-                    # )
-                    for key in metrics:
-                        self.log(
-                            f"{policy}/{key}",
-                            metrics[key],
-                            prog_bar=False,
-                            on_step=False,
-                            on_epoch=True,
-                        )
-                if losses is None:
-                    losses = batch_loss.mean()
-                else:
-                    losses += batch_loss.mean()
         if logging_flag:
             del env_info['__all__']
             for k, v in env_info.items():
