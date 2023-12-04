@@ -91,8 +91,7 @@ class FullyConnected(nn.Module):
             linear = nn.Linear(input_dims[fc_layer], output_dims[fc_layer])
             self.fc[str(fc_layer)] = nn.Sequential(
                 layer_init(linear, std=np.sqrt(2), bias_const=0.0),
-                nn.ReLU(),
-                # nn.Tanh()
+                nn.Tanh(),
             )
 
         # policy network (list of heads)
