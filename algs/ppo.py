@@ -66,21 +66,22 @@ class PPO:
         # Value objective.
         with torch.no_grad():
             returns_batch, advantages_batch, deltas_batch = (torch.zeros_like(rewards_batch),) * 3
-            # num_of_steps = returns_batch.shape[0]
-            # for step in reversed(range(num_of_steps)):
-            #     if step == num_of_steps - 1:
-
-            for step in range(-2, -returns_batch.shape[0] - 1, -1):
+            prev_advantage = torch.zeros_like(returns_batch[0])
+            num_of_steps = returns_batch.shape[0]
+            prev_value = value_functions_batch_detached[-1]
+            for step in reversed(range(num_of_steps)):
                 if self.use_gae:
                     deltas_batch[step] = (rewards_batch[step] +
                                           self.discount_factor_gamma * (1 - done_flags_batch[step][:, None]) *
-                                          value_functions_batch_detached[step + 1] - value_functions_batch_detached[
+                                          prev_value - value_functions_batch_detached[
                                               step]
                                           )
                     advantages_batch[step] = deltas_batch[step] + self.discount_factor_gamma * self.lambda_gae * (
-                            1 - done_flags_batch[step][:, None]) * advantages_batch[step + 1]
+                            1 - done_flags_batch[step][:, None]) * prev_advantage
                     returns_batch[step] = value_functions_batch_detached[step] + advantages_batch[step]
                 else:
+                    if step == num_of_steps - 1:
+                        continue
                     future_return = (
                             done_flags_batch[step][:, None] * torch.zeros_like(rewards_batch[step])
                             + (1 - done_flags_batch[step][:, None])
@@ -115,9 +116,9 @@ class PPO:
         policy_loss = -1.0 * policy_surr.mean()
 
         # Total loss
-        vf_loss_coeff_t = self.vf_loss_coeff_schedule.get_param_value(timestep)
-        entropy_coeff_t = self.entropy_coeff_schedule.get_param_value(timestep)
-        loss = policy_loss + vf_loss_coeff_t * vf_loss - entropy_coeff_t * mean_entropy
+        vf_loss_coefficient_t = self.vf_loss_coeff_schedule.get_param_value(timestep)
+        entropy_coefficient_t = self.entropy_coeff_schedule.get_param_value(timestep)
+        loss = policy_loss + vf_loss_coefficient_t * vf_loss - entropy_coefficient_t * mean_entropy
 
         if perform_logging:
             variance_explained = max(
@@ -131,8 +132,8 @@ class PPO:
                 ),
             )
             metrics = {
-                "VF loss coefficient": float(vf_loss_coeff_t),
-                "Entropy coefficient": float(entropy_coeff_t),
+                "VF loss coefficient": float(vf_loss_coefficient_t),
+                "Entropy coefficient": float(entropy_coefficient_t),
                 "Total loss": loss.item(),
                 "Policy loss": policy_loss.item(),
                 "Value function loss": vf_loss.item(),

@@ -1,16 +1,16 @@
 """
 Automatic Vertical Scaling
-Perform a binary search to figure out the max. values of the training parameters:
+Performs a binary search to figure out the max. values of the training parameters:
 'num_envs' and 'train_batch_size' to use on a GPU.
 The highest 'num_envs' is chosen that maximizes the GPU utilization
-(i.e., uses up as many GPU blocks possible). The highest 'train_batch_size'
-is then chosen in order to maximize the GPU memory usage.
+(i.e., uses up as many GPU blocks as possible). The highest 'train_batch_size'
+is then chosen to maximize the GPU memory usage.
 These two parameters essentially determine the largest data batch size that
 can be used towards training on a GPU.
 Note: As the num_envs is increased further and further, the GPU eventually
 runs out of blocks and the function run will throw a
-'cuMemFree failed: an illegal memory access was encountered` error.
-As the batch size is increased further and further (for a chosen num_envs),
+'cuMemFree failed: illegal memory access was encountered` error.
+As the batch size is increased further, and further (for a chosen num_envs),
 the GPU runs out of memory, and the function run will throw a
 `CUDA out of memory` error.
 """
@@ -22,7 +22,7 @@ from warp_drive.training.child_process_pycuda import ProcessWrapper
 
 def best_param_search(low=1, margin=1, func=None):
     """
-    Perform a binary search to determine the best parameter value.
+    Performs a binary search to determine the best parameter value.
     In this specific context, the best
     parameter is (the highest) value of the parameter (e.g. batch size)
     that can be used to run a func(tion)

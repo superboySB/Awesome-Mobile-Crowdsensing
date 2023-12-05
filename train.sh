@@ -3,7 +3,7 @@
 dataset_name='SanFrancisco'
 exp_name='WARP'_$dataset_name
 session_name=$exp_name
-cards=(2)
+cards=(1 2)
 card_num=${#cards[@]}
 dry_run=false
 # Process command-line arguments
@@ -20,7 +20,12 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 trains=(
-  "--track --dataset $dataset_name"
+  "--track --dataset $dataset_name --tag batch_size=4000 num_episodes=5000000"
+  "--track --dataset $dataset_name --tag batch_size=4000 num_episodes=10000000"
+  "--track --dataset $dataset_name --tag batch_size=8000 num_episodes=10000000"
+  "--track --dataset $dataset_name --tag batch_size=8000 num_episodes=20000000"
+  "--track --dataset $dataset_name --tag batch_size=16000 num_episodes=20000000"
+  "--track --dataset $dataset_name --tag batch_size=16000 num_episodes=40000000"
 )
 train_num=${#trains[@]}
 if [ "$dry_run" = "false" ]

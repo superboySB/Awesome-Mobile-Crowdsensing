@@ -1,8 +1,11 @@
+from typing import Union
 algo_name: str = "PPO"
-learning_rate: float = 4e-5
+num_episodes: int = 5000000
+learning_rate: Union[float, list] = [[0, 4e-5], [num_episodes * 120, 0]]
 RUN_NAME: str = "kdd2024"
 ENV_NAME: str = "crowd_sim"
 run_config = dict(
+    model_ckpt_filepath=None,
     name=ENV_NAME,
     # Environment settings.
     env=dict(
@@ -14,8 +17,8 @@ run_config = dict(
     trainer=dict(
         num_envs=500,  # number of environment replicas (number of GPU blocks used)
         train_batch_size=4000,  # total batch size used for training per iteration (across all the environments)
-        num_episodes=5000000,
-        # total number of episodes to run the training for (can be arbitrarily high!)   # 120 x 50000 = 6M
+        num_episodes=num_episodes,
+        # total number of episodes to run the training for (can be arbitrarily high!) # 120 x 5000000 = 600M
         num_mini_batches=4,  # number of mini-batches to split the training batch into
         seed=2023,
 
@@ -33,7 +36,7 @@ run_config = dict(
             normalize_return=True,  # flag indicating whether to normalize return or not
             gamma=0.99,  # discount rate
             lr=learning_rate,  # learning rate
-            use_gae=True,
+            use_gae=False,
             model=dict(
                 type="fully_connected",
                 fc_dims=[512, 512],
@@ -51,7 +54,7 @@ run_config = dict(
             normalize_return=True,
             gamma=0.99,
             lr=learning_rate,
-            use_gae=True,
+            use_gae=False,
             model=dict(
                 type="fully_connected",
                 fc_dims=[512, 512],
@@ -62,7 +65,7 @@ run_config = dict(
     # Checkpoint saving setting.
     saving=dict(
         metrics_log_freq=100,  # how often (in iterations) to print the metrics
-        model_params_save_freq=5000,  # how often (in iterations) to save the model parameters
+        model_params_save_freq=100,  # how often (in iterations) to save the model parameters
         basedir="./saved_data",  # base folder used for saving
         name=ENV_NAME,  # experiment name
         tag=RUN_NAME,  # experiment tag

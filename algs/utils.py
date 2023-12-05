@@ -12,12 +12,14 @@ def normalize_batch(my_batch: torch.Tensor, normalize: bool = True):
     return normalized_batch
 
 
-def shuffle_and_divide_data_dict(data: dict, n: int):
+def shuffle_and_divide_data_dict(data: dict, n: int) -> list:
     """
     data: a dictionary containing the data for each policy
     n: number of parts to divide the data into
     """
     # Initialize empty dictionaries for the n parts
+    if n == 1:
+        return [data]
     divided_data = [{} for _ in range(n)]
 
     # Iterate over each key (e.g., 'car', 'drone') in the data

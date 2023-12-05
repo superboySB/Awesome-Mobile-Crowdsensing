@@ -184,7 +184,7 @@ class WarpDriveModule(LightningModule):
         )
 
         if results_dir is None:
-            # Use the current time as the name for the results directory.
+            # Use the current time as the name for the results' directory.
             results_dir = f"{time.time():10.0f}"
 
         # Directory to save model checkpoints and metrics
@@ -225,7 +225,7 @@ class WarpDriveModule(LightningModule):
         if self.create_separate_placeholders_for_each_policy:
             assert len(self.policies) > 1
 
-        # Number of iterations algebra
+        # Number of iteration algebras
         self.iters = 0  # iteration counter
         self.num_episodes = self._get_config(["trainer", "num_episodes"])
         assert self.num_episodes > 0
@@ -283,7 +283,9 @@ class WarpDriveModule(LightningModule):
 
         # Load the model parameters (if model checkpoints are specified)
         # Note: Loading the model checkpoint may also update the current timestep!
-        self.load_model_checkpoint()
+        # At this time, only Neural Networks are supported.
+        # After Initialization, the restoration of training progress is support.
+        self.load_model_checkpoint_separate()
 
         for policy in self.policies:
             # Push the models to the GPU
@@ -537,7 +539,7 @@ class WarpDriveModule(LightningModule):
                 json.dump(metrics, fp)
                 fp.write("\n")
 
-    def load_model_checkpoint(self, ckpts_dict=None):
+    def load_model_checkpoint_separate(self, ckpts_dict=None):
         """
         Load the model parameters if a checkpoint path is specified.
         """
@@ -558,6 +560,40 @@ class WarpDriveModule(LightningModule):
                 assert policy in self.policies
                 self._load_model_checkpoint_helper(policy, ckpt_filepath)
 
+    def load_model_checkpoint(self, ckpt_filepath=None):
+        """
+        Load model parameters, optimizer states, and lr_scheduler states from a checkpoint file.
+        """
+        if ckpt_filepath is None or not os.path.isfile(ckpt_filepath):
+            if self.verbose:
+                verbose_print("No valid checkpoint file provided.")
+            return
+
+        if self.verbose:
+            verbose_print(f"Loading checkpoint from the file: '{ckpt_filepath}'")
+
+        # Load the entire checkpoint
+        checkpoint = torch.load(ckpt_filepath)
+        optimizers = self.optimizers()
+        lr_schedulers = self.lr_schedulers()
+        # Load model states
+        for policy, model_state in checkpoint['models'].items():
+            assert policy in self.models, f"Policy {policy} not found in current models!"
+            self.models[policy].load_state_dict(model_state)
+
+        # Load optimizer states
+        for idx, optimizer_state in enumerate(checkpoint['optimizers']):
+            assert len(optimizers) > idx, f"Optimizer index {idx} out of range!"
+            optimizers[idx].load_state_dict(optimizer_state)
+
+        # Load lr_scheduler states
+        for idx, lr_scheduler_state in enumerate(checkpoint['lr_schedulers']):
+            assert len(lr_schedulers) > idx, f"LR Scheduler index {idx} out of range!"
+            lr_schedulers[idx].load_state_dict(lr_scheduler_state)
+
+        if self.verbose:
+            verbose_print("Checkpoint loaded successfully.")
+
     def _load_model_checkpoint_helper(self, policy, ckpt_filepath):
         if ckpt_filepath != "":
             assert os.path.isfile(ckpt_filepath), "Invalid model checkpoint path!"
@@ -576,7 +612,7 @@ class WarpDriveModule(LightningModule):
                 )
             self.current_timestep[policy] = timestep
 
-    def save_model_checkpoint(self, iteration=0):
+    def save_model_checkpoint_separate(self, iteration=0):
         """
         Save the model parameters
         """
@@ -597,6 +633,46 @@ class WarpDriveModule(LightningModule):
                     )
 
                 torch.save(model.state_dict(), filepath)
+
+    def save_model_checkpoint(self, iteration=0):
+        """
+        Save the model parameters, optimizer states, and lr_scheduler states in a single file
+        """
+        # Save checkpoints if specified (and also for the last iteration)
+        if (
+                iteration % self.config["saving"]["model_params_save_freq"] == 0
+                or iteration == self.num_iters - 1
+        ):
+            checkpoint = {
+                'iteration': iteration,
+                'models': {},
+                'optimizers': [],
+                'lr_schedulers': []
+            }
+
+            # Save model states
+            for policy, model in self.models.items():
+                checkpoint['models'][policy] = model.state_dict()
+
+            # Save optimizer states
+            for optimizer in self.optimizers():
+                checkpoint['optimizers'].append(optimizer.state_dict())
+
+            # Save lr_scheduler states
+            for lr_scheduler in self.lr_schedulers():
+                checkpoint['lr_schedulers'].append(lr_scheduler.state_dict())
+
+            # Filepath for checkpoint
+            filepath = os.path.join(
+                self.save_dir,
+                f"checkpoint_{iteration}.pt"
+            )
+
+            if self.verbose:
+                verbose_print(f"Saving checkpoint to the file: '{filepath}'.")
+
+            # Save the checkpoint
+            torch.save(checkpoint, filepath)
 
     def graceful_close(self):
         # Delete the sample controller to clear
@@ -721,7 +797,7 @@ class WarpDriveModule(LightningModule):
                 result[k] = v.mean().item()
         all_actions = None
         all_rewards = None
-        # Fetch the actions and rewards batches for all agents
+        # Fetch the action and rewards batches for all agents
         if not self.create_separate_placeholders_for_each_policy:
             all_actions = self.cuda_envs.cuda_data_manager.data_on_device_via_torch(
                 f"{_ACTIONS}"
@@ -782,7 +858,12 @@ class WarpDriveModule(LightningModule):
 
         for policy in self.policies_to_train:
             # Initialize the (ADAM) optimizer
-            lr_schedule = self._get_config(["policy", policy, "lr"])
+            # Use the same learning rate (first agent)
+            try:
+                # sync lr override
+                lr_schedule = self._get_config(["policy", "lr"])
+            except KeyError:
+                lr_schedule = self._get_config(["policy", policy, "lr"])
             init_timestep = self.current_timestep[policy]
             initial_lr = ParamScheduler(lr_schedule).get_param_value(init_timestep)
             optimizer = torch.optim.Adam(
@@ -846,9 +927,6 @@ class WarpDriveModule(LightningModule):
         lr_schedulers = [lr_schedulers] if not isinstance(lr_schedulers, list) else lr_schedulers
         losses = None
         num_mini_batches = self.config['trainer']['num_mini_batches']
-        train_batch_size = self.config['trainer']['train_batch_size']
-        num_envs = self.config['trainer']['num_envs']
-        assert train_batch_size / num_envs >= num_mini_batches, "Batch size should be divisible by num_mini_batches"
         env_info = batch[_ENV_INFO]
         del batch[_ENV_INFO]
         divided_data = shuffle_and_divide_data_dict(batch, num_mini_batches)
@@ -931,11 +1009,10 @@ class WarpDriveModule(LightningModule):
             for k, v in env_info.items():
                 if isinstance(v, torch.Tensor):
                     env_info[k] = v.mean().item()
-                    self.log(f"env/{k}", env_info[k], prog_bar=False, on_step=False, on_epoch=True)
+                    self.log(f"{k}", env_info[k], prog_bar=False, on_step=False, on_epoch=True)
             self._log_metrics({_ENV_INFO: env_info})
-        # Save the model checkpoint
-        self.save_model_checkpoint(self.iters)
-
+        # Save the model checkpoint, disabled in favor of Pytorch Lightning builtin.
+        # self.save_model_checkpoint(self.iters)
         return losses
 
     @staticmethod
@@ -977,9 +1054,7 @@ class PerfStatsCallback(Callback):
             # Add the stats obtained at the end of the trainer.fit() call
             perf_stats.update(
                 {
-                    "Mean total time per iter (ms)": self.total_time
-                                                     * 1000
-                                                     / self.iters,
+                    "Mean total time per iter (ms)": self.total_time * 1000 / self.iters,
                     "Mean steps per sec (total)": self.steps / self.total_time,
                 }
             )

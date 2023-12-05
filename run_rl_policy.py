@@ -96,7 +96,7 @@ def benchmark_coverage(directory: str):
         drone_path = f"{directory}/drone_{timestep}.state_dict"
 
         if os.path.exists(car_path) and os.path.exists(drone_path):
-            wd_module.load_model_checkpoint({"car": car_path, "drone": drone_path})
+            wd_module.load_model_checkpoint_separate({"car": car_path, "drone": drone_path})
             metrics = generate_crowd_sim_animations(wd_module)
             coverage_list.append(metrics[COVERAGE_METRIC_NAME])
 
@@ -146,7 +146,7 @@ if __name__ == "__main__":
     # best generalization for new points at
     timestep = benchmark_coverage(parent_path)
     if timestep is not None:
-        wd_module.load_model_checkpoint({"car":
+        wd_module.load_model_checkpoint_separate({"car":
                                              f"{parent_path}/car_{timestep}.state_dict",
                                          "drone":
                                              f"{parent_path}/drone_{timestep}.state_dict"})
