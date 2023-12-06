@@ -269,9 +269,8 @@ if __name__ == '__main__':
     if args.track and args.sweep_config is not None:
         raise ValueError("Cannot enable both 'track' and 'sweep_config'.")
     if args.sweep_config is not None and not args.track:
-        # Run a sweep with W&B
+        # Run a sweep with W&B, currently failing
         import yaml
-
         with open(args.sweep_config) as f:
             sweep_config = yaml.load(f, Loader=yaml.FullLoader)
         GLOBAL_ARGS = vars(args)  # Set the global variable for W&B config
@@ -284,7 +283,6 @@ if __name__ == '__main__':
         config_dict.update({'env_config': BaseEnvConfig, 'expr_name': expr_name})
         GLOBAL_ARGS = config_dict  # Update GLOBAL_ARGS without W&B config
         run_experiment()
-        print("test")
 # example shell
 # CUDA_VISIBLE_DEVICES=1 PATH=/usr/local/cuda/bin:$PATH python train_rl_policy.py
 # --tag lr=4e-5 batch_size=8000
