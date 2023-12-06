@@ -1,9 +1,11 @@
 from typing import Union
+import os
 algo_name: str = "PPO"
 num_episodes: int = 5000000
 learning_rate: Union[float, list] = [[0, 4e-5], [num_episodes * 120, 0]]
 RUN_NAME: str = "kdd2024"
 ENV_NAME: str = "crowd_sim"
+checkpoint_dir = os.path.join("/workspace", "saved_data", "checkpoints")
 run_config = dict(
     model_ckpt_filepath=None,
     name=ENV_NAME,
@@ -65,8 +67,9 @@ run_config = dict(
     # Checkpoint saving setting.
     saving=dict(
         metrics_log_freq=100,  # how often (in iterations) to print the metrics
-        model_params_save_freq=100,  # how often (in iterations) to save the model parameters
-        basedir="./saved_data",  # base folder used for saving
+        model_params_save_freq=5000,  # how often (in iterations) to save the model parameters
+        basedir=os.path.join("/workspace", "saved_data", "checkpoints"),
+        # base folder used for saving, do not change (because of docker)
         name=ENV_NAME,  # experiment name
         tag=RUN_NAME,  # experiment tag
     ),

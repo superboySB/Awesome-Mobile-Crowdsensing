@@ -1,6 +1,7 @@
 import argparse
 import logging
 import os
+
 from argparse import ArgumentParser
 from datetime import datetime
 import wandb
@@ -8,13 +9,15 @@ import types
 import traceback
 import torch
 
-from run_configs.mcs_configs_python import run_config, PROJECT_NAME, RUN_NAME, ENV_NAME
+from run_configs.mcs_configs_python import run_config, PROJECT_NAME, RUN_NAME, ENV_NAME, checkpoint_dir
 from envs.crowd_sim.crowd_sim import AOI_METRIC_NAME, DATA_METRIC_NAME, ENERGY_METRIC_NAME, COVERAGE_METRIC_NAME
 from warp_drive.utils.common import get_project_root
 from pytorch_lightning.callbacks import ModelCheckpoint
 import multiprocessing as mp
 import setproctitle
 
+logging_dir = os.path.join("/workspace", "saved_data")
+LARGE_DATASET_NAME = 'SanFrancisco'
 my_root = get_project_root()
 
 
@@ -88,9 +91,10 @@ def run_experiment():
     try:
         new_args = types.SimpleNamespace(**GLOBAL_ARGS)
         if new_args.track or new_args.sweep_config is not None:
-            wandb_logger = WandbLogger(project=PROJECT_NAME, name=new_args.expr_name)
+            logging_option = WandbLogger(project=PROJECT_NAME, name=new_args.expr_name, save_dir=logging_dir)
             wandb.init(project=PROJECT_NAME, name=new_args.expr_name, group=new_args.group,
-                       tags=[new_args.dataset] + new_args.tag if new_args.tag is not None else [], config=run_config)
+                       tags=[new_args.dataset] + new_args.tag if new_args.tag is not None else [],
+                       config=run_config, dir=logging_dir)
             setproctitle.setproctitle(new_args.expr_name)
             # prefix = 'env/'
             wandb.define_metric(COVERAGE_METRIC_NAME, summary="max")
@@ -99,7 +103,7 @@ def run_experiment():
             wandb.define_metric(AOI_METRIC_NAME, summary="min")
             actual_config = wandb.config
         else:
-            wandb_logger = None
+            logging_option = False
             actual_config = run_config
         actual_config['env']['env_config'] = new_args.env_config
         update_dot_config(actual_config)
@@ -141,8 +145,7 @@ def run_experiment():
             log_freq=log_freq,
         )
         checkpoint_callback = ModelCheckpoint(
-            dirpath=os.path.join(my_root, "saved_data", ENV_NAME, RUN_NAME, expr_name),
-            # Specify the path to save the checkpoints
+            dirpath=checkpoint_dir,  # Specify the path to save the checkpoints
             filename='checkpoint_{epoch}',  # Naming convention for checkpoint files
             every_n_epochs=100,  # Save a checkpoint every 5 epochs
             every_n_train_steps=None,  # Set this to a number if you want checkpointing by steps
@@ -164,7 +167,7 @@ def run_experiment():
             callbacks=[cuda_callback, perf_stats_callback, checkpoint_callback],
             max_epochs=num_epochs,
             reload_dataloaders_every_n_epochs=1,
-            logger=wandb_logger,
+            logger=logging_option,
             enable_checkpointing=True,
         )
         trainer.fit(wd_module, ckpt_path=run_config["model_ckpt_filepath"])
@@ -174,16 +177,15 @@ def run_experiment():
     except Exception as e:
         # Capture the traceback
         error_trace = traceback.format_exc()
-        # Log the error and its traceback to W&B
-        if GLOBAL_ARGS['track']:
-            wandb.alert(
-                title='Error in Training Run',
-                text=f'Error: {str(e)}\nTraceback:\n{error_trace}',
-                level=wandb.AlertLevel.ERROR
-            )
-        else:
+        # Log the error and its traceback to W&B, failing
+        # if GLOBAL_ARGS['track']:
+        #     wandb.alert(
+        #         title='Error in Training Run',
+        #         text=f'Error: {str(e)}\nTraceback:\n{error_trace}',
+        #         level=wandb.AlertLevel.ERROR
+        #     )
             # print error trace
-            print(f'Error: {str(e)}\nTraceback:\n{error_trace}')
+        print(f'Error: {str(e)}\nTraceback:\n{error_trace}')
 
 
 if __name__ == '__main__':
@@ -191,7 +193,6 @@ if __name__ == '__main__':
     mp.set_start_method("spawn", force=True)
     torch.set_float32_matmul_precision('medium')
     parser: ArgumentParser = argparse.ArgumentParser()
-    LARGE_DATASET_NAME = 'SanFrancisco'
     GLOBAL_ARGS = None
     num_of_gpu_available = torch.cuda.device_count()
     assert num_of_gpu_available > 0, "This code needs at least a GPU to run!"
@@ -245,7 +246,7 @@ if __name__ == '__main__':
     update_config_from_tags(args.tag, run_config)
     if args.ckpt is not None:
         expr_start_time, train_timestep = args.ckpt
-        parent_path = os.path.join(my_root, "saved_data", ENV_NAME, RUN_NAME, expr_start_time)
+        parent_path = os.path.join(checkpoint_dir, ENV_NAME, RUN_NAME, expr_start_time)
 
         # Check if separate state dict exists for 'car'
         car_state_dict_path = os.path.join(parent_path, f"car_{train_timestep}.state_dict")
@@ -271,6 +272,7 @@ if __name__ == '__main__':
     if args.sweep_config is not None and not args.track:
         # Run a sweep with W&B, currently failing
         import yaml
+
         with open(args.sweep_config) as f:
             sweep_config = yaml.load(f, Loader=yaml.FullLoader)
         GLOBAL_ARGS = vars(args)  # Set the global variable for W&B config

@@ -55,7 +55,8 @@ for ((i = 0; i < train_num; i++)); do
   fi
   card_id=$((i % card_num))
   # shellcheck disable=SC2004
-  command="PATH=/usr/local/cuda/bin:\$PATH CUDA_VISIBLE_DEVICES=${cards[card_id]}\
+  # if want to add $PATH, remember to add / before $
+  command="CUDA_VISIBLE_DEVICES=${cards[card_id]}\
   python train_rl_policy.py ${trains[i]}"
   echo "$command"
   if [ "$dry_run" = "false" ]

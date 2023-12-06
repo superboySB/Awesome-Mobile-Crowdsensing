@@ -581,19 +581,6 @@ class WarpDriveModule(LightningModule):
             assert policy in self.models, f"Policy {policy} not found in current models!"
             self.models[policy].load_state_dict(model_state)
 
-        # Load optimizer states
-        for idx, optimizer_state in enumerate(checkpoint['optimizers']):
-            assert len(optimizers) > idx, f"Optimizer index {idx} out of range!"
-            optimizers[idx].load_state_dict(optimizer_state)
-
-        # Load lr_scheduler states
-        for idx, lr_scheduler_state in enumerate(checkpoint['lr_schedulers']):
-            assert len(lr_schedulers) > idx, f"LR Scheduler index {idx} out of range!"
-            lr_schedulers[idx].load_state_dict(lr_scheduler_state)
-
-        if self.verbose:
-            verbose_print("Checkpoint loaded successfully.")
-
     def _load_model_checkpoint_helper(self, policy, ckpt_filepath):
         if ckpt_filepath != "":
             assert os.path.isfile(ckpt_filepath), "Invalid model checkpoint path!"

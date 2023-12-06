@@ -8,13 +8,13 @@ We should focus on making practical contributions to the Internet of Things and 
 To this end, this repository is continuously updated to help readers get inspired by our researches
 (including **not only our papers but also our codes**), and realize their ideas in their own field.
 To better align our research with industrial-grade applications, we always need to consider much more factors,
-including: larger scales, more agents, higher model training throughput, and faster simulation speeds.
-To this end, we explore several industrial tools and improve our somewhat outdated implementations of
-our previous research. For example, we adopted Salasforce's distributed training framework,
+including larger scales, more agents, higher model training throughput, and faster simulation speeds.
+Therefore, we explore several industrial tools and improve our somewhat outdated implementations of
+our previous research. For example, we adopted Salesforce's distributed training framework,
 called [Warp-Drive](https://catalog.ngc.nvidia.com/orgs/partners/teams/salesforce/containers/warpdrive),
 an extremely fast end-to-end reinforcement learning architecture on a single or multiple Nvidia GPUs.
 
-## Related Papers
+## Related Papers of our group
 - [Ensuring Threshold AoI for UAV-assisted Mobile Crowdsensing by Multi-Agent Deep Reinforcement Learning with Transformer](https://ieeexplore.ieee.org/abstract/document/10181012)
 - [Exploring both Individuality and Cooperation for Air-Ground Spatial Crowdsourcing by Multi-Agent Deep Reinforcement Learning](https://ieeexplore.ieee.org/abstract/document/10184585)
 - [Air-Ground Spatial Crowdsourcing with UAV Carriers by Geometric Graph Convolutional Multi-Agent Deep Reinforcement Learning](https://ieeexplore.ieee.org/abstract/document/10184614)
@@ -37,9 +37,11 @@ an extremely fast end-to-end reinforcement learning architecture on a single or 
 - [Energy-efficient UAV control for effective and fair communication coverage: A deep reinforcement learning approach](https://ieeexplore.ieee.org/abstract/document/8432464)
 - [Learning-based Energy-Efficient Data Collection by Unmanned Vehicles in Smart Cities](https://ieeexplore.ieee.org/abstract/document/8207610/)
 
+## Install up-to-date image
 
-## Install
-To always get the latest GPU optimized software, we recommend you to use [Nvidia NGC](https://catalog.ngc.nvidia.com/orgs/partners/teams/salesforce/containers/warpdrive)(which fully supports all kinds of Nvidia devices, such as A100, H100), following:
+To always get the latest GPU optimized software,
+we recommend you to use [Nvidia NGC](https://catalog.ngc.nvidia.com/orgs/partners/teams/salesforce/containers/warpdrive)
+(which fully supports all kinds of Nvidia devices, such as A100, H100), the following:
 ```sh
 docker build -t linc_image:v1.0 .
 docker run -itd --gpus=all --network=host --name=mcs linc_image:v1.0 /bin/bash
@@ -57,10 +59,21 @@ python -m warp_drive.utils.unittests.run_unittests_pycuda
 python -m warp_drive.utils.unittests.run_trainer_tests
 python envs/crowd_sim/run_cpu_gpu_env_consistency_checks.py
 ```
-Now you can start our simulation and baseline algorithms. 
+Now you can start our simulation and baseline algorithms.
+[Developing]
+Currently, actual image used cannot be built with Dockerfile (because additional packages are needed).
+we will update the Dockerfile to make it more customizable when time is allowed.
 
+## Install Black Box Image
+
+To have a glimpse of the framework,
+We also provide a black box image for you to run our simulation and baseline algorithms.
+
+```sh
+# pull the image from aequatiospace directly, which is ready-to-use
+docker pull aequatiospace/linc_image:v1.2.2
 ## QuickStart
-Run random policy and debug the environment, and you will interactive with an generated html file:
+Run random policy and debug the environment, and you will get a generated html file with randomly selected action:
 ```sh
 python run_random_policy.py --plot_loop --moving_line --output_dir="./logs.html"
 ```
@@ -68,28 +81,48 @@ Train independent PPO as the baseline policies:
 ```sh
 python train_rl_policy.py
 ```
-To Debug, run the following command to expose docker ssh interface
+
+Note, we should consider several things before running and debugging with the container
+
+- We need to expose SSH port via a custom port
+- We need to mount the host's localtime to the container to avoid time zone issues (because network interface is no
+  longer synced)
+- We need to use the `--gpus=all` flag to enable GPU support
+- We need to mount an external storage for the container to store the logs and checkpoints
+  Following these requirements, we can run the command as follows:
 ```shell
-# Note we need to expose SSH port via a custom port
-# we also need to sync local time from host to container as well.
-sudo docker run -itd --gpus=all --name=mcs -p 40731:22 -v /etc/localtime:/etc/localtime:ro aequatiospace/linc_image:v1.2 /bin/bash
-sudo docker exec -it mcs /bin/bash
-# restart ssh within the docker
+### In your Server Host ###
+# start the container with all special customizations
+sudo docker run -itd \
+# set your own log and checkpoints storage here, please set your program's logging dir as well
+-v /data2/saved_data:/workspace/saved_data \
+--gpus=all \
+--name=mcs \
+# replace your favorite port here with any thing larger than 1024
+-p <your-favorite-port>:22 \
+-v /etc/localtime:/etc/localtime:ro \
+aequatiospace/linc_image:v1.2.2 /bin/zsh
+# enter the docker with terminal
+sudo docker exec -it mcs /bin/zsh
+### Inside Container ###
+# restart ssh within the docker and quit
 /etc/init.d/ssh restart
-# you can now login from outside with ssh
-ssh root@localhost -p 40731
+### Back to Host ###
+# Now you can happily login from the container just like any server!
+ssh root@localhost -p <your-favorite-port>
 ```
-[Developing] Run the trained RL policy
+
+Run the trained RL policy (Currently not elegant)
 ```sh
 python run_rl_policy.py
 ```
 Note that our drl-framework is based on [warp-drive](https://github.com/salesforce/warp-drive), an extremely fast end-to-end MARL architecture on GPUs.
 
-[Developing] Do auto-scaling, and drl-framework will automatically determine the best block size and training batch size to use. It will also determine the number of available GPUs and perform training on all the GPUs.
+[Developing] Do auto-scale, and drl-framework will automatically determine the best block size and training batch size
+to use. It will also determine the number of available GPUs and perform training on all the GPUs.
 ```sh
-python warp_drive/trainer_pytorch.py --env tag_continuous --auto_scale
+python warp_drive/trainer_pytiotoporch.py --env tag_continuous --auto_scale
 ```
-
 ## Roadmap
 - [X] Finish Simple Air-Ground Collaborative Simulation for MCS
 - [X] Finish CUDA implementation
@@ -102,5 +135,6 @@ python warp_drive/trainer_pytorch.py --env tag_continuous --auto_scale
 - [X] Add our proposed key metrics for [emergency response](https://github.com/BIT-MCS/DRL-UCS-AoI-Threshold), inspired
   by Age of Information (AoI)
 - [ ] Add apis for using available actions
-- [ ] Add more realistic uav PnC mechanism, e.g., PD controller and A* planner (RL cannot do everything with one DNN. Traditonal methods are very necessary to achieve low-level control with collision avoidance)
+- [ ] Add more realistic uav PnC mechanism, e.g., PD controller and A* planner (RL cannot do everything with one DNN.
+  Traditional methods are essential to achieve low-level control with collision avoidance)
 - [ ] Add more realistic environment dynamics, e.g., [4G MIMO](https://github.com/BIT-MCS/DRL-freshMCS), [5G NOMA](https://github.com/BIT-MCS/hi-MADRL)

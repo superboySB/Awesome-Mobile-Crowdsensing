@@ -35,17 +35,24 @@ def generate_crowd_sim_animations(
     return metrics
 
 
-def setup_cuda_crowd_sim_env(dynamic_zero_shot: bool = False):
+def setup_cuda_crowd_sim_env(dynamic_zero_shot: bool = False, dataset: str = None):
     """
     common setup for cuda_crowd_sim_env
     """
+    assert dataset is not None
     import os
     torch.set_float32_matmul_precision('medium')
-
     env_registrar = EnvironmentRegistrar()
     env_registrar.add_cuda_env_src_path(CUDACrowdSim.name,
                                         os.path.join(get_project_root(), "envs", "crowd_sim", "crowd_sim_step.cu"))
+    if dataset == LARGE_DATASET_NAME:
+        from datasets.Sanfrancisco.env_config import BaseEnvConfig
+    elif dataset == "KAIST":
+        from datasets.KAIST.env_config import BaseEnvConfig
+    else:
+        raise NotImplementedError(f"dataset {dataset} not supported")
     run_config["env"]['dynamic_zero_shot'] = dynamic_zero_shot
+    run_config["env"]['env_config'] = BaseEnvConfig
     env_wrapper = CrowdSimEnvWrapper(
         CUDACrowdSim(**run_config["env"]),
         num_envs=run_config["trainer"]["num_envs"],
@@ -91,9 +98,9 @@ def benchmark_coverage(directory: str):
     if not timestamps:
         print("No valid checkpoints found.")
         return None
-    for timestep in tqdm(timestamps):
-        car_path = f"{directory}/car_{timestep}.state_dict"
-        drone_path = f"{directory}/drone_{timestep}.state_dict"
+    for checkpoint_timestep in tqdm(timestamps):
+        car_path = f"{directory}/car_{checkpoint_timestep}.state_dict"
+        drone_path = f"{directory}/drone_{checkpoint_timestep}.state_dict"
 
         if os.path.exists(car_path) and os.path.exists(drone_path):
             wd_module.load_model_checkpoint_separate({"car": car_path, "drone": drone_path})
@@ -102,7 +109,7 @@ def benchmark_coverage(directory: str):
 
             if metrics[COVERAGE_METRIC_NAME] > best_coverage:
                 best_coverage = metrics[COVERAGE_METRIC_NAME]
-                best_timestep = timestep
+                best_timestep = checkpoint_timestep
 
     print(f"best zero shot coverage: {best_coverage}, timestep: {best_timestep}")
     # plot coverage and timestep
@@ -129,25 +136,37 @@ if __name__ == "__main__":
     from envs.crowd_sim.env_wrapper import CrowdSimEnvWrapper
     from warp_drive.utils.env_registrar import EnvironmentRegistrar
     from warp_drive.utils.common import get_project_root
+    from train_rl_policy import LARGE_DATASET_NAME
 
     parser = argparse.ArgumentParser()
-    parser.add_argument('--output_dir', type=str, default='./logs.html')
+    default_output_dir = os.path.join('workspace', 'saved_data', 'trajectories', 'logs.html')
+    parser.add_argument('--output_dir', type=str, default=default_output_dir)
+    parser.add_argument('--dataset', type=str, default=LARGE_DATASET_NAME)
     parser.add_argument('--plot_loop', action='store_true')
     parser.add_argument('--moving_line', action='store_true')
     parser.add_argument("--dyn_zero_shot", action="store_true")
     args = parser.parse_args()
-    wd_module = setup_cuda_crowd_sim_env(args.dyn_zero_shot)
+    wd_module = setup_cuda_crowd_sim_env(args.dyn_zero_shot, args.dataset)
     # generalized from KAIST to San Francisco
-    parent_path = "./saved_data/crowd_sim/kdd2024/1203-124414_car3_drone3_kdd2024"
+    parent_path = "./saved_data/crowd_sim/kdd2024/1206-094034_car3_drone3_kdd2024_batch_size=16000_num_episodes=40000000"
     # generalized from San Francisco to KAIST
     # parent_path = "./saved_data/crowd_sim/kdd2024/1202-160001_car3_drone3_kdd2024"
     # 1701321935 San Fran from scratch
     # 1701264833 KAIST from scratch, the best generalization at 260000000
     # best generalization for new points at
-    timestep = benchmark_coverage(parent_path)
+    timestep = 299
     if timestep is not None:
-        wd_module.load_model_checkpoint_separate({"car":
-                                             f"{parent_path}/car_{timestep}.state_dict",
-                                         "drone":
-                                             f"{parent_path}/drone_{timestep}.state_dict"})
+        car_path = os.path.join(parent_path, f"car_{timestep}.state_dict")
+        drone_path = os.path.join(parent_path, f"drone_{timestep}.state_dict")
+        if os.path.exists(car_path) and os.path.exists(drone_path):
+            print(f"loading {timestep} checkpoint")
+            wd_module.load_model_checkpoint_separate({"car": car_path, "drone": drone_path})
+        else:
+            full_ckpt_name = os.path.join(parent_path, f"full_{timestep}.state_dict")
+            # check if full checkpoint exists
+            if os.path.exists(full_ckpt_name):
+                # extract car and drone checkpoints from full checkpoint
+                wd_module.load_model_checkpoint(full_ckpt_name)
+            else:
+                print("no valid checkpoint found")
         generate_crowd_sim_animations(wd_module, animate=True, verbose=True)
