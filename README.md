@@ -37,8 +37,8 @@ an extremely fast end-to-end reinforcement learning architecture on a single or 
 - [Energy-efficient UAV control for effective and fair communication coverage: A deep reinforcement learning approach](https://ieeexplore.ieee.org/abstract/document/8432464)
 - [Learning-based Energy-Efficient Data Collection by Unmanned Vehicles in Smart Cities](https://ieeexplore.ieee.org/abstract/document/8207610/)
 
-## Install up-to-date image
 
+## Install up-to-date image
 To always get the latest GPU optimized software,
 we recommend you to use [Nvidia NGC](https://catalog.ngc.nvidia.com/orgs/partners/teams/salesforce/containers/warpdrive)
 (which fully supports all kinds of Nvidia devices, such as A100, H100), the following:
@@ -59,16 +59,15 @@ python -m warp_drive.utils.unittests.run_unittests_pycuda
 python -m warp_drive.utils.unittests.run_trainer_tests
 python envs/crowd_sim/run_cpu_gpu_env_consistency_checks.py
 ```
+
 Now you can start our simulation and baseline algorithms.
 [Developing]
 Currently, actual image used cannot be built with Dockerfile (because additional packages are needed).
 we will update the Dockerfile to make it more customizable when time is allowed.
-
 ## Install Black Box Image
 
 To have a glimpse of the framework,
 We also provide a black box image for you to run our simulation and baseline algorithms.
-
 ```sh
 # pull the image from aequatiospace directly, which is ready-to-use
 docker pull aequatiospace/linc_image:v1.2.2
@@ -81,9 +80,7 @@ Train independent PPO as the baseline policies:
 ```sh
 python train_rl_policy.py
 ```
-
 Note, we should consider several things before running and debugging with the container
-
 - We need to expose SSH port via a custom port
 - We need to mount the host's localtime to the container to avoid time zone issues (because network interface is no
   longer synced)
@@ -101,6 +98,7 @@ sudo docker run -itd \
 # replace your favorite port here with any thing larger than 1024
 -p <your-favorite-port>:22 \
 -v /etc/localtime:/etc/localtime:ro \
+-v /path/to/.ssh:/root/.ssh \
 aequatiospace/linc_image:v1.2.2 /bin/zsh
 # enter the docker with terminal
 sudo docker exec -it mcs /bin/zsh
@@ -111,7 +109,6 @@ sudo docker exec -it mcs /bin/zsh
 # Now you can happily login from the container just like any server!
 ssh root@localhost -p <your-favorite-port>
 ```
-
 Run the trained RL policy (Currently not elegant)
 ```sh
 python run_rl_policy.py

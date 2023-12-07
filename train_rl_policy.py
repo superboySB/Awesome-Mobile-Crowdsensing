@@ -10,7 +10,8 @@ import traceback
 import torch
 
 from run_configs.mcs_configs_python import run_config, PROJECT_NAME, RUN_NAME, ENV_NAME, checkpoint_dir
-from envs.crowd_sim.crowd_sim import AOI_METRIC_NAME, DATA_METRIC_NAME, ENERGY_METRIC_NAME, COVERAGE_METRIC_NAME
+from envs.crowd_sim.crowd_sim import (AOI_METRIC_NAME, DATA_METRIC_NAME,
+                                      ENERGY_METRIC_NAME, COVERAGE_METRIC_NAME, MAIN_METRIC_NAME)
 from warp_drive.utils.common import get_project_root
 from pytorch_lightning.callbacks import ModelCheckpoint
 import multiprocessing as mp
@@ -22,13 +23,19 @@ my_root = get_project_root()
 
 
 def update_config_from_tags(tags, config):
+    """
+    automatically update config from tags, following the format:
+    tag1=value1 tag2=value2 ...
+    when inputting a schedule, use the format:
+    tag1=[[epoch1,value1],[epoch2,value2], ...], without space
+    """
     # Define the keys and their corresponding paths in the config
     config_paths = {
         "lr": ('policy', 'lr'),  # Both car and drone
         "batch_size": ('trainer', 'train_batch_size'),
         "num_envs": ('trainer', 'num_envs'),
         "num_episodes": ('trainer', 'num_episodes'),
-        "minibatch": ('trainer', 'num_mini_batches')
+        "minibatch": ('trainer', 'num_mini_batches'),
     }
 
     # Convert tags into a dictionary for easy lookup
@@ -37,18 +44,32 @@ def update_config_from_tags(tags, config):
         key, value = tag.split('=') if '=' in tag else (tag, None)
         tag_dict[key] = value
 
+    # Extract 'num_episodes' first if it exists
+    num_episodes = int(tag_dict['num_episodes']) if 'num_episodes' in tag_dict else None
+
     # Process each config key
     for key, path in config_paths.items():
         if key in tag_dict:
             value = tag_dict[key]
             if value is not None:  # Update the config if value is provided
-                if key == "lr":  # Special case for lr as it affects two paths
-                    new_value = float(value)
-                    config[path[0]]['car'][path[1]] = new_value
-                    config[path[0]]['drone'][path[1]] = new_value
+                if key == "lr":  # Special case for lr as it might be a schedule
+                    if '[' in value:  # Check if it's a schedule
+                        # Replace 'num_episodes' token in the lr value, if present
+                        if num_episodes is not None:
+                            value = value.replace('num_episodes', str(num_episodes))
+                        # Parse the schedule string into a list of lists
+                        lr_schedule = eval(value)
+                        # Update the config for car and drone with the lr schedule
+                        config[path[0]]['car'][path[1]] = lr_schedule
+                        config[path[0]]['drone'][path[1]] = lr_schedule
+                    else:
+                        new_value = float(value)
+                        config[path[0]]['car'][path[1]] = new_value
+                        config[path[0]]['drone'][path[1]] = new_value
                 else:
                     new_value = int(value)
                     config[path[0]][path[1]] = new_value
+
 
 
 def run_experiment():
@@ -100,6 +121,7 @@ def run_experiment():
             wandb.define_metric(COVERAGE_METRIC_NAME, summary="max")
             wandb.define_metric(ENERGY_METRIC_NAME, summary="min")
             wandb.define_metric(DATA_METRIC_NAME, summary="max")
+            wandb.define_metric(MAIN_METRIC_NAME, summary="max")
             wandb.define_metric(AOI_METRIC_NAME, summary="min")
             actual_config = wandb.config
         else:
@@ -145,9 +167,10 @@ def run_experiment():
             log_freq=log_freq,
         )
         checkpoint_callback = ModelCheckpoint(
-            dirpath=checkpoint_dir,  # Specify the path to save the checkpoints
+            dirpath=os.path.join(checkpoint_dir, ENV_NAME, RUN_NAME, expr_name),
+            # Specify the path to save the checkpoints
             filename='checkpoint_{epoch}',  # Naming convention for checkpoint files
-            every_n_epochs=100,  # Save a checkpoint every 5 epochs
+            every_n_epochs=actual_config['saving']['model_params_save_freq'],  # Save a checkpoint every 5 epochs
             every_n_train_steps=None,  # Set this to a number if you want checkpointing by steps
             save_top_k=-1,  # Set how many of the latest checkpoints you want to keep
             save_weights_only=False  # Set to False if you want to save the whole model

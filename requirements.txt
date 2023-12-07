@@ -2,8 +2,10 @@ ffmpeg-python
 folium
 gym
 imageio
+importlib-metadata
 json5
 matplotlib
+movingpandas
 numpy
 osmnx
 opencv-python
@@ -14,6 +16,9 @@ pytest
 pyyaml
 pytorch_lightning
 pytest-timeout
+ray
+ray[tune]
+ray[rllib]
 scikit-learn
 setuptools
 setproctitle

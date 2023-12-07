@@ -57,7 +57,7 @@ class CrowdSimEnvWrapper:
         process_id=0,
     ):
         """
-        :param env_obj: an environment object
+        :param env_obj: an environment objects
         :param env_name: an environment name that is registered on the
             WarpDrive environment registrar
         :param env_config: environment configuration to instantiate
@@ -69,7 +69,7 @@ class CrowdSimEnvWrapper:
             otherwise it will be reinforced
         :param env_backend: environment backend, choose between pycuda, or cpu.
             Before version 2.0, the old argument is 'use_cuda' = True or False
-        :param use_cuda: deprecated since version 1.8
+        (:param use_cuda: deprecated since version 1.8)
         :param testing_mode: a flag used to determine whether to simply load the .cubin (when
             testing) or compile the .cu source code to create a .cubin and use that.
         :param testing_bin_filename: load the specified .cubin or .fatbin directly,
@@ -114,7 +114,7 @@ class CrowdSimEnvWrapper:
         # -----------------------------
         # Flag to determine which backend to use
         if env_backend not in ("pycuda", "cpu"):
-            logging.warn("Environment backend not recognized, defaulting to cpu")
+            logging.warning("Environment backend not recognized, defaulting to cpu")
             env_backend = "cpu"
         self.env_backend = env_backend
         if hasattr(self.env, "env_backend"):
@@ -163,7 +163,10 @@ class CrowdSimEnvWrapper:
                 backend_data_manager = PyCUDADataManager
                 backend_function_manager = PyCUDAFunctionManager
                 backend_env_resetter = PyCUDAEnvironmentReset
-
+            else:
+                raise NotImplementedError(
+                    f"Backend {self.env_backend} not implemented"
+                )
             logging.info("Initializing the CUDA data manager...")
             self.cuda_data_manager = backend_data_manager(
                 num_agents=self.n_agents,

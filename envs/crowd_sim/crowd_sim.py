@@ -1,7 +1,6 @@
 import logging
 
 import folium
-from pyproj import Proj, transform
 import pandas as pd
 from folium.plugins import TimestampedGeoJson, AntPath
 from gym import spaces
@@ -16,6 +15,7 @@ from .utils import *
 COVERAGE_METRIC_NAME = Constants.COVERAGE_METRIC_NAME
 DATA_METRIC_NAME = Constants.DATA_METRIC_NAME
 ENERGY_METRIC_NAME = Constants.ENERGY_METRIC_NAME
+MAIN_METRIC_NAME = Constants.MAIN_METRIC_NAME
 AOI_METRIC_NAME = Constants.AOI_METRIC_NAME
 _AGENT_ENERGY = Constants.AGENT_ENERGY
 _OBSERVATIONS = Constants.OBSERVATIONS
@@ -23,13 +23,24 @@ _ACTIONS = Constants.ACTIONS
 _REWARDS = Constants.REWARDS
 
 
-class pair:
+class Pair:
     distance: float
     index: int
 
     def __init__(self):
         self.distance = 0.0
         self.index = 0
+
+
+def get_theta(x1, y1, x2, y2):
+    dx = x2 - x1
+    dy = y2 - y1
+    # 使用 arctan2 计算角度
+    angles = np.arctan2(dy, dx)
+
+    # 将角度转换为 0 到 2π 之间
+    angles = np.mod(angles + 2 * np.pi, 2 * np.pi)
+    return angles
 
 
 class CrowdSim:
@@ -63,6 +74,7 @@ class CrowdSim:
         self.num_cars = num_cars
         self.num_agents = self.num_drones + self.num_cars
         self.num_sensing_targets = self.config.env.human_num
+        self.aoi_threshold = self.config.env.aoi_threshold
         self.num_agents_observed = num_agents_observed
 
         self.episode_length = self.config.env.num_timestep
@@ -131,7 +143,7 @@ class CrowdSim:
         y1 = self.target_y_timelist[:-1, :]
         x2 = self.target_x_timelist[1:, :]
         y2 = self.target_y_timelist[1:, :]
-        self.target_theta_timelist = self.get_theta(x1, y1, x2, y2)
+        self.target_theta_timelist = get_theta(x1, y1, x2, y2)
         self.target_theta_timelist = self.float_dtype(
             np.vstack([self.target_theta_timelist, self.target_theta_timelist[-1, :]]))
 
@@ -204,16 +216,6 @@ class CrowdSim:
         # [may not necessary] Copy drones dict for applying at reset (with limited energy reserve)
         # self.drones_at_reset = copy.deepcopy(self.drones)
 
-    def get_theta(self, x1, y1, x2, y2):
-        dx = x2 - x1
-        dy = y2 - y1
-        # 使用 arctan2 计算角度
-        angles = np.arctan2(dy, dx)
-
-        # 将角度转换为 0 到 2π 之间
-        angles = np.mod(angles + 2 * np.pi, 2 * np.pi)
-        return angles
-
     def seed(self, seed=None):
         """
         Seeding the environment with a desired seed
@@ -264,7 +266,7 @@ class CrowdSim:
                     self.global_distance_matrix[entity_id_2, entity_id_1] = self.global_distance_matrix[
                         entity_id_1, entity_id_2]
 
-                if entity_id_1 < self.num_agents and entity_id_2 >= self.num_agents:
+                if entity_id_1 < self.num_agents <= entity_id_2:
                     self.global_distance_matrix[entity_id_1, entity_id_2] = np.sqrt(
                         (self.agent_x_timelist[self.timestep, entity_id_1]
                          - self.target_x_timelist[self.timestep, entity_id_2 - self.num_agents]) ** 2
@@ -289,8 +291,8 @@ class CrowdSim:
             homoge_part_idx = 0
             hetero_part_idx = 0
             for other_agent_id in agent_nearest_targets_ids[agent_id, 1:]:
-                if self.agent_types[other_agent_id] == self.agent_types[
-                    agent_id] and homoge_part_idx < self.num_agents_observed:
+                if (self.agent_types[other_agent_id] == self.agent_types[agent_id]
+                        and homoge_part_idx < self.num_agents_observed):
                     homoge_part[homoge_part_idx] = np.array([
                         (self.agent_x_timelist[self.timestep, other_agent_id] - self.agent_x_timelist[
                             self.timestep, agent_id]) / self.nlon,
@@ -298,8 +300,8 @@ class CrowdSim:
                             self.timestep, agent_id]) / self.nlat
                     ])
                     homoge_part_idx += 1
-                if self.agent_types[other_agent_id] != self.agent_types[
-                    agent_id] and hetero_part_idx < self.num_agents_observed:
+                if (self.agent_types[other_agent_id] != self.agent_types[agent_id]
+                        and hetero_part_idx < self.num_agents_observed):
                     hetero_part[hetero_part_idx] = np.array([
                         (self.agent_x_timelist[self.timestep, other_agent_id] - self.agent_x_timelist[
                             self.timestep, agent_id]) / self.nlon,
@@ -459,12 +461,19 @@ class CrowdSim:
                 "target_coverage").mean(axis=0)
         self.data_collection += np.sum(
             self.target_aoi_timelist[self.timestep] - self.target_aoi_timelist[self.timestep - 1])
-        info = {AOI_METRIC_NAME: np.mean(self.target_aoi_timelist[self.timestep]),
-                ENERGY_METRIC_NAME: 1.0 - (
-                        np.mean(self.agent_energy_timelist[self.timestep]) / self.max_uav_energy),
+        coverage = np.sum(self.target_coveraged_timelist) / (self.episode_length * self.num_sensing_targets)
+        mean_aoi = np.mean(self.target_aoi_timelist[self.timestep])
+        freshness_factor = 1 - np.mean(np.clip(self.target_aoi_timelist[self.timestep] /
+                                               self.aoi_threshold, a_min=0, a_max=1) ** 2)
+        # print(f"freshness_factor: {freshness_factor} ,mean_aoi: {mean_aoi}")
+        mean_energy = np.mean(self.agent_energy_timelist[self.timestep])
+        energy_consumption_ratio = mean_energy / self.max_uav_energy
+        energy_remaining_ratio = 1.0 - energy_consumption_ratio
+        info = {AOI_METRIC_NAME: mean_aoi,
+                ENERGY_METRIC_NAME: energy_consumption_ratio,
                 DATA_METRIC_NAME: self.data_collection / (self.episode_length * self.num_sensing_targets),
-                COVERAGE_METRIC_NAME: np.sum(self.target_coveraged_timelist) / (
-                        self.episode_length * self.num_sensing_targets)
+                COVERAGE_METRIC_NAME: coverage,
+                MAIN_METRIC_NAME: freshness_factor * coverage
                 }
         return info
 
@@ -645,7 +654,7 @@ class CUDACrowdSim(CrowdSim, CUDAEnvironmentContext):
                                  ("car_sensing_range", self.float_dtype(self.car_sensing_range)),
                                  ("drone_sensing_range", self.float_dtype(self.drone_sensing_range)),
                                  ("drone_car_comm_range", self.float_dtype(self.drone_car_comm_range)),
-                                 # ("neighbor_pairs", [[pair() for _ in range(self.num_agents)] for _ in range(self.num_agents - 1)], True),
+                                 # ("neighbor_pairs", [[Pair() for _ in range(self.num_agents)] for _ in range(self.num_agents - 1)], True),
                                  ("neighbor_agent_distances",
                                   self.float_dtype(np.zeros([self.num_agents, self.num_agents - 1])), True),
                                  ("neighbor_agent_ids_sorted",

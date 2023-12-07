@@ -317,8 +317,8 @@ class Trainer:
     def _initialize_policy_algorithm(self, policy):
         algorithm = self._get_config(["policy", policy, "algorithm"])
         assert algorithm in ["A2C", "PPO"]
-        entropy_coeff = self._get_config(["policy", policy, "entropy_coeff"])
-        vf_loss_coeff = self._get_config(["policy", policy, "vf_loss_coeff"])
+        entropy_coeff = self._get_config(["policy", policy, "entropy_coefficient"])
+        vf_loss_coeff = self._get_config(["policy", policy, "vf_loss_coefficient"])
         self.clip_grad_norm[policy] = self._get_config(
             ["policy", policy, "clip_grad_norm"]
         )
@@ -349,8 +349,8 @@ class Trainer:
                 clip_param=clip_param,
                 normalize_advantage=normalize_advantage,
                 normalize_return=normalize_return,
-                vf_loss_coeff=vf_loss_coeff,
-                entropy_coeff=entropy_coeff,
+                vf_loss_coefficient=vf_loss_coeff,
+                entropy_coefficient=entropy_coeff,
             )
             logging.info(f"Initializing the PPO trainer for policy {policy}")
         else:

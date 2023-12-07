@@ -17,7 +17,7 @@ import json
 import logging
 import os
 import time
-from typing import Callable, Iterable, Tuple, Dict, List, Union
+from typing import Iterable, Dict, List, Union
 
 import numpy as np
 import torch
@@ -78,28 +78,6 @@ def verbose_print(message, device_id=None):
     print(f"[Device {device_id}]: {message} ")
 
 
-class WarpDriveDataset(Dataset):
-    """
-    The WarpDrive dataset class.
-    """
-
-    def __init__(self, generate_data: Callable, batch_size):
-        self.generate_data = generate_data
-        self.batch_size = batch_size
-        self.data_dict = None  # this will be set later (see below)
-
-    def __getitem__(self, batch_index=0) -> Iterable:
-        self.data_dict = self.generate_data(batch_index=batch_index)
-        return self.data_dict
-
-    def __len__(self):
-        return self.batch_size
-
-    def __iter__(self):
-        for batch_index in range(self.batch_size):
-            yield self.__getitem__(batch_index)
-
-
 class WarpDriveModule(LightningModule):
     """
     The trainer object using Pytorch Lightning training APIs.
@@ -117,14 +95,14 @@ class WarpDriveModule(LightningModule):
             verbose=True,
     ):
         """
-        Args:
+        args:
             env_wrapper: the wrapped environment object.
             config: the experiment run configuration.
             policy_tag_to_agent_id_map:
                 a dictionary mapping policy tag to agent ids.
             create_separate_placeholders_for_each_policy:
                 flag indicating whether there exist separate observations,
-                actions and rewards placeholders, for each policy,
+                actions and rewards placeholders for each policy,
                 as designed in the step function. The placeholders will be
                 used in the step() function and during training.
                 When there's only a single policy, this flag will be False.
@@ -141,9 +119,9 @@ class WarpDriveModule(LightningModule):
                 WarpDrive to process the observations correctly. This is only
                 relevant when a single obs key corresponds to multiple agents.
                 Defaults to "first".
-            results_dir: (optional) name of the directory to save results into.
+            Results_dir: (optional) name of the directory to save results into.
             verbose:
-                if enabled, training metrics are printed to the screen.
+                if enabled, training metrics are printed on the screen.
 
         """
         super().__init__()
@@ -284,7 +262,7 @@ class WarpDriveModule(LightningModule):
         # Load the model parameters (if model checkpoints are specified)
         # Note: Loading the model checkpoint may also update the current timestep!
         # At this time, only Neural Networks are supported.
-        # After Initialization, the restoration of training progress is support.
+        # After Initialization, the restoration of training progress is supported.
         self.load_model_checkpoint_separate()
 
         for policy in self.policies:
@@ -314,8 +292,8 @@ class WarpDriveModule(LightningModule):
     def _initialize_policy_algorithm(self, policy):
         algorithm = self._get_config(["policy", policy, "algorithm"])
         assert algorithm in ["A2C", "PPO"]
-        entropy_coeff = self._get_config(["policy", policy, "entropy_coeff"])
-        vf_loss_coeff = self._get_config(["policy", policy, "vf_loss_coeff"])
+        entropy_coefficient = self._get_config(["policy", policy, "entropy_coefficient"])
+        vf_loss_coefficient = self._get_config(["policy", policy, "vf_loss_coefficient"])
         self.clip_grad_norm[policy] = self._get_config(
             ["policy", policy, "clip_grad_norm"]
         )
@@ -334,8 +312,8 @@ class WarpDriveModule(LightningModule):
                 discount_factor_gamma=gamma,
                 normalize_advantage=normalize_advantage,
                 normalize_return=normalize_return,
-                vf_loss_coeff=vf_loss_coeff,
-                entropy_coeff=entropy_coeff,
+                vf_loss_coeff=vf_loss_coefficient,
+                entropy_coeff=entropy_coefficient,
             )
             logging.info(f"Initializing the A2C trainer for policy {policy}")
         elif algorithm == "PPO":
@@ -347,8 +325,8 @@ class WarpDriveModule(LightningModule):
                 clip_param=clip_param,
                 normalize_advantage=normalize_advantage,
                 normalize_return=normalize_return,
-                vf_loss_coeff=vf_loss_coeff,
-                entropy_coeff=entropy_coeff,
+                vf_loss_coefficient=vf_loss_coefficient,
+                entropy_coefficient=entropy_coefficient,
                 use_gae=use_gae
             )
             logging.info(f"Initializing the PPO trainer for policy {policy}")
@@ -435,7 +413,7 @@ class WarpDriveModule(LightningModule):
         assert isinstance(batch_index, int)
         if self.create_separate_placeholders_for_each_policy:
             for policy in self.policies:
-                # Sample each individual policy
+                # Sample each policy
                 policy_suffix = f"_{policy}"
                 self._sample_actions_helper(
                     probabilities[policy], policy_suffix=policy_suffix
@@ -539,11 +517,11 @@ class WarpDriveModule(LightningModule):
                 json.dump(metrics, fp)
                 fp.write("\n")
 
-    def load_model_checkpoint_separate(self, ckpts_dict=None):
+    def load_model_checkpoint_separate(self, checkpoints_path=None):
         """
         Load the model parameters if a checkpoint path is specified.
         """
-        if ckpts_dict is None:
+        if checkpoints_path is None:
             logging.info(
                 "Loading trainer model checkpoints from the run configuration."
             )
@@ -553,10 +531,10 @@ class WarpDriveModule(LightningModule):
                 ]
                 self._load_model_checkpoint_helper(policy, ckpt_filepath)
         else:
-            assert isinstance(ckpts_dict, dict)
+            assert isinstance(checkpoints_path, dict)
             if self.verbose:
                 verbose_print("Loading the provided trainer model checkpoints.")
-            for policy, ckpt_filepath in ckpts_dict.items():
+            for policy, ckpt_filepath in checkpoints_path.items():
                 assert policy in self.policies
                 self._load_model_checkpoint_helper(policy, ckpt_filepath)
 
@@ -574,12 +552,10 @@ class WarpDriveModule(LightningModule):
 
         # Load the entire checkpoint
         checkpoint = torch.load(ckpt_filepath)
-        optimizers = self.optimizers()
-        lr_schedulers = self.lr_schedulers()
+        # Adjust the keys by removing the 'models.' prefix
+        adjusted_state_dict = {k.replace("models.", ""): v for k, v in checkpoint['state_dict'].items()}
         # Load model states
-        for policy, model_state in checkpoint['models'].items():
-            assert policy in self.models, f"Policy {policy} not found in current models!"
-            self.models[policy].load_state_dict(model_state)
+        self.models.load_state_dict(adjusted_state_dict)
 
     def _load_model_checkpoint_helper(self, policy, ckpt_filepath):
         if ckpt_filepath != "":
@@ -720,7 +696,7 @@ class WarpDriveModule(LightningModule):
             # Step through all the environments
             self.cuda_envs.step_all_envs()
 
-            # Fetch the states when episode is complete
+            # Fetch the states when an episode is complete
             if env.cuda_data_manager.pull_data_from_device("_done_")[env_id]:
                 for state in list_of_states:
                     episode_states[state][
@@ -732,7 +708,7 @@ class WarpDriveModule(LightningModule):
 
         return episode_states
 
-    def _generate_rollout(self, start_event, end_event, batch_index=0):
+    def generate_rollout(self, start_event, end_event, batch_index=0):
         """
         Perform a forward pass through the model(s) and step through the environment.
         """
@@ -765,76 +741,12 @@ class WarpDriveModule(LightningModule):
         torch.cuda.synchronize()
         return interact_result
 
-    def _generate_training_data(self, batch_index=0):
-        """
-        Contains the logic for gathering trajectory data
-        to train policy and value network.
-        Yields:
-           For each policy, a tuple containing actions,
-           rewards, done, probs and value function tensors
-        """
-        # Code timing
-        start_event = torch.cuda.Event(enable_timing=True)
-        end_event = torch.cuda.Event(enable_timing=True)
-
-        # Evaluate policies and run step functions
-        done, result = self._generate_rollout(start_event, end_event, batch_index=batch_index)
-        for k, v in result.items():
-            if isinstance(v, torch.Tensor):
-                result[k] = v.mean().item()
-        all_actions = None
-        all_rewards = None
-        # Fetch the action and rewards batches for all agents
-        if not self.create_separate_placeholders_for_each_policy:
-            all_actions = self.cuda_envs.cuda_data_manager.data_on_device_via_torch(
-                f"{_ACTIONS}"
-            )
-            all_rewards = self.cuda_envs.cuda_data_manager.data_on_device_via_torch(
-                f"{_REWARDS}"
-            )
-        done_flags = self.cuda_envs.cuda_data_manager.data_on_device_via_torch("_done_")
-        # On the device, observations_batch, actions_batch,
-        # rewards_batch are all shaped
-        # (batch_size, num_envs, num_agents, *feature_dim).
-        # done_flags_batch is shaped (batch_size, num_envs)
-        # Perform training sequentially for each policy
-        training_batch = {}
-        for policy in self.policies_to_train:
-            if self.create_separate_placeholders_for_each_policy:
-                actions = self.cuda_envs.cuda_data_manager.data_on_device_via_torch(
-                    f"{_ACTIONS}_{policy}"
-                )
-                rewards = self.cuda_envs.cuda_data_manager.data_on_device_via_torch(
-                    f"{_REWARDS}_{policy}"
-                )
-            else:
-                # Filter the actions and rewards only for the agents
-                # corresponding to a particular policy
-                agent_ids_for_policy = self.policy_tag_to_agent_id_map[policy]
-                actions = all_actions[:, agent_ids_for_policy, :]
-                rewards = all_rewards[:, agent_ids_for_policy]
-
-            # Fetch the (processed) observations batch to pass through the model
-            processed_obs = self.cuda_envs.cuda_data_manager.data_on_device_via_torch(
-                f"{_PROCESSED_OBSERVATIONS}_batch_{policy}"
-            )
-
-            training_batch[policy] = (
-                actions,
-                rewards,
-                done_flags,
-                processed_obs[batch_index],
-            )
-        training_batch['env_info'] = result
-        training_batch['env_info'].update({'__all__': done['__all__']})
-        return training_batch
-
     # APIs to integrate with Pytorch Lightning
     # ----------------------------------------
     def train_dataloader(self):
         """Get the train data loader"""
         dataset = WarpDriveDataset(
-            self._generate_training_data, batch_size=self.training_batch_size_per_env
+            self, batch_size=self.training_batch_size_per_env,
         )
         return DataLoader(dataset, batch_size=self.training_batch_size_per_env)
 
@@ -842,31 +754,48 @@ class WarpDriveModule(LightningModule):
         """Optimizers and LR Schedules"""
         optimizers = []
         lr_schedules = []
-
-        for policy in self.policies_to_train:
-            # Initialize the (ADAM) optimizer
-            # Use the same learning rate (first agent)
-            try:
-                # sync lr override
-                lr_schedule = self._get_config(["policy", "lr"])
-            except KeyError:
-                lr_schedule = self._get_config(["policy", policy, "lr"])
-            init_timestep = self.current_timestep[policy]
+        sync_optimizer = self._get_config(["trainer", "sync_optimizer"])
+        if sync_optimizer:
+            first_policy = self.policies_to_train[0]
+            lr_schedule = self._get_config(["policy", first_policy, "lr"])
+            init_timestep = self.current_timestep[first_policy]
             initial_lr = ParamScheduler(lr_schedule).get_param_value(init_timestep)
             optimizer = torch.optim.Adam(
-                self.models[policy].parameters(), lr=initial_lr, eps=1e-5
+                self.models.parameters(), lr=initial_lr,
+                eps=1e-5, weight_decay=0.0
             )
-
-            # Initialize the learning rate scheduler
-            lr_scheduler = LRScheduler(
+            optimizers.append(optimizer)
+            lr_schedules.append(LRScheduler(
                 lr_schedule,
                 optimizer,
                 init_timestep,
                 timesteps_per_iteration=self.training_batch_size,
-            )
+            ))
+        else:
+            for policy in self.policies_to_train:
+                # Initialize the (ADAM) optimizer
+                # Uses the same learning rate (first agent)
+                try:
+                    # sync lr override
+                    lr_schedule = self._get_config(["policy", "lr"])
+                except KeyError:
+                    lr_schedule = self._get_config(["policy", policy, "lr"])
+                init_timestep = self.current_timestep[policy]
+                initial_lr = ParamScheduler(lr_schedule).get_param_value(init_timestep)
+                optimizer = torch.optim.Adam(
+                    self.models[policy].parameters(), lr=initial_lr, eps=1e-5, weight_decay=0.0
+                )
 
-            lr_schedules.append({"scheduler": lr_scheduler})
-            optimizers.append(optimizer)
+                # Initialize the learning rate scheduler
+                lr_scheduler = LRScheduler(
+                    lr_schedule,
+                    optimizer,
+                    init_timestep,
+                    timesteps_per_iteration=self.training_batch_size,
+                )
+
+                lr_schedules.append({"scheduler": lr_scheduler})
+                optimizers.append(optimizer)
         return optimizers, lr_schedules
 
     def configure_gradient_clipping(
@@ -918,16 +847,17 @@ class WarpDriveModule(LightningModule):
         del batch[_ENV_INFO]
         divided_data = shuffle_and_divide_data_dict(batch, num_mini_batches)
         for index, policy in enumerate(self.policies_to_train):
+            # Update the timestep and learning rate based on the schedule
+            self.current_timestep[policy] += self.training_batch_size
             batch_loss = torch.tensor(0.0, device=self.device)
+            # Initialize metrics dictionary
+            if self.config['trainer']['sync_optimizer']:
+                index = 0
+            policy_metrics = {}
             for batch in divided_data:
-                actions_batch, rewards_batch, done_flags_batch, processed_obs_batch = batch[
-                    policy
-                ]
-
+                actions_batch, rewards_batch, done_flags_batch, processed_obs_batch = batch[policy]
                 # Policy evaluation for the entire batch
-                probabilities_batch, value_functions_batch = self.models[policy](
-                    obs=processed_obs_batch
-                )
+                probabilities_batch, value_functions_batch = self.models[policy](obs=processed_obs_batch)
                 optimizers[index].zero_grad()
                 # Loss and metrics computation
                 loss, metrics = self.trainers[policy].compute_loss_and_metrics(
@@ -942,55 +872,48 @@ class WarpDriveModule(LightningModule):
                 self.manual_backward(loss)
                 self.configure_gradient_clipping(optimizers[index], index)
                 optimizers[index].step()
-                lr_schedulers[index].step()
                 batch_loss += loss
+
+                # Aggregate metrics for each mini-batch
+                for key, value in metrics.items():
+                    policy_metrics[key] = policy_metrics.get(key, 0) + value
+            lr_schedulers[index].step()
+            # Average metrics over all mini-batches
+            for key in policy_metrics:
+                policy_metrics[key] /= num_mini_batches
+
+            # Compute and log metrics outside the mini-batch loop
+            if logging_flag:
                 # Compute the gradient norm
-                grad_norm = 0.0
-                for param in list(
-                        filter(lambda p: p.grad is not None, self.models[policy].parameters())
-                ):
-                    grad_norm += param.grad.data.norm(2).item()
+                grad_norm = sum(param.grad.data.norm(2).item() for param in self.models[policy].parameters() if
+                                param.grad is not None)
 
-                # Update the timestep and learning rate based on the schedule
-                self.current_timestep[policy] += self.training_batch_size
+                # Update the metrics dictionary with additional metrics
+                policy_metrics.update(
+                    {
+                        "Current timestep": int(self.current_timestep[policy]),
+                        "Gradient norm": grad_norm,
+                        "Mean episodic reward": self.episodic_reward_sum[policy].item() / (
+                                self.num_completed_episodes[policy] + _EPSILON),
+                    }
+                )
 
-                # Logging
-                if logging_flag:
-                    assert isinstance(metrics, dict)
-                    # Update the metrics dictionary
-                    metrics.update(
-                        {
-                            "Current timestep": self.current_timestep[policy],
-                            "Gradient norm": grad_norm,
-                            "Mean episodic reward": self.episodic_reward_sum[policy].item()
-                                                    / (self.num_completed_episodes[policy] + _EPSILON),
-                        }
-                    )
+                # Reset the sum and counter
+                self.episodic_reward_sum[policy] = torch.tensor(0, dtype=torch.float32, device=self.device)
+                self.num_completed_episodes[policy] = 0
 
-                    # Reset sum and counter
-                    self.episodic_reward_sum[policy] = (
-                        torch.tensor(0).type(torch.float32).to(device=self.device)
-                    )
-                    self.num_completed_episodes[policy] = 0
+                # Log the metrics
+                self._log_metrics({policy: policy_metrics})
+                for key in policy_metrics:
+                    self.log(f"{policy}/{key}", policy_metrics[key], prog_bar=False, on_step=False, on_epoch=True)
 
-                    self._log_metrics({policy: metrics})
+            # Accumulate losses over policies
+            if losses is None:
+                losses = batch_loss.mean()
+            else:
+                losses += batch_loss.mean()
 
-                    # Logging
-                    # self.log(
-                    #     f"loss_{policy}", loss, prog_bar=True, on_step=False, on_epoch=True
-                    # )
-                    for key in metrics:
-                        self.log(
-                            f"{policy}/{key}",
-                            metrics[key],
-                            prog_bar=False,
-                            on_step=False,
-                            on_epoch=True,
-                        )
-                if losses is None:
-                    losses = batch_loss.mean()
-                else:
-                    losses += batch_loss.mean()
+        # Logging that should be done once per epoch, outside the policy loop
         if logging_flag:
             del env_info['__all__']
             for k, v in env_info.items():
@@ -998,14 +921,114 @@ class WarpDriveModule(LightningModule):
                     env_info[k] = v.mean().item()
                     self.log(f"{k}", env_info[k], prog_bar=False, on_step=False, on_epoch=True)
             self._log_metrics({_ENV_INFO: env_info})
-        # Save the model checkpoint, disabled in favor of Pytorch Lightning builtin.
-        # self.save_model_checkpoint(self.iters)
+            # log learning rate from optimizers
+            optimizers = self.optimizers()
+            optimizers = [optimizers] * len(self.policies_to_train) \
+                if not isinstance(optimizers, list) else optimizers
+            assert len(optimizers) == len(self.policies_to_train)
+            for optimizer, policy in zip(optimizers, self.policies_to_train):
+                self.log(
+                    f"{policy}/learning_rate",
+                    optimizer.param_groups[0]['lr'],
+                    prog_bar=False,
+                    on_step=False,
+                    on_epoch=True,
+                )
+
+        # Return the accumulated losses
         return losses
 
     @staticmethod
     def add_model_specific_args(parent_parser):  # pragma: no cover
         parser = argparse.ArgumentParser(parents=[parent_parser])
         return parser
+
+
+class WarpDriveDataset(Dataset):
+    """
+    The WarpDrive dataset class.
+    """
+
+    def __init__(self, wd_module: WarpDriveModule, batch_size):
+        self.batch_size = batch_size
+        self.wd_module = wd_module
+        self.data_dict = None  # this will be set later (see below)
+
+    def __getitem__(self, batch_index=0) -> Iterable:
+        self.data_dict = generate_training_data(self.wd_module, batch_index=batch_index)
+        return self.data_dict
+
+    def __len__(self):
+        return self.batch_size
+
+    def __iter__(self):
+        for batch_index in range(self.batch_size):
+            yield self.__getitem__(batch_index)
+
+
+def generate_training_data(wd_module: WarpDriveModule, batch_index=0):
+    """
+    Contains the logic for gathering trajectory data
+    to train policy and value network.
+    Yields:
+       For each policy, a tuple containing actions,
+       rewards, done, probs and value function tensors
+    """
+    # Code timing
+    start_event = torch.cuda.Event(enable_timing=True)
+    end_event = torch.cuda.Event(enable_timing=True)
+
+    # Evaluate policies and run step functions
+    done, result = wd_module.generate_rollout(start_event, end_event, batch_index=batch_index)
+    for k, v in result.items():
+        if isinstance(v, torch.Tensor):
+            result[k] = v.mean().item()
+    all_actions = None
+    all_rewards = None
+    # Fetch the action and rewards batches for all agents
+    if not wd_module.create_separate_placeholders_for_each_policy:
+        all_actions = wd_module.cuda_envs.cuda_data_manager.data_on_device_via_torch(
+            f"{_ACTIONS}"
+        )
+        all_rewards = wd_module.cuda_envs.cuda_data_manager.data_on_device_via_torch(
+            f"{_REWARDS}"
+        )
+    done_flags = wd_module.cuda_envs.cuda_data_manager.data_on_device_via_torch("_done_")
+    # On the device, observations_batch, actions_batch,
+    # rewards_batch are all shaped
+    # (batch_size, num_envs, num_agents, *feature_dim).
+    # The done_flags_batch is shaped (batch_size, num_envs)
+    # Perform training sequentially for each policy
+    training_batch = {}
+    for policy in wd_module.policies_to_train:
+        if wd_module.create_separate_placeholders_for_each_policy:
+            actions = wd_module.cuda_envs.cuda_data_manager.data_on_device_via_torch(
+                f"{_ACTIONS}_{policy}"
+            )
+            rewards = wd_module.cuda_envs.cuda_data_manager.data_on_device_via_torch(
+                f"{_REWARDS}_{policy}"
+            )
+        else:
+            # Filter the actions and rewards only for the agents
+            # corresponding to a particular policy
+            agent_ids_for_policy = wd_module.policy_tag_to_agent_id_map[policy]
+            actions = all_actions[:, agent_ids_for_policy, :]
+            rewards = all_rewards[:, agent_ids_for_policy]
+
+        # Fetch the (processed) observations batch to pass through the model
+        processed_obs = wd_module.cuda_envs.cuda_data_manager.data_on_device_via_torch(
+            f"{_PROCESSED_OBSERVATIONS}_batch_{policy}"
+        )
+
+        training_batch[policy] = (
+            actions,
+            rewards,
+            done_flags,
+            processed_obs[batch_index],
+        )
+    training_batch['env_info'] = result
+    training_batch['env_info'].update({'__all__': done['__all__']})
+    return training_batch
 
 
 class PerfStatsCallback(Callback):

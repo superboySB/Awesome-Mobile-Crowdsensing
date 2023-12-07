@@ -5,11 +5,12 @@ Helper file for generating an environment rollout
 from warp_drive.trainer_lightning import WarpDriveModule
 from warp_drive.training.trainer import Metrics
 from envs.crowd_sim.crowd_sim import COVERAGE_METRIC_NAME
-from run_configs.mcs_configs_python import run_config
+from run_configs.mcs_configs_python import run_config, checkpoint_dir
 from tqdm import tqdm
 import matplotlib.pyplot as plt
 import os
 import re
+import subprocess
 
 
 def generate_crowd_sim_animations(
@@ -139,7 +140,7 @@ if __name__ == "__main__":
     from train_rl_policy import LARGE_DATASET_NAME
 
     parser = argparse.ArgumentParser()
-    default_output_dir = os.path.join('workspace', 'saved_data', 'trajectories', 'logs.html')
+    default_output_dir = os.path.join('/workspace', 'saved_data', 'trajectories', 'logs.html')
     parser.add_argument('--output_dir', type=str, default=default_output_dir)
     parser.add_argument('--dataset', type=str, default=LARGE_DATASET_NAME)
     parser.add_argument('--plot_loop', action='store_true')
@@ -148,13 +149,13 @@ if __name__ == "__main__":
     args = parser.parse_args()
     wd_module = setup_cuda_crowd_sim_env(args.dyn_zero_shot, args.dataset)
     # generalized from KAIST to San Francisco
-    parent_path = "./saved_data/crowd_sim/kdd2024/1206-094034_car3_drone3_kdd2024_batch_size=16000_num_episodes=40000000"
+    parent_path = checkpoint_dir
     # generalized from San Francisco to KAIST
     # parent_path = "./saved_data/crowd_sim/kdd2024/1202-160001_car3_drone3_kdd2024"
     # 1701321935 San Fran from scratch
     # 1701264833 KAIST from scratch, the best generalization at 260000000
     # best generalization for new points at
-    timestep = 299
+    timestep = 241999
     if timestep is not None:
         car_path = os.path.join(parent_path, f"car_{timestep}.state_dict")
         drone_path = os.path.join(parent_path, f"drone_{timestep}.state_dict")
@@ -162,7 +163,8 @@ if __name__ == "__main__":
             print(f"loading {timestep} checkpoint")
             wd_module.load_model_checkpoint_separate({"car": car_path, "drone": drone_path})
         else:
-            full_ckpt_name = os.path.join(parent_path, f"full_{timestep}.state_dict")
+            # full_ckpt_name = os.path.join(parent_path, f"checkpoint_epoch={timestep}.ckpt")
+            full_ckpt_name = os.path.join(checkpoint_dir, f"checkpoint_epoch={timestep}.ckpt")
             # check if full checkpoint exists
             if os.path.exists(full_ckpt_name):
                 # extract car and drone checkpoints from full checkpoint
@@ -170,3 +172,10 @@ if __name__ == "__main__":
             else:
                 print("no valid checkpoint found")
         generate_crowd_sim_animations(wd_module, animate=True, verbose=True)
+        # # send html to local
+        # result_file = args.output_dir
+        # destination = "Charlie@10.108.17.19:~/Downloads"
+        # rsync_command = f"rsync -avz {result_file} {destination}"
+        #
+        # # Execute the rsync command
+        # subprocess.run(rsync_command, shell=True)

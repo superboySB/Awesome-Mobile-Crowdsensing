@@ -25,8 +25,8 @@ class PPO:
             clip_param=0.2,
             normalize_advantage=False,
             normalize_return=False,
-            vf_loss_coeff=0.01,
-            entropy_coeff=0.01,
+            vf_loss_coefficient=0.01,
+            entropy_coefficient=0.01,
             lambda_gae=0.95,
             use_gae=False,
     ):
@@ -37,8 +37,8 @@ class PPO:
         self.normalize_advantage = normalize_advantage
         self.normalize_return = normalize_return
         # Create vf_loss and entropy coefficient schedules
-        self.vf_loss_coeff_schedule = ParamScheduler(vf_loss_coeff)
-        self.entropy_coeff_schedule = ParamScheduler(entropy_coeff)
+        self.vf_loss_coeff_schedule = ParamScheduler(vf_loss_coefficient)
+        self.entropy_coeff_schedule = ParamScheduler(entropy_coefficient)
         self.lambda_gae = lambda_gae
         self.use_gae = use_gae
 
@@ -66,10 +66,14 @@ class PPO:
         # Value objective.
         with torch.no_grad():
             returns_batch, advantages_batch, deltas_batch = (torch.zeros_like(rewards_batch),) * 3
+            returns_batch[-1] = (
+                    done_flags_batch[-1][:, None] * rewards_batch[-1]
+                    + (1 - done_flags_batch[-1][:, None]) * value_functions_batch_detached[-1]
+            )
             prev_advantage = torch.zeros_like(returns_batch[0])
             num_of_steps = returns_batch.shape[0]
             prev_value = value_functions_batch_detached[-1]
-            for step in reversed(range(num_of_steps)):
+            for step in reversed(range(num_of_steps - 1)):
                 if self.use_gae:
                     deltas_batch[step] = (rewards_batch[step] +
                                           self.discount_factor_gamma * (1 - done_flags_batch[step][:, None]) *
@@ -83,8 +87,7 @@ class PPO:
                     if step == num_of_steps - 1:
                         continue
                     future_return = (
-                            done_flags_batch[step][:, None] * torch.zeros_like(rewards_batch[step])
-                            + (1 - done_flags_batch[step][:, None])
+                            (1 - done_flags_batch[step][:, None])
                             * self.discount_factor_gamma
                             * returns_batch[step + 1]
                     )
