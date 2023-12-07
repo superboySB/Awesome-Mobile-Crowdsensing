@@ -24,3 +24,4 @@ class Constants:
     DATA_METRIC_NAME = "collected_data_ratio"
     ENERGY_METRIC_NAME = "mean_energy_consumption"
     AOI_METRIC_NAME = "mean_aoi"
+    MAIN_METRIC_NAME = "fresh_equivalent_coverage"

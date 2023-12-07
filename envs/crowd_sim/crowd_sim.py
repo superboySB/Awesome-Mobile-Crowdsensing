@@ -16,6 +16,7 @@ from .utils import *
 COVERAGE_METRIC_NAME = Constants.COVERAGE_METRIC_NAME
 DATA_METRIC_NAME = Constants.DATA_METRIC_NAME
 ENERGY_METRIC_NAME = Constants.ENERGY_METRIC_NAME
+MAIN_METRIC_NAME = Constants.MAIN_METRIC_NAME
 AOI_METRIC_NAME = Constants.AOI_METRIC_NAME
 _AGENT_ENERGY = Constants.AGENT_ENERGY
 _OBSERVATIONS = Constants.OBSERVATIONS
@@ -63,6 +64,7 @@ class CrowdSim:
         self.num_cars = num_cars
         self.num_agents = self.num_drones + self.num_cars
         self.num_sensing_targets = self.config.env.human_num
+        self.aoi_threshold = self.config.env.aoi_threshold
         self.num_agents_observed = num_agents_observed
 
         self.episode_length = self.config.env.num_timestep
@@ -459,12 +461,19 @@ class CrowdSim:
                 "target_coverage").mean(axis=0)
         self.data_collection += np.sum(
             self.target_aoi_timelist[self.timestep] - self.target_aoi_timelist[self.timestep - 1])
-        info = {AOI_METRIC_NAME: np.mean(self.target_aoi_timelist[self.timestep]),
-                ENERGY_METRIC_NAME: 1.0 - (
-                        np.mean(self.agent_energy_timelist[self.timestep]) / self.max_uav_energy),
+        coverage = np.sum(self.target_coveraged_timelist) / (self.episode_length * self.num_sensing_targets)
+        mean_aoi = np.mean(self.target_aoi_timelist[self.timestep])
+        freshness_factor = 1 - np.mean(np.clip(self.target_aoi_timelist[self.timestep] /
+                                               self.aoi_threshold, a_min=0, a_max=1) ** 2)
+        # print(f"freshness_factor: {freshness_factor} ,mean_aoi: {mean_aoi}")
+        mean_energy = np.mean(self.agent_energy_timelist[self.timestep])
+        energy_consumption_ratio = mean_energy / self.max_uav_energy
+        energy_remaining_ratio = 1.0 - energy_consumption_ratio
+        info = {AOI_METRIC_NAME: mean_aoi,
+                ENERGY_METRIC_NAME: energy_consumption_ratio,
                 DATA_METRIC_NAME: self.data_collection / (self.episode_length * self.num_sensing_targets),
-                COVERAGE_METRIC_NAME: np.sum(self.target_coveraged_timelist) / (
-                        self.episode_length * self.num_sensing_targets)
+                COVERAGE_METRIC_NAME: coverage,
+                MAIN_METRIC_NAME: freshness_factor * coverage / energy_consumption_ratio
                 }
         return info
 

@@ -2,8 +2,8 @@
 
 dataset_name='SanFrancisco'
 exp_name='WARP'_$dataset_name
-session_name=$exp_name
-cards=(1 2)
+session_name=$exp_name'_2'
+cards=(1 3 1 3 0 2)
 card_num=${#cards[@]}
 dry_run=false
 # Process command-line arguments
@@ -20,13 +20,15 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 trains=(
-  "--track --dataset $dataset_name --tag batch_size=4000 num_episodes=5000000"
-  "--track --dataset $dataset_name --tag batch_size=4000 num_episodes=10000000"
-  "--track --dataset $dataset_name --tag batch_size=8000 num_episodes=10000000"
-  "--track --dataset $dataset_name --tag batch_size=8000 num_episodes=20000000"
-  "--track --dataset $dataset_name --tag batch_size=16000 num_episodes=20000000"
-  "--track --dataset $dataset_name --tag batch_size=16000 num_episodes=40000000"
+    "--track --dataset '$dataset_name' --tag 'lr=4e-5' 'batch_size=4000' 'num_episodes=10000000' single-optim"
+    "--track --dataset '$dataset_name' --tag 'lr=[[0,8e-5],[num_episodes*120,0]]' 'batch_size=4000' 'num_episodes=10000000' single-optim"
+    "--track --dataset '$dataset_name' --tag 'lr=8e-5' 'batch_size=4000' 'num_episodes=10000000' single-optim"
+    "--track --dataset '$dataset_name' --tag 'lr=4e-5' 'batch_size=8000' 'num_episodes=10000000' single-optim"
+    "--track --dataset '$dataset_name' --tag 'lr=[[0,8e-5],[num_episodes*120,0]]' 'batch_size=8000' 'num_episodes=10000000' single-optim"
+    "--track --dataset '$dataset_name' --tag 'lr=8e-5' 'batch_size=8000' 'num_episodes=10000000' single-optim"
 )
+
+
 train_num=${#trains[@]}
 if [ "$dry_run" = "false" ]
 then

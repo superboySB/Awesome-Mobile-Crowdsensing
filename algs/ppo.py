@@ -66,10 +66,11 @@ class PPO:
         # Value objective.
         with torch.no_grad():
             returns_batch, advantages_batch, deltas_batch = (torch.zeros_like(rewards_batch),) * 3
+            returns_batch[-1] = value_functions_batch_detached[-1]
             prev_advantage = torch.zeros_like(returns_batch[0])
             num_of_steps = returns_batch.shape[0]
             prev_value = value_functions_batch_detached[-1]
-            for step in reversed(range(num_of_steps)):
+            for step in reversed(range(num_of_steps - 1)):
                 if self.use_gae:
                     deltas_batch[step] = (rewards_batch[step] +
                                           self.discount_factor_gamma * (1 - done_flags_batch[step][:, None]) *

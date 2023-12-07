@@ -9,6 +9,7 @@ class Config(object):
 
 class BaseEnvConfig(object):
     env = Config()
+    env.aoi_threshold = 10
     env.num_timestep = 120  # 120x15=1800s=30min
     env.step_time = 15  # second per step
     env.max_uav_energy = 359640  # 359640 J <-- 359.64 kJ (4500mah, 22.2v) 大疆经纬
