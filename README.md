@@ -135,3 +135,4 @@ python warp_drive/trainer_pytiotoporch.py --env tag_continuous --auto_scale
 - [ ] Add more realistic uav PnC mechanism, e.g., PD controller and A* planner (RL cannot do everything with one DNN.
   Traditional methods are essential to achieve low-level control with collision avoidance)
 - [ ] Add more realistic environment dynamics, e.g., [4G MIMO](https://github.com/BIT-MCS/DRL-freshMCS), [5G NOMA](https://github.com/BIT-MCS/hi-MADRL)
+- [ ] To be continued...
