@@ -6,7 +6,7 @@
 # or https://opensource.org/licenses/BSD-3-Clause
 
 
-from typing import Optional
+from typing import Optional, Union
 
 import numpy as np
 from warp_drive.utils import autoinit_pycuda
@@ -76,7 +76,7 @@ class PyCUDADataManager(CUDADataManager):
             episode_length=episode_length,
         )
 
-    def pull_data_from_device(self, name: str):
+    def pull_data_from_device(self, name: str) -> Union[int, float, np.ndarray]:
 
         assert name in self._host_data
         if name in self._scalar_data_list:

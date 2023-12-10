@@ -22,19 +22,19 @@ _DONE_FLAGS = Constants.DONE_FLAGS
 
 def all_equal(iterable):
     """
-    Check all elements of an iterable (e.g., list) are identical
+    Check all elements of iterable (e.g., list) are identical
     """
     return len(set(iterable)) <= 1
 
 
 def create_and_push_data_placeholders(
-    env_wrapper=None,
-    action_sampler=None,
-    policy_tag_to_agent_id_map=None,
-    create_separate_placeholders_for_each_policy=False,
-    obs_dim_corresponding_to_num_agents="first",
-    training_batch_size_per_env=None,
-    push_data_batch_placeholders=True,
+        env_wrapper=None,
+        action_sampler=None,
+        policy_tag_to_agent_id_map=None,
+        create_separate_placeholders_for_each_policy=False,
+        obs_dim_corresponding_to_num_agents="first",
+        training_batch_size_per_env=None,
+        push_data_batch_placeholders=True,
 ):
     """
     Create observations, sampled_actions, rewards and done flags placeholders
@@ -129,7 +129,7 @@ def create_and_push_data_placeholders(
             name: f"{_PROCESSED_OBSERVATIONS}_batch" + f"_{policy_name}"
             shape: (training_batch_size_per_env, ) +
                    (num_envs, policy_tag_to_agent_id_map[policy_name], ) +
-                   (processed_obs_size = get_flattened_obs_size(observation_space),)
+                   (processed_obs_size = get_flattened_obs_size(observation_space))
 
     """
     assert env_wrapper is not None
@@ -256,13 +256,13 @@ def _validate_policy_tag_to_agent_id_map(env_wrapper, policy_tag_to_agent_id_map
     for pol_tag, agent_ids in policy_tag_to_agent_id_map.items():
         for agent_id in agent_ids:
             assert (
-                agent_id not in agent_id_to_policy_map
+                    agent_id not in agent_id_to_policy_map
             ), f"{agent_id} is mapped to multiple policies!"
             agent_id_to_policy_map[agent_id] = pol_tag
     # Ensure that every agent is mapped to a policy
     for agent_id in obs:
         assert (
-            agent_id in agent_id_to_policy_map
+                agent_id in agent_id_to_policy_map
         ), f"{agent_id} is not mapped to any policy!"
     return policy_tag_to_agent_id_map
 
@@ -330,10 +330,10 @@ def _log_obs_action_spaces(pol_mod_tag, agent_id, env_wrapper):
 
 
 def _create_observation_placeholders_helper(
-    env_wrapper,
-    agent_ids,
-    obs_dim_corresponding_to_num_agents,
-    policy_suffix="",
+        env_wrapper,
+        agent_ids,
+        obs_dim_corresponding_to_num_agents,
+        policy_suffix="",
 ):
     """
     Helper function to create obs placeholders
@@ -387,12 +387,11 @@ def _create_observation_placeholders_helper(
 
 
 def _create_processed_observation_batches_helper(
-    env_wrapper,
-    agent_ids,
-    training_batch_size_per_env,
-    batch_suffix="",
-    ):
-
+        env_wrapper,
+        agent_ids,
+        training_batch_size_per_env,
+        batch_suffix="",
+):
     tensor_feed = DataFeed()
 
     num_envs = env_wrapper.n_envs
@@ -412,7 +411,7 @@ def _create_processed_observation_batches_helper(
                 num_agents,
             )
             + (processed_obs_size,)
-            )
+        )
         tensor_feed.add_data(name=name, data=processed_obs_batch)
 
     env_wrapper.cuda_data_manager.push_data_to_device(
@@ -421,11 +420,10 @@ def _create_processed_observation_batches_helper(
 
 
 def _create_action_placeholders_helper(
-    env_wrapper,
-    agent_ids,
-    policy_suffix="",
-    ):
-
+        env_wrapper,
+        agent_ids,
+        policy_suffix="",
+):
     tensor_feed = DataFeed()
 
     num_envs = env_wrapper.n_envs
@@ -439,7 +437,7 @@ def _create_action_placeholders_helper(
         tensor_feed.add_data(
             name=_ACTIONS + policy_suffix,
             data=np.zeros(
-                (num_envs,  num_agents, 1),
+                (num_envs, num_agents, 1),
                 dtype=np.int32,
             ),
         )
@@ -482,12 +480,11 @@ def _create_action_placeholders_helper(
 
 
 def _create_action_batches_helper(
-    env_wrapper,
-    agent_ids,
-    training_batch_size_per_env,
-    batch_suffix="",
-    ):
-
+        env_wrapper,
+        agent_ids,
+        training_batch_size_per_env,
+        batch_suffix="",
+):
     tensor_feed = DataFeed()
 
     num_envs = env_wrapper.n_envs
@@ -514,7 +511,7 @@ def _create_action_batches_helper(
                 )
                 + (num_action_types,),
                 dtype=np.int32,
-                ),
+            ),
         )
 
     env_wrapper.cuda_data_manager.push_data_to_device(
@@ -523,11 +520,11 @@ def _create_action_batches_helper(
 
 
 def _prepare_action_sampler_helper(
-    env_wrapper,
-    action_sampler,
-    agent_ids,
-    policy_suffix="",
-    ):
+        env_wrapper,
+        action_sampler,
+        agent_ids,
+        policy_suffix="",
+):
     if len(agent_ids) == 0:
         return
     first_agent_id = agent_ids[0]
@@ -556,11 +553,10 @@ def _prepare_action_sampler_helper(
 
 
 def _create_reward_placeholders_helper(
-    env_wrapper,
-    agent_ids,
-    policy_suffix="",
-    ):
-
+        env_wrapper,
+        agent_ids,
+        policy_suffix="",
+):
     tensor_feed = DataFeed()
     num_envs = env_wrapper.n_envs
     num_agents = len(agent_ids)
@@ -576,12 +572,11 @@ def _create_reward_placeholders_helper(
 
 
 def _create_reward_batches_helper(
-    env_wrapper,
-    agent_ids,
-    training_batch_size_per_env,
-    batch_suffix="",
-    ):
-
+        env_wrapper,
+        agent_ids,
+        training_batch_size_per_env,
+        batch_suffix="",
+):
     tensor_feed = DataFeed()
 
     num_envs = env_wrapper.n_envs
@@ -599,7 +594,7 @@ def _create_reward_batches_helper(
                     num_agents,
                 ),
                 dtype=np.float32,
-                ),
+            ),
         )
 
     env_wrapper.cuda_data_manager.push_data_to_device(
@@ -608,10 +603,9 @@ def _create_reward_batches_helper(
 
 
 def _create_done_batches_helper(
-    env_wrapper,
-    training_batch_size_per_env,
-    ):
-
+        env_wrapper,
+        training_batch_size_per_env,
+):
     tensor_feed = DataFeed()
     name = f"{_DONE_FLAGS}_batch"
     if not env_wrapper.cuda_data_manager.is_data_on_device(name):

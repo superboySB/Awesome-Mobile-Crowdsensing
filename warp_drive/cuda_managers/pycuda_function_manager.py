@@ -8,6 +8,7 @@
 
 import logging
 import os
+import shutil
 import subprocess
 import time
 from typing import Optional
@@ -251,9 +252,11 @@ class PyCUDAFunctionManager(CUDAFunctionManager):
             if arch is None:
                 cc = Context.get_device().compute_capability()  # compute capability
                 arch = f"sm_{cc[0]}{cc[1]}"
+            shell_path = shutil.which("zsh") or shutil.which("bash")
             cmd = f"nvcc --fatbin -arch={arch} {main_file} -o {cubin_file}"
+            full_cmd = f"{shell_path} -c \"{cmd}\""
             with subprocess.Popen(
-                cmd, shell=True, stderr=subprocess.STDOUT
+                    full_cmd, shell=True, stderr=subprocess.STDOUT
             ) as make_process:
                 if make_process.wait() != 0:
                     raise Exception(

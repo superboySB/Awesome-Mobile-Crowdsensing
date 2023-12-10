@@ -12,7 +12,6 @@ The env wrapper class
 import logging
 
 import numpy as np
-
 from warp_drive.cuda_managers.function_manager import CUDAFunctionFeed
 from warp_drive.utils.argument_fix import Argfix
 from warp_drive.utils.common import get_project_root
@@ -300,9 +299,7 @@ class CrowdSimEnvWrapper:
 
                 self.cuda_data_manager.push_data_to_device(data_dictionary)
 
-                self.cuda_data_manager.push_data_to_device(
-                    tensor_dictionary, torch_accessible=True
-                )
+                self.cuda_data_manager.push_data_to_device(tensor_dictionary, torch_accessible=True)
 
                 self.cuda_data_manager.push_data_to_device(reset_pool_dictionary)
 

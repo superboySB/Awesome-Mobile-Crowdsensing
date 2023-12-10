@@ -28,6 +28,9 @@ EXPOSE 22
 RUN conda create --name mcs python=3.9 --yes && source activate mcs
 RUN git clone https://github.com/movingpandas/movingpandas && cd /workspace/movingpandas && python setup.py develop && cd ..
 RUN git clone https://github.com/BIT-MCS/Awesome-Mobile-Crowdsensing.git && cd Awesome-Mobile-Crowdsensing && pip install -e .
+# Ray installization
+RUN pip install ray[default] && pip install ray[tune] && pip install ray[rllib]
+
 # auto boot setup
 CMD ["/usr/sbin/sshd", "-D"]
 CMD ["tmux", ""]

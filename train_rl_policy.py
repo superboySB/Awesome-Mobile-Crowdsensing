@@ -1,7 +1,7 @@
 import argparse
 import logging
 import os
-
+from typing import Union
 from argparse import ArgumentParser
 from datetime import datetime
 import wandb
@@ -39,23 +39,23 @@ def update_config_from_tags(tags, config):
     }
 
     # Convert tags into a dictionary for easy lookup
-    tag_dict = {}
+    tag_dict: dict[str, Union[str, None]] = {}
     for tag in tags:
         key, value = tag.split('=') if '=' in tag else (tag, None)
         tag_dict[key] = value
 
     # Extract 'num_episodes' first if it exists
-    num_episodes = int(tag_dict['num_episodes']) if 'num_episodes' in tag_dict else None
+    num_episodes = int(tag_dict['num_episodes']) if 'num_episodes' in tag_dict else 0
 
     # Process each config key
     for key, path in config_paths.items():
         if key in tag_dict:
             value = tag_dict[key]
-            if value is not None:  # Update the config if value is provided
+            if isinstance(value, str):  # Update the config if value is provided
                 if key == "lr":  # Special case for lr as it might be a schedule
                     if '[' in value:  # Check if it's a schedule
                         # Replace 'num_episodes' token in the lr value, if present
-                        if num_episodes is not None:
+                        if num_episodes != 0:
                             value = value.replace('num_episodes', str(num_episodes))
                         # Parse the schedule string into a list of lists
                         lr_schedule = eval(value)
@@ -69,7 +69,6 @@ def update_config_from_tags(tags, config):
                 else:
                     new_value = int(value)
                     config[path[0]][path[1]] = new_value
-
 
 
 def run_experiment():
@@ -207,7 +206,7 @@ def run_experiment():
         #         text=f'Error: {str(e)}\nTraceback:\n{error_trace}',
         #         level=wandb.AlertLevel.ERROR
         #     )
-            # print error trace
+        # print error trace
         print(f'Error: {str(e)}\nTraceback:\n{error_trace}')
 
 
@@ -272,16 +271,16 @@ if __name__ == '__main__':
         parent_path = os.path.join(checkpoint_dir, ENV_NAME, RUN_NAME, expr_start_time)
 
         # Check if separate state dict exists for 'car'
-        car_state_dict_path = os.path.join(parent_path, f"car_{train_timestep}.state_dict")
+        car_state_dict_path = os.path.join(str(parent_path), f"car_{train_timestep}.state_dict")
         if os.path.exists(car_state_dict_path):
             run_config['policy']['car']['model']['model_ckpt_filepath'] = car_state_dict_path
 
             # Check for 'drone' state dict
-            drone_state_dict_path = os.path.join(parent_path, f"drone_{train_timestep}.state_dict")
+            drone_state_dict_path = os.path.join(str(parent_path), f"drone_{train_timestep}.state_dict")
             run_config['policy']['drone']['model']['model_ckpt_filepath'] = drone_state_dict_path
         else:
             # Use the newer version, full state dict
-            full_ckpt_path = os.path.join(parent_path, f"checkpoint_epoch={train_timestep}.ckpt")
+            full_ckpt_path = os.path.join(str(parent_path), f"checkpoint_epoch={train_timestep}.ckpt")
             run_config['model_ckpt_filepath'] = full_ckpt_path
 
         expr_name += '_ckpt'

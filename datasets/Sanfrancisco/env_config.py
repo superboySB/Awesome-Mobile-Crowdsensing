@@ -1,5 +1,6 @@
 import numpy as np
-
+import os
+from warp_drive.utils.common import get_project_root
 from datasets.env_test import try_sensing_range
 
 class Config(object):
@@ -41,7 +42,7 @@ class BaseEnvConfig(object):
     env.nlon = 7910
     env.nlat = 6960
     env.human_num = 536
-    env.dataset_dir = 'datasets/Sanfrancisco/ground_trajs.csv'
+    env.dataset_dir = os.path.join(get_project_root(), 'datasets/Sanfrancisco/ground_trajs.csv')
     env.drone_action_space = np.array([[0, 0], [300, 0], [-300, 0], [0, 300], [0, -300], [210, 210], [210, -210], [-210, 210],
                                 [-210, -210]])
     env.drone_sensing_range = 200  # unit

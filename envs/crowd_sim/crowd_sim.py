@@ -1,15 +1,26 @@
 import logging
-
+from typing import Optional, Tuple, Dict, List
+import os
 import folium
+import time
 import pandas as pd
 from folium.plugins import TimestampedGeoJson, AntPath
 from gym import spaces
+from ray.rllib.utils.typing import MultiAgentDict, EnvActionType, EnvObsType, EnvInfoDict
 from shapely.geometry import Point
-
+from pytorch_lightning import seed_everything
+from ray.rllib.env.vector_env import VectorEnv
+from ray.rllib.env.multi_agent_env import MultiAgentEnv
 from warp_drive.utils.constants import Constants
+from warp_drive.utils.common import get_project_root
 from warp_drive.utils.data_feed import DataFeed
 from warp_drive.utils.gpu_environment_context import CUDAEnvironmentContext
-# TODO：可以在这里切换为更大的San，一定需要更多agents
+from warp_drive.utils.recursive_obs_dict_to_spaces_dict import (
+    BIG_NUMBER, recursive_obs_dict_to_spaces_dict
+)
+from envs.crowd_sim.env_wrapper import CrowdSimEnvWrapper
+from warp_drive.utils.env_registrar import EnvironmentRegistrar
+from warp_drive.training.data_loader import create_and_push_data_placeholders
 from .utils import *
 
 COVERAGE_METRIC_NAME = Constants.COVERAGE_METRIC_NAME
@@ -22,8 +33,20 @@ _OBSERVATIONS = Constants.OBSERVATIONS
 _ACTIONS = Constants.ACTIONS
 _REWARDS = Constants.REWARDS
 
+policy_mapping_dict = {
+    "SanFrancisco": {
+        "description": "two team cooperate to collect data",
+        "team_prefix": ("car_", "drone_"),
+        "all_agents_one_policy": True,
+        "one_agent_one_policy": True,
+    },
+}
+
 
 class Pair:
+    """
+    A simple class to store a pair of values, used for index and distance
+    """
     distance: float
     index: int
 
@@ -87,10 +110,10 @@ class CrowdSim:
         self.lower_left = self.config.env.lower_left
         self.upper_right = self.config.env.upper_right
         from movingpandas.geometry_utils import measure_distance_geodesic
-        self.max_distance_x = measure_distance_geodesic(Point(self.lower_left[0], self.lower_left[1]),
-                                                        Point(self.upper_right[0], self.lower_left[1]))
-        self.max_distance_y = measure_distance_geodesic(Point(self.lower_left[0], self.lower_left[1]),
-                                                        Point(self.lower_left[0], self.upper_right[1]))
+        self.max_distance_x: float = measure_distance_geodesic(Point(self.lower_left[0], self.lower_left[1]),
+                                                               Point(self.upper_right[0], self.lower_left[1]))
+        self.max_distance_y: float = measure_distance_geodesic(Point(self.lower_left[0], self.lower_left[1]),
+                                                               Point(self.lower_left[0], self.upper_right[1]))
         self.human_df = pd.read_csv(self.config.env.dataset_dir)
         logging.info("Finished reading {} rows".format(len(self.human_df)))
         self.human_df['t'] = pd.to_datetime(self.human_df['timestamp'], unit='s')  # s表示时间戳转换
@@ -101,8 +124,11 @@ class CrowdSim:
             num_centers = int(self.num_sensing_targets * 0.05)
             num_points_per_center = 3
             max_distance_from_center = 10
-            centers = np.concatenate([self.np_random.randint(0, self.max_distance_x, (num_centers, 1)),
-                                      self.np_random.randint(0, self.max_distance_y, (num_centers, 1))], axis=1)
+            int_arrays = [
+                self.np_random.randint(0, int(self.max_distance_x), (num_centers, 1)).astype(np.int_),
+                self.np_random.randint(0, int(self.max_distance_y), (num_centers, 1)).astype(np.int_)
+            ]
+            centers = np.concatenate(int_arrays, axis=1)
             points_x = np.zeros((num_centers * num_points_per_center,), dtype=int)
             points_y = np.zeros((num_centers * num_points_per_center,), dtype=int)
             for i, (cx, cy) in enumerate(centers):
@@ -110,10 +136,10 @@ class CrowdSim:
                     index = i * num_points_per_center + j
                     points_x[index] = self.np_random.randint(max(cx - max_distance_from_center, 0),
                                                              min(cx + max_distance_from_center + 1,
-                                                                 self.max_distance_x))
+                                                                 int(self.max_distance_x)))
                     points_y[index] = self.np_random.randint(max(cy - max_distance_from_center, 0),
                                                              min(cy + max_distance_from_center + 1,
-                                                                 self.max_distance_y))
+                                                                 int(self.max_distance_y)))
             self.num_sensing_targets += (num_centers * num_points_per_center)
         # human infos
         unique_ids = np.arange(0, self.num_sensing_targets)  # id from 0 to 91
@@ -166,8 +192,8 @@ class CrowdSim:
         self.data_collection = 0
         # Types and Status of vehicles
         self.agent_types = self.int_dtype(np.ones([self.num_agents, ]))
-        self.cars = {}
-        self.drones = {}
+        self.cars = np.zeros([self.num_agents, ], dtype=bool)
+        self.drones = np.zeros([self.num_agents, ], dtype=bool)
         for agent_id in range(self.num_agents):
             if agent_id < self.num_cars:
                 self.agent_types[agent_id] = 0  # Car
@@ -186,12 +212,12 @@ class CrowdSim:
         self.drone_action_space_dy = self.float_dtype(self.config.env.drone_action_space[:, 1])
         self.car_action_space_dx = self.float_dtype(self.config.env.car_action_space[:, 0])
         self.car_action_space_dy = self.float_dtype(self.config.env.car_action_space[:, 1])
-        self.action_space = {
-            agent_id: spaces.Discrete(self.int_dtype(self.drone_action_space_dx.shape[0]))
+        self.action_space = spaces.Dict({
+            agent_id: spaces.Discrete(len(self.drone_action_space_dx))
             if self.agent_types[agent_id] == 1
-            else spaces.Discrete(self.int_dtype(self.car_action_space_dx.shape[0]))
+            else spaces.Discrete(len(self.car_action_space_dx))
             for agent_id in range(self.num_agents)
-        }
+        })
         # Used in generate_observation()
         # When use_full_observation is True, then all the agents will have info of
         # all the other agents, otherwise, each agent will only have info of
@@ -332,8 +358,7 @@ class CrowdSim:
             aoi_grid_part[grid_point_count == 0] = 0
 
             # merge these parts as the observation
-            obs[agent_id] = np.hstack((self_part, homoge_part.ravel(), hetero_part.ravel(), aoi_grid_part.ravel()),
-                                      dtype=np.float32)
+            obs[agent_id] = np.hstack((self_part, homoge_part.ravel(), hetero_part.ravel(), aoi_grid_part.ravel()))
 
         return obs
 
@@ -354,7 +379,7 @@ class CrowdSim:
             rho = 1.225  # density of air,kg/m^3
             s0 = 0.05  # the rotor solidity
             A = 0.503  # the area of the rotor disk, m^2
-            vt = self.config.env.velocity  # velocity of the UAV, m/s
+            vt = self.config.env.drone_velocity  # velocity of the UAV, m/s
 
             flying_energy = P0 * (1 + 3 * vt ** 2 / U_tips ** 2) + \
                             P1 * np.sqrt((np.sqrt(1 + vt ** 4 / (4 * v0 ** 4)) - vt ** 2 / (2 * v0 ** 2))) + \
@@ -381,7 +406,6 @@ class CrowdSim:
             else:
                 dx, dy = self.drone_action_space_dx[actions[agent_id]], self.drone_action_space_dy[actions[agent_id]]
 
-            # TODO: 暂缺车辆的能耗公式区分,不过目前也没有加充电桩啦，本来电量就不会耗尽
             new_x = self.agent_x_timelist[self.timestep - 1, agent_id] + dx
             new_y = self.agent_y_timelist[self.timestep - 1, agent_id] + dy
             if new_x <= self.max_distance_x and new_y <= self.max_distance_y:
@@ -428,8 +452,8 @@ class CrowdSim:
                         and target_agent_distance <= self.drone_sensing_range \
                         and drone_car_min_distance[agent_id - self.num_cars] <= self.drone_car_comm_range:
                     rew[agent_id] += (self.target_aoi_timelist[self.timestep - 1, target_id] - 1) / self.episode_length
-                    rew[drone_nearest_car_id[agent_id - self.num_cars]] += (self.target_aoi_timelist[
-                                                                                self.timestep - 1, target_id] - 1) / self.episode_length
+                    rew[int(drone_nearest_car_id[agent_id - self.num_cars])] \
+                        += (self.target_aoi_timelist[self.timestep - 1, target_id] - 1) / self.episode_length
                     self.target_aoi_timelist[self.timestep, target_id] = 1
                     break
 
@@ -438,9 +462,8 @@ class CrowdSim:
                                                                              self.timestep - 1, target_id] + 1
                 else:
                     self.target_coveraged_timelist[self.timestep - 1, target_id] = 1
-                    self.data_collection += (
-                            self.target_aoi_timelist[self.timestep - 1, target_id] - self.target_aoi_timelist[
-                        self.timestep, target_id])
+                    self.data_collection += (self.target_aoi_timelist[self.timestep - 1, target_id] -
+                                             self.target_aoi_timelist[self.timestep, target_id])
 
         obs = self.generate_observation()
 
@@ -451,7 +474,7 @@ class CrowdSim:
         result = obs, rew, done, self.collect_info()
         return result
 
-    def collect_info(self):
+    def collect_info(self) -> Dict[str, float]:
         if isinstance(self, CUDACrowdSim):
             self.target_aoi_timelist[self.timestep, :] = self.cuda_data_manager.pull_data_from_device(
                 "target_aoi").mean(axis=0)
@@ -615,9 +638,9 @@ class CrowdSim:
 
 class CUDACrowdSim(CrowdSim, CUDAEnvironmentContext):
     """
-    CUDA version of the TagGridWorld environment.
-    Note: this class subclasses the Python environment class TagGridWorld,
-    and also the  CUDAEnvironmentContext
+    CUDA version of the CrowdSim environment.
+    Note: this class subclasses the Python environment class CrowdSim,
+    and also the CUDAEnvironmentContext
     """
 
     def get_data_dictionary(self):
@@ -667,7 +690,7 @@ class CUDACrowdSim(CrowdSim, CUDAEnvironmentContext):
                                  ])
         return data_dict
 
-    def step(self, actions=None):
+    def step(self, actions=None) -> Tuple[Dict, Dict]:
         if self.timestep >= self.episode_length:
             self.timestep = 0
         else:
@@ -725,3 +748,248 @@ class CUDACrowdSim(CrowdSim, CUDAEnvironmentContext):
         }
 
         return done, self.collect_info()
+
+
+class RLlibCUDACrowdSim(MultiAgentEnv, VectorEnv):
+    def __init__(self, run_config: dict):
+        map_name = None
+        # Remove 'map_name' key
+        if "map_name" in run_config:
+            map_name = run_config.pop("map_name")
+        # Rename 'env_params' to 'env_config'
+        if "env_params" in run_config and "trainer" in run_config:
+            trainer_params = run_config.pop("trainer")
+            run_config["env_config"] = run_config.pop("env_params")
+            train_batch_size = trainer_params['train_batch_size']
+            self.num_envs = trainer_params['num_envs']
+            num_mini_batches = trainer_params['num_mini_batches']
+            if (train_batch_size // self.num_envs) < num_mini_batches:
+                print("Batch per env must be larger than num_mini_batches, Exiting...")
+                return
+            env_registrar = EnvironmentRegistrar()
+            if not env_registrar.has_env("crowdsim", env_backend="pycuda"):
+                env_registrar.add_cuda_env_src_path(CUDACrowdSim.name, os.path.join(get_project_root(),
+                                                                                    "envs", "crowd_sim",
+                                                                                    "crowd_sim_step.cu"))
+            self.env_wrapper: CrowdSimEnvWrapper = CrowdSimEnvWrapper(
+                CUDACrowdSim(**run_config),
+                num_envs=self.num_envs,
+                env_backend="pycuda",
+                env_registrar=env_registrar
+            )
+        else:
+            raise Exception("RLlibCUDACrowdSim expects 'env_params' and 'trainer' in run_config")
+        if map_name is not None:
+            run_config["map_name"] = map_name
+        self.action_space: spaces.Dict = self.env_wrapper.env.action_space[0]
+        # manually setting observation space
+        self.agents = ([f"drone_{i}" for i in range(self.env_wrapper.env.num_drones)] +
+                       [f"car_{i}" for i in range(self.env_wrapper.env.num_cars)])
+        self.num_agents = len(self.agents)
+        obs_ref = self.env_wrapper.reset()[0]
+        box = binary_search_bound(obs_ref)
+        self.observation_space: spaces.Dict = spaces.Dict({"obs": box})
+        super().__init__(self.observation_space, self.action_space, self.num_envs)
+        if self.env_wrapper.env_backend == "pycuda":
+            from warp_drive.cuda_managers.pycuda_function_manager import (
+                PyCUDASampler,
+            )
+
+            self.cuda_sample_controller = PyCUDASampler(
+                self.env_wrapper.cuda_function_manager
+            )
+
+        policy_tag_to_agent_id_map = {
+            "car": list(self.env_wrapper.env.cars),
+            "drone": list(self.env_wrapper.env.drones),
+        }
+
+        # Create and push data placeholders to the device
+        create_and_push_data_placeholders(
+            env_wrapper=self.env_wrapper,
+            action_sampler=self.cuda_sample_controller,
+            policy_tag_to_agent_id_map=policy_tag_to_agent_id_map,
+            push_data_batch_placeholders=False,  # we use lightning to batch
+        )
+        # Seeding
+        if trainer_params is not None:
+            seed = trainer_params.get("seed", np.int32(time.time()))
+            seed_everything(seed)
+            self.cuda_sample_controller.init_random(seed)
+
+    def reset(
+            self,
+            *,
+            seed: Optional[int] = None,
+            options: Optional[dict] = None,
+    ) -> Dict:
+        self.env_wrapper.reset()
+        # current_observation shape [n_agent, dim_obs]
+        current_observation = self.env_wrapper.cuda_data_manager.pull_data_from_device(_OBSERVATIONS)
+        # convert it into a dict of {agent_id: {"obs": observation}}
+        obs = self.convert_to_dict(current_observation, "obs")
+        return obs
+
+    def convert_to_dict(self, data_batch: np.ndarray, name: str) -> dict:
+        """
+        Convert observations from a NumPy array to a dictionary format.
+
+        :param data_batch: NumPy array of shape [self.num_envs, self.num_agents, dim_obs]
+        :return: Dictionary of the format {EnvID: {agent_id_1: obs1, agent_id_2: obs2, ...}, ...}
+        """
+        result = {}
+        for env_index in range(self.num_envs):
+            result[env_index] = {}
+            for agent_index in range(self.num_agents):
+                single_batch = data_batch[env_index, agent_index, :]
+                if name is not None:
+                    result[env_index][agent_index] = single_batch
+                else:
+                    result[env_index][agent_index] = {name: single_batch}
+        return result
+
+    def step(
+            self, action_dict: MultiAgentDict
+    ) -> Tuple[
+        MultiAgentDict, MultiAgentDict, MultiAgentDict, MultiAgentDict, MultiAgentDict
+    ]:
+        new_actions = DataFeed()
+        # convert MultiAgentDict to an ndarray with shape [num_agent, action_index]
+        action_arrays = [list(env_actions.values()) for env_actions in action_dict.values()]
+        actions = np.array(action_arrays)
+        # np.asarray(list(map(int, {1: 2, 2: 5, 3: 8}.values()))), 30% faster than
+        # actions_ls = [int(actions[agent_id]) for agent_id in actions.keys()]
+        new_actions.add_data(name=_ACTIONS, data=actions)
+        self.env_wrapper.cuda_data_manager.push_data_to_device(new_actions, torch_accessible=True)
+        dones, info = self.env_wrapper.step()
+        # current_observation shape [n_envs, n_agent, dim_obs]
+        next_obs = self.env_wrapper.cuda_data_manager.pull_data_from_device(_OBSERVATIONS)
+        reward = self.env_wrapper.cuda_data_manager.pull_data_from_device(_REWARDS)
+        # convert observation to dict {EnvID: {AgentID: Action}...}
+        obs_dict = self.convert_to_dict(next_obs, "obs")
+        reward_dict = self.convert_to_dict(reward, None)
+        truncated = MultiAgentDict({"__all__": False})
+        return obs_dict, reward_dict, dones, truncated, info
+
+    def get_env_info(self):
+        """
+        return a dict of env_info
+        """
+        env_info = {
+            "space_obs": self.observation_space,
+            "space_act": self.action_space,
+            "num_agents": self.num_agents,
+            "episode_limit": self.env_wrapper.env.config.env.num_timestep,
+            "policy_mapping_info": policy_mapping_dict
+        }
+        env_info.update(self.env_wrapper.env.collect_info())
+        return env_info
+
+    def close(self):
+        pass
+
+    def render(self, mode=None) -> None:
+        pass
+
+    def vector_step(
+            self, actions: List[EnvActionType]
+    ) -> Tuple[List[EnvObsType], List[float], List[bool], List[EnvInfoDict]]:
+        """
+        Vectorized version of step()
+        """
+        pass
+
+    def vector_reset(self) -> List[EnvObsType]:
+        """
+        Vectorized version of reset()
+        """
+        pass
+
+
+def binary_search_bound(obs_ref: np.ndarray) -> spaces.Box:
+    """
+    :param obs_ref: reference observation
+    """
+    x = float(BIG_NUMBER)
+    box = spaces.Box(low=-x, high=x, shape=obs_ref.shape, dtype=obs_ref.dtype)
+    low_high_valid = (box.low < 0).all() and (box.high > 0).all()
+    # This loop avoids issues with overflow to make sure low/high are good.
+    while not low_high_valid:
+        x //= 2
+        box = spaces.Box(low=-x, high=x, shape=obs_ref.shape, dtype=obs_ref.dtype)
+        low_high_valid = (box.low < 0).all() and (box.high > 0).all()
+    return box
+
+
+class RLlibCrowdSim(MultiAgentEnv):
+    def __init__(self, run_config: dict):
+        super().__init__()
+        map_name = None
+        # Remove 'map_name' key
+        if "map_name" in run_config:
+            map_name = run_config.pop("map_name")
+        # Rename 'env_params' to 'env_config'
+        if "env_params" in run_config and "trainer" in run_config:
+            run_config["env_config"] = run_config.pop("env_params")
+            trainer_params = run_config.pop("trainer")
+        self.env = CrowdSim(**run_config)
+        if map_name is not None:
+            run_config["map_name"] = map_name
+        self.action_space: spaces.Dict = self.env.action_space[0]
+        # manually setting observation space
+        obs_ref = self.env.reset()[0]
+        box = binary_search_bound(obs_ref)
+        self.agents = ([f"drone_{i}" for i in range(self.env.num_drones)] +
+                       [f"car_{i}" for i in range(self.env.num_cars)])
+        self.num_agents = len(self.agents)
+        self.observation_space: spaces.Dict = spaces.Dict({"obs": box})
+
+    def reset(
+            self,
+            *,
+            seed: Optional[int] = None,
+            options: Optional[dict] = None,
+    ) -> MultiAgentDict:
+        current_observation = self.env.reset()
+        # current_observation shape [n_agent, dim_obs]
+        # convert it into a dict of {agent_id: {"obs": observation}}
+        obs_dict = {agent_name: {"obs": current_observation[i]} for i, agent_name in enumerate(self.agents)}
+        return obs_dict
+
+    def step(
+            self, action_dict: MultiAgentDict
+    ) -> Tuple[MultiAgentDict, MultiAgentDict, MultiAgentDict, MultiAgentDict]:
+        # convert MultiAgentDict to an ndarray with shape [num_agent, action_index]
+        # np.asarray(list(map(int, {1: 2, 2: 5, 3: 8}.values()))), 30% faster than
+        # actions_ls = [int(actions[agent_id]) for agent_id in actions.keys()]
+        raw_action_dict = {i: value for i, value in enumerate(action_dict.values())}
+        obs, reward, dones, info = self.env.step(raw_action_dict)
+        # current_observation shape [n_agent, dim_obs]
+        obs_dict = {}
+        reward_dict = {}
+        for i, key in enumerate(action_dict.keys()):
+            reward_dict[key] = reward[i]
+            obs_dict[key] = {
+                "obs": np.array(obs[i])
+            }
+        # truncated = {"__all__": False}
+        # figure out a way to transfer metrics information out, in marllib, info can only be the subset of obs.
+        # see 1.8.0 ray/rllib/env/base_env.py L437
+        return obs_dict, reward_dict, dones, {}
+
+    def get_env_info(self):
+        env_info = {
+            "space_obs": self.observation_space,
+            "space_act": self.action_space,
+            "num_agents": self.num_agents,
+            "episode_limit": self.env.config.env.num_timestep,
+            "policy_mapping_info": policy_mapping_dict
+        }
+        env_info.update(self.env.collect_info())
+        return env_info
+
+    def close(self):
+        pass
+
+    def render(self, mode=None) -> None:
+        pass

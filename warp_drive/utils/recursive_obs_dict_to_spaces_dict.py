@@ -10,7 +10,7 @@ from gym import spaces
 BIG_NUMBER = 1e20
 
 
-def recursive_obs_dict_to_spaces_dict(obs):
+def recursive_obs_dict_to_spaces_dict(obs: dict) -> spaces.Dict:
     """Recursively return the observation space dictionary
     for a dictionary of observations
 

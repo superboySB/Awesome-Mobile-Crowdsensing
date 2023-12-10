@@ -90,16 +90,20 @@ Note, we should consider several things before running and debugging with the co
 ```shell
 ### In your Server Host ###
 # start the container with all special customizations
-sudo docker run -itd \
 # set your own log and checkpoints storage here, please set your program's logging dir as well
--v /data2/saved_data:/workspace/saved_data \
+# replace your favorite port here with any thing larger than 1024
+# ray support to set shm-size, 30% of the RAM is recommended
+sudo docker run -itd \
 --gpus=all \
 --name=mcs \
-# replace your favorite port here with any thing larger than 1024
 -p <your-favorite-port>:22 \
 -v /etc/localtime:/etc/localtime:ro \
--v /path/to/.ssh:/root/.ssh \
-aequatiospace/linc_image:v1.2.2 /bin/zsh
+-v /home/liuchi/.ssh:/root/.ssh \
+-v /tmp/docker:/tmp \
+-v /data2/saved_data:/workspace/saved_data \
+--shm-size=221gb \
+aequatiospace/linc_image:v1.2.3
+
 # enter the docker with terminal
 sudo docker exec -it mcs /bin/zsh
 ### Inside Container ###
