@@ -16,9 +16,8 @@ import random
 import ray
 from ray import air, tune
 from ray.rllib.algorithms.ppo import PPOConfig
-from envs.crowd_sim.crowd_sim import RLlibCrowdSim
+from envs.crowd_sim.crowd_sim import RLlibCrowdSim, LARGE_DATASET_NAME
 from run_configs.mcs_configs_python import run_config
-from train_rl_policy import LARGE_DATASET_NAME
 from ray.rllib.examples.env.multi_agent import MultiAgentCartPole
 from ray.rllib.examples.models.shared_weights_model import (
     SharedWeightsModel1,

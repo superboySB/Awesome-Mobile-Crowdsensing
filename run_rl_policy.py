@@ -4,7 +4,7 @@ Helper file for generating an environment rollout
 
 from warp_drive.trainer_lightning import WarpDriveModule
 from warp_drive.training.trainer import Metrics
-from envs.crowd_sim.crowd_sim import COVERAGE_METRIC_NAME
+from envs.crowd_sim.crowd_sim import COVERAGE_METRIC_NAME, LARGE_DATASET_NAME
 from run_configs.mcs_configs_python import run_config, checkpoint_dir
 from tqdm import tqdm
 import matplotlib.pyplot as plt
@@ -137,7 +137,6 @@ if __name__ == "__main__":
     from envs.crowd_sim.env_wrapper import CrowdSimEnvWrapper
     from warp_drive.utils.env_registrar import EnvironmentRegistrar
     from warp_drive.utils.common import get_project_root
-    from train_rl_policy import LARGE_DATASET_NAME
 
     parser = argparse.ArgumentParser()
     default_output_dir = os.path.join('/workspace', 'saved_data', 'trajectories', 'logs.html')

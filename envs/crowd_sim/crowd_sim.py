@@ -2,15 +2,20 @@ import logging
 from typing import Optional, Tuple, Dict, List
 import os
 import folium
+import wandb
+from copy import deepcopy
 import time
 import pandas as pd
 from folium.plugins import TimestampedGeoJson, AntPath
 from gym import spaces
+from run_configs.mcs_configs_python import PROJECT_NAME
 from ray.rllib.utils.typing import MultiAgentDict, EnvActionType, EnvObsType, EnvInfoDict
 from shapely.geometry import Point
 from pytorch_lightning import seed_everything
 from ray.rllib.env.vector_env import VectorEnv
 from ray.rllib.env.multi_agent_env import MultiAgentEnv
+from tabulate import tabulate
+
 from warp_drive.utils.constants import Constants
 from warp_drive.utils.common import get_project_root
 from warp_drive.utils.data_feed import DataFeed
@@ -41,7 +46,7 @@ policy_mapping_dict = {
         "one_agent_one_policy": True,
     },
 }
-
+logging.getLogger().setLevel(logging.INFO)
 
 class Pair:
     """
@@ -192,8 +197,8 @@ class CrowdSim:
         self.data_collection = 0
         # Types and Status of vehicles
         self.agent_types = self.int_dtype(np.ones([self.num_agents, ]))
-        self.cars = np.zeros([self.num_agents, ], dtype=bool)
-        self.drones = np.zeros([self.num_agents, ], dtype=bool)
+        self.cars = {}
+        self.drones = {}
         for agent_id in range(self.num_agents):
             if agent_id < self.num_cars:
                 self.agent_types[agent_id] = 0  # Car
@@ -277,6 +282,9 @@ class CrowdSim:
         return self.generate_observation()
 
     def calculate_global_distance_matrix(self):
+        """
+        Calculate the global distance matrix between all agents and targets.
+        """
         for entity_id_1 in range(self.num_agents):
             for entity_id_2 in range(entity_id_1, self.num_agents + self.num_sensing_targets):
                 if entity_id_1 == entity_id_2:
@@ -284,20 +292,21 @@ class CrowdSim:
                     continue
 
                 if entity_id_1 < self.num_agents and entity_id_2 < self.num_agents:
-                    self.global_distance_matrix[entity_id_1, entity_id_2] = np.sqrt(
-                        (self.agent_x_timelist[self.timestep, entity_id_1]
-                         - self.agent_x_timelist[self.timestep, entity_id_2]) ** 2
-                        + (self.agent_y_timelist[self.timestep, entity_id_1]
-                           - self.agent_y_timelist[self.timestep, entity_id_2]) ** 2)
-                    self.global_distance_matrix[entity_id_2, entity_id_1] = self.global_distance_matrix[
-                        entity_id_1, entity_id_2]
+                    distance = np.sqrt(
+                        np.square(self.agent_x_timelist[self.timestep, entity_id_1] -
+                                  self.agent_x_timelist[self.timestep, entity_id_2]) +
+                        np.square(self.agent_y_timelist[self.timestep, entity_id_1] -
+                                  self.agent_y_timelist[self.timestep, entity_id_2]))
+                    self.global_distance_matrix[entity_id_1, entity_id_2] = distance
+                    self.global_distance_matrix[entity_id_2, entity_id_1] = distance
 
                 if entity_id_1 < self.num_agents <= entity_id_2:
                     self.global_distance_matrix[entity_id_1, entity_id_2] = np.sqrt(
-                        (self.agent_x_timelist[self.timestep, entity_id_1]
-                         - self.target_x_timelist[self.timestep, entity_id_2 - self.num_agents]) ** 2
-                        + (self.agent_y_timelist[self.timestep, entity_id_1]
-                           - self.target_y_timelist[self.timestep, entity_id_2 - self.num_agents]) ** 2)
+                        np.square(self.agent_x_timelist[self.timestep, entity_id_1] -
+                                  self.target_x_timelist[self.timestep, entity_id_2 - self.num_agents]) +
+                        np.square(self.agent_y_timelist[self.timestep, entity_id_1] -
+                                  self.target_y_timelist[self.timestep, entity_id_2 - self.num_agents])
+                    )
         return
 
     def generate_observation(self):
@@ -364,11 +373,11 @@ class CrowdSim:
 
     def calculate_energy_consume(self, move_time, agent_id):
         stop_time = self.step_time - move_time
-        if self.cars[agent_id]:
+        if agent_id in self.cars:
             idle_cost = 17.49
             energy_factor = 7.4
             return (idle_cost + energy_factor) * self.agent_speed['car'] * move_time + idle_cost * stop_time
-        elif self.drones[agent_id]:
+        elif agent_id in self.drones:
             # configs
             Pu = 0.5  # the average transmitted power of each user, W,  e.g. mobile phone
             P0 = 79.8563  # blade profile power, W
@@ -445,8 +454,7 @@ class CrowdSim:
                         and target_agent_distance <= self.drone_sensing_range:  # TODO：目前假设car和drone的sensing
                     # range相同，便于判断
                     rew[agent_id] += (self.target_aoi_timelist[self.timestep - 1, target_id] - 1) / self.episode_length
-                    self.target_aoi_timelist[self.timestep, target_id] = 1
-                    break
+                    increase_aoi_flag = False
 
                 if self.agent_types[agent_id] == 1 \
                         and target_agent_distance <= self.drone_sensing_range \
@@ -454,16 +462,17 @@ class CrowdSim:
                     rew[agent_id] += (self.target_aoi_timelist[self.timestep - 1, target_id] - 1) / self.episode_length
                     rew[int(drone_nearest_car_id[agent_id - self.num_cars])] \
                         += (self.target_aoi_timelist[self.timestep - 1, target_id] - 1) / self.episode_length
-                    self.target_aoi_timelist[self.timestep, target_id] = 1
-                    break
+                    increase_aoi_flag = False
 
-                if increase_aoi_flag:
-                    self.target_aoi_timelist[self.timestep, target_id] = self.target_aoi_timelist[
-                                                                             self.timestep - 1, target_id] + 1
-                else:
-                    self.target_coveraged_timelist[self.timestep - 1, target_id] = 1
-                    self.data_collection += (self.target_aoi_timelist[self.timestep - 1, target_id] -
-                                             self.target_aoi_timelist[self.timestep, target_id])
+            if increase_aoi_flag:
+                self.target_aoi_timelist[self.timestep, target_id] = self.target_aoi_timelist[
+                                                                         self.timestep - 1, target_id] + 1
+            else:
+                self.target_aoi_timelist[self.timestep, target_id] = 1
+                self.target_coveraged_timelist[self.timestep - 1, target_id] = 1
+                logging.debug(f"target {target_id} is covered at timestep {self.timestep - 1}")
+                self.data_collection += (self.target_aoi_timelist[self.timestep - 1, target_id] -
+                                         self.target_aoi_timelist[self.timestep, target_id])
 
         obs = self.generate_observation()
 
@@ -488,7 +497,7 @@ class CrowdSim:
         mean_aoi = np.mean(self.target_aoi_timelist[self.timestep])
         freshness_factor = 1 - np.mean(np.clip(self.target_aoi_timelist[self.timestep] /
                                                self.aoi_threshold, a_min=0, a_max=1) ** 2)
-        # print(f"freshness_factor: {freshness_factor} ,mean_aoi: {mean_aoi}")
+        # logging.debug(f"freshness_factor: {freshness_factor}, mean_aoi: {mean_aoi}")
         mean_energy = np.mean(self.agent_energy_timelist[self.timestep])
         energy_consumption_ratio = mean_energy / self.max_uav_energy
         energy_remaining_ratio = 1.0 - energy_consumption_ratio
@@ -757,8 +766,12 @@ class RLlibCUDACrowdSim(MultiAgentEnv, VectorEnv):
         if "map_name" in run_config:
             map_name = run_config.pop("map_name")
         # Rename 'env_params' to 'env_config'
-        if "env_params" in run_config and "trainer" in run_config:
-            trainer_params = run_config.pop("trainer")
+        if "env_params" in run_config:
+            print("env_params detected")
+            try:
+                trainer_params = run_config.pop("trainer")
+            except KeyError:
+                pass
             run_config["env_config"] = run_config.pop("env_params")
             train_batch_size = trainer_params['train_batch_size']
             self.num_envs = trainer_params['num_envs']
@@ -923,15 +936,24 @@ def binary_search_bound(obs_ref: np.ndarray) -> spaces.Box:
 
 class RLlibCrowdSim(MultiAgentEnv):
     def __init__(self, run_config: dict):
+        # print("passed run_config is", run_config)
         super().__init__()
+        self.iter = 0
         map_name = None
+        run_config = deepcopy(run_config)
         # Remove 'map_name' key
         if "map_name" in run_config:
             map_name = run_config.pop("map_name")
         # Rename 'env_params' to 'env_config'
-        if "env_params" in run_config and "trainer" in run_config:
-            run_config["env_config"] = run_config.pop("env_params")
-            trainer_params = run_config.pop("trainer")
+        if "env_params" in run_config:
+            # print("env_params detected!")
+            additional_params = run_config.pop("env_params")
+            run_config['env_config'] = additional_params['env_setup']
+            self.logging_config = additional_params.get('logging_config', None)
+            # print(f"self.logging_config is {self.logging_config}")
+            run_config.pop("trainer")
+        if "logging_config" in run_config and self.logging_config is None:
+            self.logging_config = run_config.pop("logging_config")
         self.env = CrowdSim(**run_config)
         if map_name is not None:
             run_config["map_name"] = map_name
@@ -943,7 +965,16 @@ class RLlibCrowdSim(MultiAgentEnv):
                        [f"car_{i}" for i in range(self.env.num_cars)])
         self.num_agents = len(self.agents)
         self.observation_space: spaces.Dict = spaces.Dict({"obs": box})
-
+        if self.logging_config is not None:
+            wandb.init(project=PROJECT_NAME, name=self.logging_config['expr_name'], group=self.logging_config['group'],
+                       tags=[self.logging_config['dataset']] + self.logging_config['tag']
+                       if self.logging_config['tag'] is not None else [], dir=self.logging_config['logging_dir'])
+            # prefix = 'env/'
+            wandb.define_metric(COVERAGE_METRIC_NAME, summary="max")
+            wandb.define_metric(ENERGY_METRIC_NAME, summary="min")
+            wandb.define_metric(DATA_METRIC_NAME, summary="max")
+            wandb.define_metric(MAIN_METRIC_NAME, summary="max")
+            wandb.define_metric(AOI_METRIC_NAME, summary="min")
     def reset(
             self,
             *,
@@ -972,6 +1003,18 @@ class RLlibCrowdSim(MultiAgentEnv):
             obs_dict[key] = {
                 "obs": np.array(obs[i])
             }
+        if dones["__all__"]:
+            self.iter += 1
+            if (self.iter + 1) % 100 == 0:
+                # Create table data
+                table_data = [["Metric Name", "Value"]]
+                table_data.extend([[key, value] for key, value in info.items()])
+                # Print the table
+                logging.info(tabulate(table_data, headers="firstrow", tablefmt="grid"))
+            if wandb.run is not None:
+                wandb.log(info)
+        # else:
+        # print("wandb not detected")
         # truncated = {"__all__": False}
         # figure out a way to transfer metrics information out, in marllib, info can only be the subset of obs.
         # see 1.8.0 ray/rllib/env/base_env.py L437
@@ -985,11 +1028,14 @@ class RLlibCrowdSim(MultiAgentEnv):
             "episode_limit": self.env.config.env.num_timestep,
             "policy_mapping_info": policy_mapping_dict
         }
-        env_info.update(self.env.collect_info())
         return env_info
 
     def close(self):
-        pass
+        if wandb.run is not None:
+            wandb.finish()
 
     def render(self, mode=None) -> None:
         pass
+
+
+LARGE_DATASET_NAME = 'SanFrancisco'
