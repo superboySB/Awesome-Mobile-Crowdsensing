@@ -1,6 +1,7 @@
 import logging
 from typing import Optional, Tuple, Dict, List
 import os
+import torch
 import folium
 import wandb
 from copy import deepcopy
@@ -38,6 +39,7 @@ _OBSERVATIONS = Constants.OBSERVATIONS
 _ACTIONS = Constants.ACTIONS
 _REWARDS = Constants.REWARDS
 
+EnvObsType = dict
 policy_mapping_dict = {
     "SanFrancisco": {
         "description": "two team cooperate to collect data",
@@ -47,6 +49,7 @@ policy_mapping_dict = {
     },
 }
 logging.getLogger().setLevel(logging.INFO)
+
 
 class Pair:
     """
@@ -752,48 +755,48 @@ class CUDACrowdSim(CrowdSim, CUDAEnvironmentContext):
             raise Exception("CUDACrowdSim expects env_backend = 'pycuda' ")
         # if False:
         #     np.mean(self.cuda_data_manager.pull_data_from_device(name=_REWARDS), axis=0)
-        done = {
-            "__all__": (self.timestep >= self.episode_length)
-        }
+        # done = {
+        #     "__all__": (self.timestep >= self.episode_length)
+        # }
+        dones = self.cuda_data_manager.pull_data_from_device("_done_")
+        dones = [{"__all__": done} for done in dones]
+        return dones, self.collect_info()
 
-        return done, self.collect_info()
 
-
-class RLlibCUDACrowdSim(MultiAgentEnv, VectorEnv):
+class RLlibCUDACrowdSim(MultiAgentEnv):
     def __init__(self, run_config: dict):
-        map_name = None
+
+        requirements = ["env_params", "trainer"]
+        for requirement in requirements:
+            if requirement not in run_config:
+                raise Exception(f"RLlibCUDACrowdSim expects '{requirement}' in run_config")
         # Remove 'map_name' key
-        if "map_name" in run_config:
-            map_name = run_config.pop("map_name")
-        # Rename 'env_params' to 'env_config'
-        if "env_params" in run_config:
-            print("env_params detected")
-            try:
-                trainer_params = run_config.pop("trainer")
-            except KeyError:
-                pass
-            run_config["env_config"] = run_config.pop("env_params")
-            train_batch_size = trainer_params['train_batch_size']
-            self.num_envs = trainer_params['num_envs']
-            num_mini_batches = trainer_params['num_mini_batches']
-            if (train_batch_size // self.num_envs) < num_mini_batches:
-                print("Batch per env must be larger than num_mini_batches, Exiting...")
-                return
-            env_registrar = EnvironmentRegistrar()
-            if not env_registrar.has_env("crowdsim", env_backend="pycuda"):
-                env_registrar.add_cuda_env_src_path(CUDACrowdSim.name, os.path.join(get_project_root(),
-                                                                                    "envs", "crowd_sim",
-                                                                                    "crowd_sim_step.cu"))
-            self.env_wrapper: CrowdSimEnvWrapper = CrowdSimEnvWrapper(
-                CUDACrowdSim(**run_config),
-                num_envs=self.num_envs,
-                env_backend="pycuda",
-                env_registrar=env_registrar
-            )
-        else:
-            raise Exception("RLlibCUDACrowdSim expects 'env_params' and 'trainer' in run_config")
-        if map_name is not None:
-            run_config["map_name"] = map_name
+        try:
+            run_config.pop("map_name")
+        except KeyError:
+            pass
+        additional_params = run_config.pop("env_params")
+        run_config['env_config'] = additional_params['env_setup']
+        self.logging_config = additional_params.get('logging_config', None)
+        trainer_params = run_config.pop("trainer")
+        train_batch_size = trainer_params['train_batch_size']
+        self.num_envs = trainer_params['num_envs']
+        num_mini_batches = trainer_params['num_mini_batches']
+        if (train_batch_size // self.num_envs) < num_mini_batches:
+            print("Batch per env must be larger than num_mini_batches, Exiting...")
+            return
+        env_registrar = EnvironmentRegistrar()
+        if not env_registrar.has_env("crowdsim", env_backend="pycuda"):
+            env_registrar.add_cuda_env_src_path(CUDACrowdSim.name, os.path.join(get_project_root(),
+                                                                                "envs", "crowd_sim",
+                                                                                "crowd_sim_step.cu"))
+        self.env_wrapper: CrowdSimEnvWrapper = CrowdSimEnvWrapper(
+            CUDACrowdSim(**run_config),
+            num_envs=self.num_envs,
+            env_backend="pycuda",
+            env_registrar=env_registrar
+        )
+
         self.action_space: spaces.Dict = self.env_wrapper.env.action_space[0]
         # manually setting observation space
         self.agents = ([f"drone_{i}" for i in range(self.env_wrapper.env.num_drones)] +
@@ -830,18 +833,19 @@ class RLlibCUDACrowdSim(MultiAgentEnv, VectorEnv):
             seed_everything(seed)
             self.cuda_sample_controller.init_random(seed)
 
-    def reset(
-            self,
-            *,
-            seed: Optional[int] = None,
-            options: Optional[dict] = None,
-    ) -> Dict:
+    def vector_reset(self) -> List[EnvObsType]:
         self.env_wrapper.reset()
         # current_observation shape [n_agent, dim_obs]
         current_observation = self.env_wrapper.cuda_data_manager.pull_data_from_device(_OBSERVATIONS)
         # convert it into a dict of {agent_id: {"obs": observation}}
-        obs = self.convert_to_dict(current_observation, "obs")
-        return obs
+        obs_list = []
+        for env_index in range(self.num_envs):
+            obs_list.append({agent_name: {"obs": current_observation[env_index][i]}
+                             for i, agent_name in enumerate(self.agents)})
+        return obs_list
+
+    def reset(self) -> MultiAgentDict:
+        return self.vector_reset()[0]
 
     def convert_to_dict(self, data_batch: np.ndarray, name: str) -> dict:
         """
@@ -861,28 +865,39 @@ class RLlibCUDACrowdSim(MultiAgentEnv, VectorEnv):
                     result[env_index][agent_index] = {name: single_batch}
         return result
 
-    def step(
-            self, action_dict: MultiAgentDict
-    ) -> Tuple[
-        MultiAgentDict, MultiAgentDict, MultiAgentDict, MultiAgentDict, MultiAgentDict
-    ]:
-        new_actions = DataFeed()
+    def vector_step(
+            self, actions: List[EnvActionType]
+    ) -> Tuple[List[EnvObsType], List[Dict], List[Dict], List[EnvInfoDict]]:
         # convert MultiAgentDict to an ndarray with shape [num_agent, action_index]
-        action_arrays = [list(env_actions.values()) for env_actions in action_dict.values()]
-        actions = np.array(action_arrays)
+        vectorized_actions = np.expand_dims(np.vstack([np.array(list(action_dict.values()))
+                                                       for action_dict in actions]), axis=-1)
         # np.asarray(list(map(int, {1: 2, 2: 5, 3: 8}.values()))), 30% faster than
         # actions_ls = [int(actions[agent_id]) for agent_id in actions.keys()]
-        new_actions.add_data(name=_ACTIONS, data=actions)
-        self.env_wrapper.cuda_data_manager.push_data_to_device(new_actions, torch_accessible=True)
+        self.env_wrapper.cuda_data_manager.data_on_device_via_torch(_ACTIONS)[:] = (
+            torch.tensor(vectorized_actions).cuda())
         dones, info = self.env_wrapper.step()
         # current_observation shape [n_envs, n_agent, dim_obs]
         next_obs = self.env_wrapper.cuda_data_manager.pull_data_from_device(_OBSERVATIONS)
         reward = self.env_wrapper.cuda_data_manager.pull_data_from_device(_REWARDS)
         # convert observation to dict {EnvID: {AgentID: Action}...}
-        obs_dict = self.convert_to_dict(next_obs, "obs")
-        reward_dict = self.convert_to_dict(reward, None)
-        truncated = MultiAgentDict({"__all__": False})
-        return obs_dict, reward_dict, dones, truncated, info
+        obs_list, reward_list, info_list = [], [], []
+        for env_index in range(self.num_envs):
+            one_obs = {}
+            one_reward = {}
+            for i, agent_name in enumerate(self.agents):
+                one_obs[agent_name] = {"obs": next_obs[env_index][i]}
+                one_reward[agent_name] = reward[env_index][i]
+            obs_list.append(one_obs)
+            reward_list.append(one_reward)
+            info_list.append({})
+        return obs_list, reward_list, dones, info_list
+
+    def step(
+            self, action_dict: MultiAgentDict
+    ) -> Tuple[MultiAgentDict, MultiAgentDict, MultiAgentDict, MultiAgentDict]:
+        new_dict = action_dict.copy()
+        obs_list, reward_list, dones, info_list = self.vector_step([new_dict] * self.num_envs)
+        return (obs_list[0], reward_list[0], dones[0], info_list[0])
 
     def get_env_info(self):
         """
@@ -904,20 +919,9 @@ class RLlibCUDACrowdSim(MultiAgentEnv, VectorEnv):
     def render(self, mode=None) -> None:
         pass
 
-    def vector_step(
-            self, actions: List[EnvActionType]
-    ) -> Tuple[List[EnvObsType], List[float], List[bool], List[EnvInfoDict]]:
-        """
-        Vectorized version of step()
-        """
-        pass
 
-    def vector_reset(self) -> List[EnvObsType]:
-        """
-        Vectorized version of reset()
-        """
-        pass
-
+def vectorize_rllib_cuda_crowdsim(env: RLlibCUDACrowdSim) -> VectorEnv:
+    pass
 
 def binary_search_bound(obs_ref: np.ndarray) -> spaces.Box:
     """
@@ -975,6 +979,7 @@ class RLlibCrowdSim(MultiAgentEnv):
             wandb.define_metric(DATA_METRIC_NAME, summary="max")
             wandb.define_metric(MAIN_METRIC_NAME, summary="max")
             wandb.define_metric(AOI_METRIC_NAME, summary="min")
+
     def reset(
             self,
             *,

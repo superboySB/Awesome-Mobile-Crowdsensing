@@ -19,6 +19,8 @@ from common import logging_dir
 
 # register all scenario with env class
 REGISTRY = {}
+# add nvcc path to os environment
+os.environ["PATH"] += os.pathsep + '/usr/local/cuda/bin'
 
 if __name__ == '__main__':
     logging.getLogger().setLevel(logging.WARN)
@@ -38,17 +40,18 @@ if __name__ == '__main__':
     logging_config['tag'] = None
     logging_config['expr_name'] = expr_name
     # register new env
-    ENV_REGISTRY["crowdsim"] = RLlibCrowdSim
+    ENV_REGISTRY["crowdsim"] = RLlibCUDACrowdSim
     # initialize env
     if args.dataset == LARGE_DATASET_NAME:
         from datasets.Sanfrancisco.env_config import BaseEnvConfig
     else:
         from datasets.KAIST.env_config import BaseEnvConfig
-    # this env is mock
+
     env_params = {}
     env_params['env_setup'] = BaseEnvConfig
     if args.track:
         env_params['logging_config'] = logging_config
+    # this is a mocking env not used in actual run.
     env = marl.make_env(environment_name="crowdsim", map_name=LARGE_DATASET_NAME,
                         abs_path=os.path.join(get_project_root(), "run_configs", "mcs_data_collection.yaml"),
                         env_params=env_params)
@@ -58,9 +61,9 @@ if __name__ == '__main__':
     model = marl.build_model(env, mappo, {"core_arch": "mlp", "encode_layer": "512-512"})
     # start learning
     mappo.fit(env, model, stop={'episode_reward_mean': 2000, 'timesteps_total': 10000000}, local_mode=False, num_gpus=1,
-              num_workers=8, num_envs_per_worker=1, num_workers_per_gpu=0.125, sshare_policy='all', checkpoint_freq=100,
+              num_workers=1, num_envs_per_worker=1, num_workers_per_gpu=1, sshare_policy='all', checkpoint_freq=100,
               ckpt_path=os.path.join("/workspace", "checkpoints", "marllib"), resume=False, evaluation_interval=False,
-              logging_config=logging_config if args.track else None,
+              logging_config=logging_config if args.track else None, remote_worker_envs=True,
               # callbacks=[CrowdSimMetricCallback()],
               )
     if args.track:

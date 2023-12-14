@@ -33,18 +33,20 @@ def update_env_header(
 
         return lookup
 
-    destination_header_path = f"{get_project_root()}/warp_drive/cuda_includes"
+    destination_header_path = os.path.join(get_project_root(), "warp_drive", "cuda_includes")
     if path is None:
         path = destination_header_path
 
     destination_header_file = "env_config.h"
-
-    if os.path.exists(f"{destination_header_path}/{destination_header_file}"):
+    header_path = os.path.join(path, destination_header_file)
+    if os.path.exists(header_path):
         logging.warning(
-            f"the destination header file {destination_header_path}/"
-            f"{destination_header_file} already exists; remove and rebuild."
+            f"the destination header file {header_path} already exists; remove and rebuild."
         )
-        os.remove(f"{destination_header_path}/{destination_header_file}")
+        try:
+            os.remove(header_path)
+        except FileNotFoundError:
+            logging.error(f"File not found: {header_path}")
 
     header_subs = {
         "N_ENVS": str(num_envs),
@@ -102,18 +104,20 @@ def update_env_runner(
 
         return lookup
 
-    destination_runner_path = f"{get_project_root()}/warp_drive/cuda_includes"
+    destination_runner_path = os.path.join(get_project_root(), "warp_drive", "cuda_includes")
     if path is None:
         path = destination_runner_path
 
     destination_runner_file = "env_runner.cu"
-
-    if os.path.exists(f"{destination_runner_path}/{destination_runner_file}"):
+    header_path = os.path.join(path, destination_runner_file)
+    if os.path.exists(header_path):
         logging.warning(
-            f"the destination runner file {destination_runner_path}/"
-            f"{destination_runner_file} already exists; remove and rebuild."
+            f"the destination header file {header_path} already exists; remove and rebuild."
         )
-        os.remove(f"{destination_runner_path}/{destination_runner_file}")
+        try:
+            os.remove(header_path)
+        except FileNotFoundError:
+            logging.error(f"File not found: {header_path}")
 
     env_cuda = None
     if (

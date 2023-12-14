@@ -12,7 +12,7 @@ import shutil
 import subprocess
 import time
 from typing import Optional
-
+from multiprocessing import Lock
 import numpy as np
 from warp_drive.utils import autoinit_pycuda
 import pycuda.driver as cuda_driver
@@ -84,6 +84,7 @@ class PyCUDAFunctionManager(CUDAFunctionManager):
         self._cuda_function_names = []
         cc = Context.get_device().compute_capability()  # compute capability
         self.arch = f"sm_{cc[0]}{cc[1]}"
+        self.lock = Lock()
         valid = validate_device_setup(
             arch=self.arch,
             num_blocks=self._grid[0],
@@ -186,9 +187,9 @@ class PyCUDAFunctionManager(CUDAFunctionManager):
             # is built into; 'header_path' is the designated cuda main source code path
             # that warp_drive is trying to build.
             # DO NOT CHANGE THEM!
-            header_path = f"{get_project_root()}/warp_drive/cuda_includes"
+            header_path = os.path.join(get_project_root(), "warp_drive", "cuda_includes")
             if template_path is None:
-                template_path = f"{get_project_root()}/warp_drive/cuda_includes"
+                template_path = os.path.join(get_project_root(), "warp_drive", "cuda_includes")
             update_env_header(
                 template_header_file=template_header_file,
                 path=template_path,
@@ -209,8 +210,9 @@ class PyCUDAFunctionManager(CUDAFunctionManager):
                 num_agents=self._num_agents,
                 blocks_per_env=self._blocks_per_env,
             )
+            config_path = os.path.join(header_path, "env_config.h")
             logging.debug(
-                f"header file {header_path}/env_config.h "
+                f"header file {config_path}"
                 f"has number_agents: {self._num_agents}, "
                 f"num_agents per block: {self.block[0]}, "
                 f"num_envs: {self._num_envs}, num of blocks: {self.grid[0]} "
@@ -219,7 +221,7 @@ class PyCUDAFunctionManager(CUDAFunctionManager):
             )
 
             # main_file is the source code
-            main_file = f"{header_path}/env_runner.cu"
+            main_file = os.path.join(header_path, "env_runner.cu")
 
             logging.info(f"Compiling {main_file} -> {cubin_file}")
 
@@ -235,7 +237,7 @@ class PyCUDAFunctionManager(CUDAFunctionManager):
     @staticmethod
     def _compile(main_file, cubin_file, arch=None):
 
-        bin_path = f"{get_project_root()}/warp_drive/cuda_bin"
+        bin_path = os.path.join(get_project_root(), "warp_drive", "cuda_bin")
         mkbin = f"mkdir -p {bin_path}"
 
         with subprocess.Popen(
