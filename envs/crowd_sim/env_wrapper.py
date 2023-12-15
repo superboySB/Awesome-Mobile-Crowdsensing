@@ -23,7 +23,7 @@ from warp_drive.utils.recursive_obs_dict_to_spaces_dict import (
 _CUBIN_FILEPATH = f"{get_project_root()}/warp_drive/cuda_bin"
 
 
-class CrowdSimEnvWrapper:
+class CUDAEnvWrapper:
     """
     The environment wrapper class.
     This wrapper determines whether the environment reset and steps happen on the
@@ -116,6 +116,7 @@ class CrowdSimEnvWrapper:
             logging.warning("Environment backend not recognized, defaulting to cpu")
             env_backend = "cpu"
         self.env_backend = env_backend
+        logging.debug(f"Using backend {self.env_backend}")
         if hasattr(self.env, "env_backend"):
             self.env.env_backend = env_backend
 
@@ -341,6 +342,7 @@ class CrowdSimEnvWrapper:
         """
         Step through all the environments
         """
+        # logging.debug("step_all_envs() called")
         if self.env_backend == "cpu":
             assert actions is not None, "Please provide actions to step with."
             result = self.env.step(actions)

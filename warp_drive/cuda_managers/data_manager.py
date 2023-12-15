@@ -207,8 +207,9 @@ class CUDADataManager:
         """
         assert isinstance(data, dict)
 
-        logging.info("\nPushing data to device...")
+        logging.info("Pushing data to device...")
         for key, content in data.items():
+            logging.debug("Pushing data to device: {}".format(key))
             assert (
                 key not in self._host_data
             ), f"the data with name: {key} has already been registered at the host"

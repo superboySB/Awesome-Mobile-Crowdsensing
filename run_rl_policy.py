@@ -54,7 +54,7 @@ def setup_cuda_crowd_sim_env(dynamic_zero_shot: bool = False, dataset: str = Non
         raise NotImplementedError(f"dataset {dataset} not supported")
     run_config["env"]['dynamic_zero_shot'] = dynamic_zero_shot
     run_config["env"]['env_config'] = BaseEnvConfig
-    env_wrapper = CrowdSimEnvWrapper(
+    env_wrapper = CUDAEnvWrapper(
         CUDACrowdSim(**run_config["env"]),
         num_envs=run_config["trainer"]["num_envs"],
         env_backend="pycuda",
@@ -134,7 +134,7 @@ if __name__ == "__main__":
     import torch
     import argparse
     from envs.crowd_sim.crowd_sim import CUDACrowdSim
-    from envs.crowd_sim.env_wrapper import CrowdSimEnvWrapper
+    from envs.crowd_sim.env_wrapper import CUDAEnvWrapper
     from warp_drive.utils.env_registrar import EnvironmentRegistrar
     from warp_drive.utils.common import get_project_root
 

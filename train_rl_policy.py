@@ -74,7 +74,7 @@ def run_experiment():
     from pytorch_lightning.loggers import WandbLogger
     from pytorch_lightning import Trainer
     from envs.crowd_sim.crowd_sim import CUDACrowdSim
-    from envs.crowd_sim.env_wrapper import CrowdSimEnvWrapper
+    from envs.crowd_sim.env_wrapper import CUDAEnvWrapper
     from warp_drive.utils.env_registrar import EnvironmentRegistrar
     from warp_drive.trainer_lightning import CUDACallback, PerfStatsCallback, WarpDriveModule
     """
@@ -136,7 +136,7 @@ def run_experiment():
         env_registrar = EnvironmentRegistrar()
         env_registrar.add_cuda_env_src_path(CUDACrowdSim.name,
                                             os.path.join(my_root, "envs", ENV_NAME, "crowd_sim_step.cu"))
-        env_wrapper = CrowdSimEnvWrapper(
+        env_wrapper = CUDAEnvWrapper(
             CUDACrowdSim(**actual_config["env"]),
             num_envs=num_envs,
             env_backend="pycuda",

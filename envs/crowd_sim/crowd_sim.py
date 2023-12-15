@@ -1,6 +1,7 @@
 import logging
-from typing import Optional, Tuple, Dict, List
 import os
+import random
+from typing import Optional, Tuple, Dict, List
 import torch
 import folium
 import wandb
@@ -10,6 +11,8 @@ import pandas as pd
 from folium.plugins import TimestampedGeoJson, AntPath
 from gym import spaces
 from run_configs.mcs_configs_python import PROJECT_NAME
+from warp_drive.utils.common import get_project_root
+from warp_drive.utils.env_registrar import EnvironmentRegistrar
 from ray.rllib.utils.typing import MultiAgentDict, EnvActionType, EnvObsType, EnvInfoDict
 from shapely.geometry import Point
 from pytorch_lightning import seed_everything
@@ -18,14 +21,12 @@ from ray.rllib.env.multi_agent_env import MultiAgentEnv
 from tabulate import tabulate
 
 from warp_drive.utils.constants import Constants
-from warp_drive.utils.common import get_project_root
 from warp_drive.utils.data_feed import DataFeed
 from warp_drive.utils.gpu_environment_context import CUDAEnvironmentContext
 from warp_drive.utils.recursive_obs_dict_to_spaces_dict import (
-    BIG_NUMBER, recursive_obs_dict_to_spaces_dict
+    BIG_NUMBER
 )
-from envs.crowd_sim.env_wrapper import CrowdSimEnvWrapper
-from warp_drive.utils.env_registrar import EnvironmentRegistrar
+from envs.crowd_sim.env_wrapper import CUDAEnvWrapper
 from warp_drive.training.data_loader import create_and_push_data_placeholders
 from .utils import *
 
@@ -38,17 +39,17 @@ _AGENT_ENERGY = Constants.AGENT_ENERGY
 _OBSERVATIONS = Constants.OBSERVATIONS
 _ACTIONS = Constants.ACTIONS
 _REWARDS = Constants.REWARDS
-
-EnvObsType = dict
+teams_name = ("cars", "drones")
 policy_mapping_dict = {
     "SanFrancisco": {
         "description": "two team cooperate to collect data",
-        "team_prefix": ("car_", "drone_"),
+        "team_prefix": teams_name,
         "all_agents_one_policy": True,
         "one_agent_one_policy": True,
     },
 }
-logging.getLogger().setLevel(logging.INFO)
+# TODO: team_prefix is not consistent with env, need to be synced.
+logging.getLogger().setLevel(logging.WARN)
 
 
 class Pair:
@@ -128,6 +129,7 @@ class CrowdSim:
         self.human_df['aoi'] = -1  # 加入aoi记录aoi
         self.human_df['energy'] = -1  # 加入energy记录energy
         self.agent_speed = {'car': self.config.env.car_velocity, 'drone': self.config.env.drone_velocity}
+        points_x, points_y, num_centers, num_points, num_points_per_center = (None,) * 5
         if dynamic_zero_shot:
             num_centers = int(self.num_sensing_targets * 0.05)
             num_points_per_center = 3
@@ -152,7 +154,7 @@ class CrowdSim:
         # human infos
         unique_ids = np.arange(0, self.num_sensing_targets)  # id from 0 to 91
         unique_timestamps = np.arange(self.start_timestamp, self.end_timestamp + self.step_time, self.step_time)
-        id_to_index = {id: index for index, id in enumerate(unique_ids)}
+        id_to_index = {my_id: index for index, my_id in enumerate(unique_ids)}
         timestamp_to_index = {timestamp: index for index, timestamp in enumerate(unique_timestamps)}
         self.target_x_timelist = np.zeros([self.episode_length + 1, self.num_sensing_targets])
         self.target_y_timelist = np.zeros([self.episode_length + 1, self.num_sensing_targets])
@@ -312,7 +314,7 @@ class CrowdSim:
                     )
         return
 
-    def generate_observation(self):
+    def generate_observation(self) -> Dict[int, np.ndarray]:
         """
         Generate and return the observations for every agent.
         """
@@ -707,6 +709,7 @@ class CUDACrowdSim(CrowdSim, CUDAEnvironmentContext):
             self.timestep = 0
         else:
             self.timestep += 1
+        logging.debug(f"Timestep in CUDACrowdSim {self.timestep}")
         args = [
             _OBSERVATIONS,
             _ACTIONS,
@@ -759,17 +762,18 @@ class CUDACrowdSim(CrowdSim, CUDAEnvironmentContext):
         #     "__all__": (self.timestep >= self.episode_length)
         # }
         dones = self.cuda_data_manager.pull_data_from_device("_done_")
-        dones = [{"__all__": done} for done in dones]
         return dones, self.collect_info()
 
 
 class RLlibCUDACrowdSim(MultiAgentEnv):
     def __init__(self, run_config: dict):
-
+        self.iter: int = 0
         requirements = ["env_params", "trainer"]
         for requirement in requirements:
             if requirement not in run_config:
                 raise Exception(f"RLlibCUDACrowdSim expects '{requirement}' in run_config")
+        # assert 'env_registrar' in run_config['env_params'], 'env_registrar must be specified in env_params'
+        assert 'env_setup' in run_config['env_params'], 'env_setup must be specified in env_params'
         # Remove 'map_name' key
         try:
             run_config.pop("map_name")
@@ -778,34 +782,36 @@ class RLlibCUDACrowdSim(MultiAgentEnv):
         additional_params = run_config.pop("env_params")
         run_config['env_config'] = additional_params['env_setup']
         self.logging_config = additional_params.get('logging_config', None)
-        trainer_params = run_config.pop("trainer")
-        train_batch_size = trainer_params['train_batch_size']
-        self.num_envs = trainer_params['num_envs']
-        num_mini_batches = trainer_params['num_mini_batches']
-        if (train_batch_size // self.num_envs) < num_mini_batches:
-            print("Batch per env must be larger than num_mini_batches, Exiting...")
-            return
-        env_registrar = EnvironmentRegistrar()
-        if not env_registrar.has_env("crowdsim", env_backend="pycuda"):
-            env_registrar.add_cuda_env_src_path(CUDACrowdSim.name, os.path.join(get_project_root(),
+        self.trainer_params = run_config.pop("trainer")
+        self.env_registrar = EnvironmentRegistrar()
+        if not self.env_registrar.has_env(CUDACrowdSim.name, env_backend="pycuda"):
+            self.env_registrar.add_cuda_env_src_path(CUDACrowdSim.name, os.path.join(get_project_root(),
                                                                                 "envs", "crowd_sim",
                                                                                 "crowd_sim_step.cu"))
-        self.env_wrapper: CrowdSimEnvWrapper = CrowdSimEnvWrapper(
-            CUDACrowdSim(**run_config),
-            num_envs=self.num_envs,
-            env_backend="pycuda",
-            env_registrar=env_registrar
-        )
-
-        self.action_space: spaces.Dict = self.env_wrapper.env.action_space[0]
+        # self.env_registrar = additional_params['env_registrar']
+        train_batch_size = self.trainer_params['train_batch_size']
+        self.num_envs = self.trainer_params['num_envs']
+        num_mini_batches = self.trainer_params['num_mini_batches']
+        if (train_batch_size // self.num_envs) < num_mini_batches:
+            logging.error("Batch per env must be larger than num_mini_batches, Exiting...")
+            return
+        self.env = CUDACrowdSim(**run_config)
+        self.env_backend = self.env.env_backend = "pycuda"
+        self.action_space: spaces.Space = next(iter(self.env.action_space.values()))
         # manually setting observation space
-        self.agents = ([f"drone_{i}" for i in range(self.env_wrapper.env.num_drones)] +
-                       [f"car_{i}" for i in range(self.env_wrapper.env.num_cars)])
+        self.agents = []
+        for name in teams_name:
+            self.agents += [f"{name}_{i}" for i in range(getattr(self.env, "num_" + name))]
         self.num_agents = len(self.agents)
-        obs_ref = self.env_wrapper.reset()[0]
+        obs_ref = self.env.reset()[0]
         box = binary_search_bound(obs_ref)
         self.observation_space: spaces.Dict = spaces.Dict({"obs": box})
-        super().__init__(self.observation_space, self.action_space, self.num_envs)
+        self.env_wrapper: CUDAEnvWrapper = CUDAEnvWrapper(
+            self.env,
+            num_envs=self.num_envs,
+            env_backend=self.env_backend,
+            env_registrar=self.env_registrar
+        )
         if self.env_wrapper.env_backend == "pycuda":
             from warp_drive.cuda_managers.pycuda_function_manager import (
                 PyCUDASampler,
@@ -828,24 +834,12 @@ class RLlibCUDACrowdSim(MultiAgentEnv):
             push_data_batch_placeholders=False,  # we use lightning to batch
         )
         # Seeding
-        if trainer_params is not None:
-            seed = trainer_params.get("seed", np.int32(time.time()))
+        if self.trainer_params is not None:
+            seed = self.trainer_params.get("seed", np.int32(time.time()))
             seed_everything(seed)
             self.cuda_sample_controller.init_random(seed)
-
-    def vector_reset(self) -> List[EnvObsType]:
-        self.env_wrapper.reset()
-        # current_observation shape [n_agent, dim_obs]
-        current_observation = self.env_wrapper.cuda_data_manager.pull_data_from_device(_OBSERVATIONS)
-        # convert it into a dict of {agent_id: {"obs": observation}}
-        obs_list = []
-        for env_index in range(self.num_envs):
-            obs_list.append({agent_name: {"obs": current_observation[env_index][i]}
-                             for i, agent_name in enumerate(self.agents)})
-        return obs_list
-
-    def reset(self) -> MultiAgentDict:
-        return self.vector_reset()[0]
+        if self.logging_config is not None:
+            setup_wandb(self.logging_config)
 
     def convert_to_dict(self, data_batch: np.ndarray, name: str) -> dict:
         """
@@ -864,6 +858,38 @@ class RLlibCUDACrowdSim(MultiAgentEnv):
                 else:
                     result[env_index][agent_index] = {name: single_batch}
         return result
+
+    def get_env_info(self):
+        """
+        return a dict of env_info
+        """
+        env_info = {
+            "space_obs": self.observation_space,
+            "space_act": self.action_space,
+            "num_agents": self.num_agents,
+            "episode_limit": self.env.config.env.num_timestep,
+            "policy_mapping_info": policy_mapping_dict
+        }
+        return env_info
+
+    def close(self):
+        pass
+
+    def vector_reset(self) -> List[EnvObsType]:
+        self.env_wrapper.reset()
+        # current_observation shape [n_agent, dim_obs]
+        current_observation = self.env_wrapper.cuda_data_manager.pull_data_from_device(_OBSERVATIONS)
+        # convert it into a dict of {agent_id: {"obs": observation}}
+        obs_list = []
+        for env_index in range(self.num_envs):
+            obs_list.append(get_rllib_multi_agent_obs(current_observation[env_index], self.agents))
+        return obs_list
+
+    def reset(self) -> MultiAgentDict:
+        """
+        Reset the environment and return the initial observations.
+        """
+        return self.vector_reset()[0]
 
     def vector_step(
             self, actions: List[EnvActionType]
@@ -890,6 +916,17 @@ class RLlibCUDACrowdSim(MultiAgentEnv):
             obs_list.append(one_obs)
             reward_list.append(one_reward)
             info_list.append({})
+        if all(dones):
+            logging.info("All OK!")
+            self.iter += 1
+            if (self.iter + 1) % 100 == 0:
+                # Create table data
+                table_data = [["Metric Name", "Value"]]
+                table_data.extend([[key, value] for key, value in info.items()])
+                # Print the table
+                logging.info(tabulate(table_data, headers="firstrow", tablefmt="grid"))
+            if wandb.run is not None:
+                wandb.log(info)
         return obs_list, reward_list, dones, info_list
 
     def step(
@@ -897,45 +934,83 @@ class RLlibCUDACrowdSim(MultiAgentEnv):
     ) -> Tuple[MultiAgentDict, MultiAgentDict, MultiAgentDict, MultiAgentDict]:
         new_dict = action_dict.copy()
         obs_list, reward_list, dones, info_list = self.vector_step([new_dict] * self.num_envs)
-        return (obs_list[0], reward_list[0], dones[0], info_list[0])
+        return obs_list[0], reward_list[0], dones[0], info_list[0]
 
-    def get_env_info(self):
-        """
-        return a dict of env_info
-        """
-        env_info = {
-            "space_obs": self.observation_space,
-            "space_act": self.action_space,
-            "num_agents": self.num_agents,
-            "episode_limit": self.env_wrapper.env.config.env.num_timestep,
-            "policy_mapping_info": policy_mapping_dict
-        }
-        env_info.update(self.env_wrapper.env.collect_info())
-        return env_info
+    def render(self, output_file=None, plot_loop=False, moving_line=False):
+        self.env.render(output_file, plot_loop, moving_line)
 
-    def close(self):
+
+def get_rllib_multi_agent_obs(current_observation, agents: list[str]) -> MultiAgentDict:
+    return {agent_name: {"obs": current_observation[i]} for i, agent_name in enumerate(agents)}
+
+
+class RLlibCUDACrowdSimWrapper(VectorEnv):
+    def __init__(self, env: RLlibCUDACrowdSim):
+        super().__init__(env.observation_space, env.action_space, env.num_envs)
+        self.num_envs = env.num_envs
+        self.num_agents = env.num_agents
+        self.agents = env.agents
+        self.env = env
+        self.env_wrapper = env.env_wrapper
+        self.obs_at_reset = None
+
+    def vector_step(
+            self, actions: List[EnvActionType]
+    ) -> Tuple[List[EnvObsType], List[Dict], List[Dict], List[EnvInfoDict]]:
+        logging.debug("vector_step() called")
+        # logging.debug(f"Current Timestep: {self.env.env.timestep}")
+        return self.env.vector_step(actions)
+
+    def vector_reset(self) -> List[EnvObsType]:
+        logging.debug("vector_reset() called")
+        return self.env.vector_reset()
+
+    def reset_at(self, index: Optional[int] = None) -> EnvObsType:
+        # logging.debug(f"resetting environment {index} called")
+        if index == 0:
+            self.obs_at_reset = self.vector_reset()
+        return self.obs_at_reset[index]
+
+    def stop(self):
         pass
 
-    def render(self, mode=None) -> None:
-        pass
 
-
-def vectorize_rllib_cuda_crowdsim(env: RLlibCUDACrowdSim) -> VectorEnv:
-    pass
-
-def binary_search_bound(obs_ref: np.ndarray) -> spaces.Box:
+def binary_search_bound(array: np.ndarray) -> spaces.Box:
     """
-    :param obs_ref: reference observation
+    :param array: reference observation
     """
     x = float(BIG_NUMBER)
-    box = spaces.Box(low=-x, high=x, shape=obs_ref.shape, dtype=obs_ref.dtype)
+    box = spaces.Box(low=-x, high=x, shape=array.shape, dtype=array.dtype)
     low_high_valid = (box.low < 0).all() and (box.high > 0).all()
     # This loop avoids issues with overflow to make sure low/high are good.
     while not low_high_valid:
         x //= 2
-        box = spaces.Box(low=-x, high=x, shape=obs_ref.shape, dtype=obs_ref.dtype)
+        box = spaces.Box(low=-x, high=x, shape=array.shape, dtype=array.dtype)
         low_high_valid = (box.low < 0).all() and (box.high > 0).all()
     return box
+
+
+def setup_wandb(logging_config: dict):
+    wandb.init(project=PROJECT_NAME, name=logging_config['expr_name'], group=logging_config['group'],
+               tags=[logging_config['dataset']] + logging_config['tag']
+               if logging_config['tag'] is not None else [], dir=logging_config['logging_dir'])
+    # prefix = 'env/'
+    wandb.define_metric(COVERAGE_METRIC_NAME, summary="max")
+    wandb.define_metric(ENERGY_METRIC_NAME, summary="min")
+    wandb.define_metric(DATA_METRIC_NAME, summary="max")
+    wandb.define_metric(MAIN_METRIC_NAME, summary="max")
+    wandb.define_metric(AOI_METRIC_NAME, summary="min")
+
+
+def get_rllib_obs_and_reward(action_dict, obs, reward):
+    obs_dict = {}
+    reward_dict = {}
+    for i, key in enumerate(action_dict.keys()):
+        reward_dict[key] = reward[i]
+        obs_dict[key] = {
+            "obs": np.array(obs[i])
+        }
+    return obs_dict, reward_dict
 
 
 class RLlibCrowdSim(MultiAgentEnv):
@@ -961,24 +1036,16 @@ class RLlibCrowdSim(MultiAgentEnv):
         self.env = CrowdSim(**run_config)
         if map_name is not None:
             run_config["map_name"] = map_name
-        self.action_space: spaces.Dict = self.env.action_space[0]
+        self.action_space: spaces.Space = next(iter(self.env.action_space.values()))
         # manually setting observation space
         obs_ref = self.env.reset()[0]
         box = binary_search_bound(obs_ref)
-        self.agents = ([f"drone_{i}" for i in range(self.env.num_drones)] +
-                       [f"car_{i}" for i in range(self.env.num_cars)])
+        self.agents = ([f"car_{i}" for i in range(self.env.num_drones)] +
+                       [f"drone_{i}" for i in range(self.env.num_cars)])
         self.num_agents = len(self.agents)
         self.observation_space: spaces.Dict = spaces.Dict({"obs": box})
         if self.logging_config is not None:
-            wandb.init(project=PROJECT_NAME, name=self.logging_config['expr_name'], group=self.logging_config['group'],
-                       tags=[self.logging_config['dataset']] + self.logging_config['tag']
-                       if self.logging_config['tag'] is not None else [], dir=self.logging_config['logging_dir'])
-            # prefix = 'env/'
-            wandb.define_metric(COVERAGE_METRIC_NAME, summary="max")
-            wandb.define_metric(ENERGY_METRIC_NAME, summary="min")
-            wandb.define_metric(DATA_METRIC_NAME, summary="max")
-            wandb.define_metric(MAIN_METRIC_NAME, summary="max")
-            wandb.define_metric(AOI_METRIC_NAME, summary="min")
+            setup_wandb(self.logging_config)
 
     def reset(
             self,
@@ -1001,13 +1068,7 @@ class RLlibCrowdSim(MultiAgentEnv):
         raw_action_dict = {i: value for i, value in enumerate(action_dict.values())}
         obs, reward, dones, info = self.env.step(raw_action_dict)
         # current_observation shape [n_agent, dim_obs]
-        obs_dict = {}
-        reward_dict = {}
-        for i, key in enumerate(action_dict.keys()):
-            reward_dict[key] = reward[i]
-            obs_dict[key] = {
-                "obs": np.array(obs[i])
-            }
+        obs_dict, reward_dict = get_rllib_obs_and_reward(action_dict, obs, reward)
         if dones["__all__"]:
             self.iter += 1
             if (self.iter + 1) % 100 == 0:

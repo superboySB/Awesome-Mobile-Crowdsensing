@@ -1027,7 +1027,7 @@ def generate_training_data(wd_module: WarpDriveModule, batch_index=0):
             processed_obs[batch_index],
         )
     training_batch['env_info'] = result
-    training_batch['env_info'].update({'__all__': done['__all__']})
+    training_batch['env_info'].update({'__all__': done})
     return training_batch
 
 

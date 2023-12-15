@@ -2,9 +2,10 @@ import argparse
 import logging
 import os
 
-import wandb
-from envs.crowd_sim.crowd_sim import RLlibCrowdSim, RLlibCUDACrowdSim, LARGE_DATASET_NAME
+from envs.crowd_sim.crowd_sim import (CUDACrowdSim, RLlibCrowdSim, RLlibCUDACrowdSim,
+                                      LARGE_DATASET_NAME, RLlibCUDACrowdSimWrapper)
 from warp_drive.utils.common import get_project_root
+from warp_drive.trainer_ray import RayPerfStatsCallback
 from common import add_common_arguments, logging_dir
 from marllib import marl
 from marllib.envs.base_env import ENV_REGISTRY
@@ -31,14 +32,9 @@ if __name__ == '__main__':
     current_datetime = datetime.now()
     # Format the date and time as a string
     datetime_string = current_datetime.strftime("%m%d-%H%M%S")
-    expr_name = (f"{datetime_string}_kdd2024")
-    logging_config = {}
-    logging_config['log_level'] = 'INFO'
-    logging_config['logging_dir'] = logging_dir
-    logging_config['group'] = "debug"
-    logging_config['dataset'] = "SanFrancisco"
-    logging_config['tag'] = None
-    logging_config['expr_name'] = expr_name
+    expr_name = f"{datetime_string}_kdd2024"
+    logging_config = {'log_level': 'INFO', 'logging_dir': logging_dir, 'group': "debug", 'dataset': "SanFrancisco",
+                      'tag': None, 'expr_name': expr_name}
     # register new env
     ENV_REGISTRY["crowdsim"] = RLlibCUDACrowdSim
     # initialize env
@@ -47,8 +43,8 @@ if __name__ == '__main__':
     else:
         from datasets.KAIST.env_config import BaseEnvConfig
 
-    env_params = {}
-    env_params['env_setup'] = BaseEnvConfig
+    env_params = {'env_setup': BaseEnvConfig}
+    # env_params['env_registrar'] = env_registrar
     if args.track:
         env_params['logging_config'] = logging_config
     # this is a mocking env not used in actual run.
@@ -60,14 +56,12 @@ if __name__ == '__main__':
     # customize model
     model = marl.build_model(env, mappo, {"core_arch": "mlp", "encode_layer": "512-512"})
     # start learning
-    mappo.fit(env, model, stop={'episode_reward_mean': 2000, 'timesteps_total': 10000000}, local_mode=False, num_gpus=1,
-              num_workers=1, num_envs_per_worker=1, num_workers_per_gpu=1, sshare_policy='all', checkpoint_freq=100,
+    mappo.fit(env, model, stop={'episode_reward_mean': 2000, 'timesteps_total': 10000000}, local_mode=False,
+              num_workers=1, sshare_policy='all', checkpoint_freq=100,
               ckpt_path=os.path.join("/workspace", "checkpoints", "marllib"), resume=False, evaluation_interval=False,
               logging_config=logging_config if args.track else None, remote_worker_envs=True,
-              # callbacks=[CrowdSimMetricCallback()],
+              custom_vector_env=RLlibCUDACrowdSimWrapper
               )
-    if args.track:
-        wandb.finish()
 '''
   restore_path={'model_path': "/workspace/saved_data/marllib_results/mappo_mlp_SanFrancisco/"
                               "MAPPOTrainer_crowdsim_SanFrancisco_559f3_00000_0_2023-12-12_11-27-10",
