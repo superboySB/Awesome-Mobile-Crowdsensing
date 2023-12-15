@@ -15,16 +15,13 @@ import torch
 
 from warp_drive.cuda_managers.data_manager import CUDADataManager
 
-
 class CudaTensorHolder(pycuda_driver.PointerHolderBase):
     """
     A class that facilitates casting tensors to pointers.
     """
-
     def __init__(self, t):
         super().__init__()
         self.gpudata = t.data_ptr()
-
 
 class PyCUDADataManager(CUDADataManager):
     """"""
@@ -77,7 +74,6 @@ class PyCUDADataManager(CUDADataManager):
         )
 
     def pull_data_from_device(self, name: str) -> Union[int, float, np.ndarray]:
-
         assert name in self._host_data
         if name in self._scalar_data_list:
             return self._host_data[name]

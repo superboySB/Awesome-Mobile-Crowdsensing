@@ -14,6 +14,6 @@ env_args:
     sync_optimizer: true  # whether to sync gradients across the GPUs or not
 
 mask_flag: False
-global_state_flag: False
+global_state_flag: True
 opp_action_in_cc: False
 agent_level_batch_update: False

@@ -2,10 +2,8 @@ import argparse
 import logging
 import os
 
-from envs.crowd_sim.crowd_sim import (CUDACrowdSim, RLlibCrowdSim, RLlibCUDACrowdSim,
-                                      LARGE_DATASET_NAME, RLlibCUDACrowdSimWrapper)
+from envs.crowd_sim.crowd_sim import (RLlibCUDACrowdSim, LARGE_DATASET_NAME, RLlibCUDACrowdSimWrapper)
 from warp_drive.utils.common import get_project_root
-from warp_drive.trainer_ray import RayPerfStatsCallback
 from common import add_common_arguments, logging_dir
 from marllib import marl
 from marllib.envs.base_env import ENV_REGISTRY
@@ -56,10 +54,10 @@ if __name__ == '__main__':
     # customize model
     model = marl.build_model(env, mappo, {"core_arch": "mlp", "encode_layer": "512-512"})
     # start learning
-    mappo.fit(env, model, stop={'episode_reward_mean': 2000, 'timesteps_total': 10000000}, local_mode=False,
+    mappo.fit(env, model, stop={'episode_reward_mean': 2000, 'timesteps_total': 40000000}, local_mode=False,
               num_workers=1, sshare_policy='all', checkpoint_freq=100,
               ckpt_path=os.path.join("/workspace", "checkpoints", "marllib"), resume=False, evaluation_interval=False,
-              logging_config=logging_config if args.track else None, remote_worker_envs=True,
+              logging_config=logging_config if args.track else None, remote_worker_envs=False,
               custom_vector_env=RLlibCUDACrowdSimWrapper
               )
 '''

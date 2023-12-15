@@ -1,7 +1,7 @@
 import logging
 import os
-import random
-from typing import Optional, Tuple, Dict, List
+from typing import Optional, Tuple, Dict, List, Union, Any
+
 import torch
 import folium
 import wandb
@@ -30,6 +30,8 @@ from envs.crowd_sim.env_wrapper import CUDAEnvWrapper
 from warp_drive.training.data_loader import create_and_push_data_placeholders
 from .utils import *
 
+grid_size = 10
+
 COVERAGE_METRIC_NAME = Constants.COVERAGE_METRIC_NAME
 DATA_METRIC_NAME = Constants.DATA_METRIC_NAME
 ENERGY_METRIC_NAME = Constants.ENERGY_METRIC_NAME
@@ -39,6 +41,7 @@ _AGENT_ENERGY = Constants.AGENT_ENERGY
 _OBSERVATIONS = Constants.OBSERVATIONS
 _ACTIONS = Constants.ACTIONS
 _REWARDS = Constants.REWARDS
+_STATE = Constants.STATE
 teams_name = ("cars", "drones")
 policy_mapping_dict = {
     "SanFrancisco": {
@@ -48,7 +51,6 @@ policy_mapping_dict = {
         "one_agent_one_policy": True,
     },
 }
-# TODO: team_prefix is not consistent with env, need to be synced.
 logging.getLogger().setLevel(logging.WARN)
 
 
@@ -156,36 +158,36 @@ class CrowdSim:
         unique_timestamps = np.arange(self.start_timestamp, self.end_timestamp + self.step_time, self.step_time)
         id_to_index = {my_id: index for index, my_id in enumerate(unique_ids)}
         timestamp_to_index = {timestamp: index for index, timestamp in enumerate(unique_timestamps)}
-        self.target_x_timelist = np.zeros([self.episode_length + 1, self.num_sensing_targets])
-        self.target_y_timelist = np.zeros([self.episode_length + 1, self.num_sensing_targets])
-        self.target_aoi_timelist = np.ones([self.episode_length + 1, self.num_sensing_targets])
-        self.target_coveraged_timelist = np.zeros([self.episode_length + 1, self.num_sensing_targets])
+        self.target_x_time_list = np.zeros([self.episode_length + 1, self.num_sensing_targets], dtype=np.int_)
+        self.target_y_time_list = np.zeros([self.episode_length + 1, self.num_sensing_targets], dtype=np.int_)
+        self.target_aoi_timelist = np.ones([self.episode_length + 1, self.num_sensing_targets], dtype=np.int_)
+        self.target_coveraged_timelist = np.zeros([self.episode_length + 1, self.num_sensing_targets], dtype=np.bool_)
 
         # Fill the new array with data from the full DataFrame
         for _, row in self.human_df.iterrows():
             id_index = id_to_index.get(row['id'], None)
             timestamp_index = timestamp_to_index.get(row['timestamp'], None)
             if not (id_index is None or timestamp_index is None):
-                self.target_x_timelist[timestamp_index, id_index] = row['x']
-                self.target_y_timelist[timestamp_index, id_index] = row['y']
+                self.target_x_time_list[timestamp_index, id_index] = row['x']
+                self.target_y_time_list[timestamp_index, id_index] = row['y']
             else:
                 raise ValueError("Got invalid rows:", row)
         if dynamic_zero_shot:
-            self.target_x_timelist[:, self.num_sensing_targets - num_centers * num_points_per_center:] = points_x
-            self.target_y_timelist[:, self.num_sensing_targets - num_centers * num_points_per_center:] = points_y
+            self.target_x_time_list[:, self.num_sensing_targets - num_centers * num_points_per_center:] = points_x
+            self.target_y_time_list[:, self.num_sensing_targets - num_centers * num_points_per_center:] = points_y
             # rebuild DataFrame from longitude and latitude
 
-        x1 = self.target_x_timelist[:-1, :]
-        y1 = self.target_y_timelist[:-1, :]
-        x2 = self.target_x_timelist[1:, :]
-        y2 = self.target_y_timelist[1:, :]
+        x1 = self.target_x_time_list[:-1, :]
+        y1 = self.target_y_time_list[:-1, :]
+        x2 = self.target_x_time_list[1:, :]
+        y2 = self.target_y_time_list[1:, :]
         self.target_theta_timelist = get_theta(x1, y1, x2, y2)
         self.target_theta_timelist = self.float_dtype(
             np.vstack([self.target_theta_timelist, self.target_theta_timelist[-1, :]]))
 
         # Check if there are any NaN values in the array
-        assert not np.isnan(self.target_x_timelist).any()
-        assert not np.isnan(self.target_y_timelist).any()
+        assert not np.isnan(self.target_x_time_list).any()
+        assert not np.isnan(self.target_y_time_list).any()
         assert not np.isnan(self.target_theta_timelist).any()
 
         # agent infos
@@ -194,11 +196,11 @@ class CrowdSim:
         self.starting_location_y = self.nlat / 2
         self.max_uav_energy = self.config.env.max_uav_energy
         self.agent_energy_timelist = np.full([self.episode_length + 1, self.num_agents],
-                                             fill_value=self.max_uav_energy, dtype=float)
-        self.agent_x_timelist = np.full([self.episode_length + 1, self.num_agents],
-                                        fill_value=self.starting_location_x, dtype=float)
-        self.agent_y_timelist = np.full([self.episode_length + 1, self.num_agents],
-                                        fill_value=self.starting_location_y, dtype=float)
+                                             fill_value=self.max_uav_energy, dtype=self.float_dtype)
+        self.agent_x_time_list = np.full([self.episode_length + 1, self.num_agents],
+                                         fill_value=self.starting_location_x, dtype=self.float_dtype)
+        self.agent_y_time_list = np.full([self.episode_length + 1, self.num_agents],
+                                         fill_value=self.starting_location_y, dtype=self.float_dtype)
         self.data_collection = 0
         # Types and Status of vehicles
         self.agent_types = self.int_dtype(np.ones([self.num_agents, ]))
@@ -216,8 +218,12 @@ class CrowdSim:
         self.timestep = None
 
         # Defining observation and action spaces
-        # obs = self type(1) + energy (1) + 5 * homo_pos(2)+ 5 * hetero_pos(2) + neighbor_aoi_grids (10 * 10) = 122
+        # obs = self type(1) + energy (1) + (num_agents - 1) * (homo_pos(2) + hetero_pos(2)) +
+        # neighbor_aoi_grids (10 * 10) = 122
         self.observation_space = None  # Note: this will be set via the env_wrapper
+        # state = (type,energy,x,y) * self.num_agents + neighbor_aoi_grids (10 * 10)
+        self.state_dim = self.num_agents * 4 + 100
+        self.global_state = np.zeros((self.state_dim,), dtype=self.float_dtype)
         self.drone_action_space_dx = self.float_dtype(self.config.env.drone_action_space[:, 0])
         self.drone_action_space_dy = self.float_dtype(self.config.env.drone_action_space[:, 1])
         self.car_action_space_dx = self.float_dtype(self.config.env.car_action_space[:, 0])
@@ -270,8 +276,8 @@ class CrowdSim:
 
         # Re-initialize the global state
         # for agent_id in range(self.num_agents):
-        self.agent_x_timelist[self.timestep, :] = self.starting_location_x
-        self.agent_y_timelist[self.timestep, :] = self.starting_location_y
+        self.agent_x_time_list[self.timestep, :] = self.starting_location_x
+        self.agent_y_time_list[self.timestep, :] = self.starting_location_y
         self.agent_energy_timelist[self.timestep, :] = self.max_uav_energy
 
         # for target_id in range(self.num_sensing_targets):
@@ -283,98 +289,149 @@ class CrowdSim:
         # for logging
         self.data_collection = 0
         self.target_coveraged_timelist = np.zeros([self.episode_length + 1, self.num_sensing_targets])
-
-        return self.generate_observation()
+        return self.generate_observation_and_update_state()
 
     def calculate_global_distance_matrix(self):
         """
-        Calculate the global distance matrix between all agents and targets.
+        Calculate the global distance matrix for all agents and targets prior to environment running.
         """
-        for entity_id_1 in range(self.num_agents):
-            for entity_id_2 in range(entity_id_1, self.num_agents + self.num_sensing_targets):
-                if entity_id_1 == entity_id_2:
-                    self.global_distance_matrix[entity_id_1, entity_id_2] = -1  # 避免正好重合
-                    continue
+        # Vectorized computation for distances between agents
+        agent_x_diff = self.agent_x_time_list[self.timestep, np.newaxis, :] - \
+                       self.agent_x_time_list[self.timestep, :, np.newaxis]
+        agent_y_diff = self.agent_y_time_list[self.timestep, np.newaxis, :] - \
+                       self.agent_y_time_list[self.timestep, :, np.newaxis]
+        agent_distances = np.sqrt(agent_x_diff ** 2 + agent_y_diff ** 2)
+        np.fill_diagonal(agent_distances, -1)  # Avoid division by zero for same agents
 
-                if entity_id_1 < self.num_agents and entity_id_2 < self.num_agents:
-                    distance = np.sqrt(
-                        np.square(self.agent_x_timelist[self.timestep, entity_id_1] -
-                                  self.agent_x_timelist[self.timestep, entity_id_2]) +
-                        np.square(self.agent_y_timelist[self.timestep, entity_id_1] -
-                                  self.agent_y_timelist[self.timestep, entity_id_2]))
-                    self.global_distance_matrix[entity_id_1, entity_id_2] = distance
-                    self.global_distance_matrix[entity_id_2, entity_id_1] = distance
+        # Vectorized computation for distances between agents and targets
+        target_x_diff = self.agent_x_time_list[self.timestep, :, np.newaxis] - \
+                        self.target_x_time_list[self.timestep, np.newaxis, :]
+        target_y_diff = self.agent_y_time_list[self.timestep, :, np.newaxis] - \
+                        self.target_y_time_list[self.timestep, np.newaxis, :]
+        target_distances = np.sqrt(target_x_diff ** 2 + target_y_diff ** 2)
 
-                if entity_id_1 < self.num_agents <= entity_id_2:
-                    self.global_distance_matrix[entity_id_1, entity_id_2] = np.sqrt(
-                        np.square(self.agent_x_timelist[self.timestep, entity_id_1] -
-                                  self.target_x_timelist[self.timestep, entity_id_2 - self.num_agents]) +
-                        np.square(self.agent_y_timelist[self.timestep, entity_id_1] -
-                                  self.target_y_timelist[self.timestep, entity_id_2 - self.num_agents])
-                    )
-        return
+        # Combine agent and target distances
+        self.global_distance_matrix = np.block([
+            [agent_distances, target_distances],
+            [target_distances.T, np.zeros((self.num_sensing_targets, self.num_sensing_targets))]
+        ])
 
-    def generate_observation(self) -> Dict[int, np.ndarray]:
+        return self.global_distance_matrix
+
+    def get_relative_positions(self, agent_id, other_agent_ids):
         """
-        Generate and return the observations for every agent.
+        Calculate the relative positions of other agents to the specified agent.
+
+        Args:
+        - agent_id: The ID of the agent relative to whom positions are calculated.
+        - other_agent_ids: Array of other agent IDs.
+
+        Returns:
+        - A 2D NumPy array containing the relative positions.
         """
-        obs = {}
+
+        # Positions of the specified agent
+        agent_x = self.agent_x_time_list[self.timestep, agent_id]
+        agent_y = self.agent_y_time_list[self.timestep, agent_id]
+
+        # Positions of other agents
+        other_agents_x = self.agent_x_time_list[self.timestep, other_agent_ids]
+        other_agents_y = self.agent_y_time_list[self.timestep, other_agent_ids]
+
+        # Calculate relative positions
+        relative_positions_x = (other_agents_x - agent_x) / self.nlon
+        relative_positions_y = (other_agents_y - agent_y) / self.nlat
+
+        # Stack the relative positions
+        relative_positions = np.stack((relative_positions_x, relative_positions_y), axis=-1)
+
+        return relative_positions
+
+    def generate_observation_and_update_state(self) -> Dict[int, np.ndarray]:
+        # Generate agent nearest targets IDs
         agent_nearest_targets_ids = np.argsort(self.global_distance_matrix[:, :self.num_agents], axis=-1, kind='stable')
+
+        # Self info for all agents (num_agents, 2)
+        self_parts = np.vstack((self.agent_types,
+                                self.agent_energy_timelist[self.timestep] / self.max_uav_energy)).T
+
+        # Initialize homoge_parts and hetero_parts (num_agents, num_agents_observed, 2)
+        homoge_parts = np.zeros((self.num_agents, self.num_agents_observed, 2), dtype=self.float_dtype)
+        hetero_parts = np.zeros((self.num_agents, self.num_agents_observed, 2), dtype=self.float_dtype)
+
+        # Calculate homoge_parts and hetero_parts
         for agent_id in range(self.num_agents):
-            # self info (2,)
-            self_part = np.array(
-                [self.agent_types[agent_id], self.agent_energy_timelist[self.timestep, agent_id] / self.max_uav_energy])
+            nearest_targets = agent_nearest_targets_ids[agent_id, 1:]
+            homoge_agents = nearest_targets[self.agent_types[nearest_targets] == self.agent_types[agent_id]]
+            hetero_agents = nearest_targets[self.agent_types[nearest_targets] != self.agent_types[agent_id]]
+            homoge_parts[agent_id, :len(homoge_agents), :] = self.get_relative_positions(agent_id, homoge_agents)
+            hetero_parts[agent_id, :len(hetero_agents), :] = self.get_relative_positions(agent_id, hetero_agents)
 
-            # other agent's infosw (2 * self.num_agents_observed * 2)
-            homoge_part = np.zeros([self.num_agents_observed, 2])
-            hetero_part = np.zeros([self.num_agents_observed, 2])
-            homoge_part_idx = 0
-            hetero_part_idx = 0
-            for other_agent_id in agent_nearest_targets_ids[agent_id, 1:]:
-                if (self.agent_types[other_agent_id] == self.agent_types[agent_id]
-                        and homoge_part_idx < self.num_agents_observed):
-                    homoge_part[homoge_part_idx] = np.array([
-                        (self.agent_x_timelist[self.timestep, other_agent_id] - self.agent_x_timelist[
-                            self.timestep, agent_id]) / self.nlon,
-                        (self.agent_y_timelist[self.timestep, other_agent_id] - self.agent_y_timelist[
-                            self.timestep, agent_id]) / self.nlat
-                    ])
-                    homoge_part_idx += 1
-                if (self.agent_types[other_agent_id] != self.agent_types[agent_id]
-                        and hetero_part_idx < self.num_agents_observed):
-                    hetero_part[hetero_part_idx] = np.array([
-                        (self.agent_x_timelist[self.timestep, other_agent_id] - self.agent_x_timelist[
-                            self.timestep, agent_id]) / self.nlon,
-                        (self.agent_y_timelist[self.timestep, other_agent_id] - self.agent_y_timelist[
-                            self.timestep, agent_id]) / self.nlat
-                    ])
-                    hetero_part_idx += 1
+        # Generate AoI grid parts for each agent
+        aoi_grid_parts = self.generate_aoi_grid(self.agent_x_time_list[self.timestep, :],
+                                                self.agent_y_time_list[self.timestep, :],
+                                                self.drone_car_comm_range * 2,
+                                                self.drone_car_comm_range * 2,
+                                                grid_size)
 
-            # aoi grid (10 * 10)
-            grid_center_x, grid_center_y = self.agent_x_timelist[self.timestep, agent_id], self.agent_y_timelist[
-                self.timestep, agent_id]
-            grid_width = self.drone_car_comm_range * 2 / 10
-            grid_min = np.array(
-                [grid_center_x - 5 * grid_width, grid_center_y - 5 * grid_width])  # 设置固定的最小值和最大值（中心点为基础）
-            grid_max = np.array([grid_center_x + 5 * grid_width, grid_center_y + 5 * grid_width])
-            point_xy = np.stack((self.target_x_timelist[self.timestep], self.target_y_timelist[self.timestep]),
-                                axis=-1)  # 离散化坐标
-            discrete_points_xy = np.floor((point_xy - grid_min) / (grid_max - grid_min) * 10).astype(int)
-            aoi_grid_part = np.zeros((10, 10))
-            grid_point_count = np.zeros_like(aoi_grid_part)
-            for target_idx in range(self.num_sensing_targets):
-                x, y = discrete_points_xy[target_idx]
-                if 0 <= x < 10 and 0 <= y < 10:
-                    grid_point_count[x, y] += 1
-                    aoi_grid_part[x, y] += self.target_aoi_timelist[self.timestep, target_idx]
-            grid_point_count_nonzero = np.where(grid_point_count > 0, grid_point_count, 1)
-            aoi_grid_part = aoi_grid_part / grid_point_count_nonzero / self.episode_length
-            aoi_grid_part[grid_point_count == 0] = 0
+        # Generate global state AoI grid
+        state_aoi_grid = self.generate_aoi_grid(int(self.max_distance_x // 2), int(self.max_distance_y // 2),
+                                                self.drone_car_comm_range * 4, self.drone_car_comm_range * 4, grid_size)
 
-            # merge these parts as the observation
-            obs[agent_id] = np.hstack((self_part, homoge_part.ravel(), hetero_part.ravel(), aoi_grid_part.ravel()))
+        # Merge parts for observations
+        observations = self.float_dtype(np.hstack((self_parts, homoge_parts.reshape(self.num_agents, -1),
+                                                   hetero_parts.reshape(self.num_agents, -1),
+                                                   aoi_grid_parts.reshape(self.num_agents, -1))))
 
-        return obs
+        agents_state = np.hstack([self_parts, self.agent_x_time_list[self.timestep, :].reshape(-1, 1) / self.nlon,
+                                  self.agent_y_time_list[self.timestep, :].reshape(-1, 1) / self.nlat])
+        # Global state
+        self.global_state = self.float_dtype(np.concatenate([agents_state.ravel(), state_aoi_grid.ravel()]))
+        observations = {agent_id: observations[agent_id] for agent_id in range(self.num_agents)}
+        return observations
+
+    def generate_aoi_grid(self, grid_centers_x: Union[np.ndarray, int], grid_centers_y: Union[np.ndarray, int],
+                          sensing_range_x: int, sensing_range_y: int, grid_size: int) -> np.ndarray:
+        """
+        Generate AoI grid parts for each agent. (Grid_centers can be vectored or scalar)
+        """
+        # AOI grid for all agents
+        if isinstance(grid_centers_x, int):
+            grid_centers_x = np.array([grid_centers_x], dtype=self.float_dtype)
+        if isinstance(grid_centers_y, int):
+            grid_centers_y = np.array([grid_centers_y], dtype=self.float_dtype)
+        grid_centers = np.stack((grid_centers_x, grid_centers_y), axis=-1)
+        # Define grid min and max for each axis
+        shifts = np.array([sensing_range_x // 2, sensing_range_y // 2], dtype=self.float_dtype)
+        grid_min = grid_centers - shifts
+        grid_max = grid_centers + shifts
+        # Target positions
+        point_xy = np.stack((self.target_x_time_list[self.timestep], self.target_y_time_list[self.timestep]), axis=-1)
+        # Discretize target positions
+        discrete_points_xy = np.floor((point_xy[None, :, :] - grid_min[:, None, :]) / (
+                grid_max[:, None, :] - grid_min[:, None, :]) * grid_size).astype(int)
+        # Initialize AoI grid parts
+        num_agents = grid_centers.shape[0]
+        aoi_grid_parts = np.zeros((num_agents, grid_size, grid_size), dtype=self.float_dtype)
+        grid_point_count = np.zeros((num_agents, grid_size, grid_size), dtype=int)
+
+        # Iterate over each agent
+        for agent_id in range(num_agents):
+            # Create a boolean mask for valid points for this agent
+            valid_mask = (discrete_points_xy[agent_id, :, 0] >= 0) & (discrete_points_xy[agent_id, :, 0] < grid_size) & \
+                         (discrete_points_xy[agent_id, :, 1] >= 0) & (discrete_points_xy[agent_id, :, 1] < grid_size)
+            # Filter the points and AoI values using the mask
+            filtered_points = discrete_points_xy[agent_id, valid_mask]
+            filtered_aoi_values = self.target_aoi_timelist[self.timestep, valid_mask]
+            # Accumulate counts and AoI values for this agent
+            np.add.at(aoi_grid_parts[agent_id], (filtered_points[:, 0], filtered_points[:, 1]), filtered_aoi_values)
+            np.add.at(grid_point_count[agent_id], (filtered_points[:, 0], filtered_points[:, 1]), 1)
+
+        # Normalize AoI values
+        grid_point_count_nonzero = np.where(grid_point_count > 0, grid_point_count, 1)
+        aoi_grid_parts = aoi_grid_parts / grid_point_count_nonzero / self.episode_length
+        aoi_grid_parts[grid_point_count == 0] = 0
+        return aoi_grid_parts
 
     def calculate_energy_consume(self, move_time, agent_id):
         stop_time = self.step_time - move_time
@@ -420,20 +477,20 @@ class CrowdSim:
             else:
                 dx, dy = self.drone_action_space_dx[actions[agent_id]], self.drone_action_space_dy[actions[agent_id]]
 
-            new_x = self.agent_x_timelist[self.timestep - 1, agent_id] + dx
-            new_y = self.agent_y_timelist[self.timestep - 1, agent_id] + dy
+            new_x = self.agent_x_time_list[self.timestep - 1, agent_id] + dx
+            new_y = self.agent_y_time_list[self.timestep - 1, agent_id] + dy
             if new_x <= self.max_distance_x and new_y <= self.max_distance_y:
-                self.agent_x_timelist[self.timestep, agent_id] = new_x
-                self.agent_y_timelist[self.timestep, agent_id] = new_y
+                self.agent_x_time_list[self.timestep, agent_id] = new_x
+                self.agent_y_time_list[self.timestep, agent_id] = new_y
                 # calculate distance between last time step and current time step
-                distance = np.sqrt((new_x - self.agent_x_timelist[self.timestep - 1, agent_id]) ** 2
-                                   + (new_y - self.agent_y_timelist[self.timestep - 1, agent_id]) ** 2)
+                distance = np.sqrt((new_x - self.agent_x_time_list[self.timestep - 1, agent_id]) ** 2
+                                   + (new_y - self.agent_y_time_list[self.timestep - 1, agent_id]) ** 2)
                 move_time = distance / (
                     self.agent_speed['car'] if self.agent_types[agent_id] == 0 else self.agent_speed['drone'])
                 consume_energy = self.calculate_energy_consume(move_time, agent_id)
             else:
-                self.agent_x_timelist[self.timestep, agent_id] = self.agent_x_timelist[self.timestep - 1, agent_id]
-                self.agent_y_timelist[self.timestep, agent_id] = self.agent_y_timelist[self.timestep - 1, agent_id]
+                self.agent_x_time_list[self.timestep, agent_id] = self.agent_x_time_list[self.timestep - 1, agent_id]
+                self.agent_y_time_list[self.timestep, agent_id] = self.agent_y_time_list[self.timestep - 1, agent_id]
                 consume_energy = 0
                 over_range = True
 
@@ -479,14 +536,13 @@ class CrowdSim:
                 self.data_collection += (self.target_aoi_timelist[self.timestep - 1, target_id] -
                                          self.target_aoi_timelist[self.timestep, target_id])
 
-        obs = self.generate_observation()
+        obs = self.generate_observation_and_update_state()
 
         done = {
             "__all__": (self.timestep >= self.episode_length) or over_range
         }
 
-        result = obs, rew, done, self.collect_info()
-        return result
+        return obs, rew, done, self.collect_info()
 
     def collect_info(self) -> Dict[str, float]:
         if isinstance(self, CUDACrowdSim):
@@ -521,8 +577,8 @@ class CrowdSim:
 
         # 可将机器人traj，可以载入到human的dataframe中，id从-1开始递减
         for i in range(self.num_agents):
-            x_list = self.agent_x_timelist[:, i]
-            y_list = self.agent_y_timelist[:, i]
+            x_list = self.agent_x_time_list[:, i]
+            y_list = self.agent_y_time_list[:, i]
             id_list = np.full_like(x_list, -i - 1)
             aoi_list = np.full_like(x_list, -1)
             energy_list = self.agent_energy_timelist[:, i]
@@ -680,9 +736,9 @@ class CUDACrowdSim(CrowdSim, CUDAEnvironmentContext):
                                  ("agent_energy_range", self.float_dtype(self.max_uav_energy)),
                                  ("num_targets", self.int_dtype(self.num_sensing_targets)),
                                  ("num_agents_observed", self.int_dtype(self.num_agents_observed)),
-                                 ("target_x", self.float_dtype(self.target_x_timelist), True),
+                                 ("target_x", self.float_dtype(self.target_x_time_list), True),
                                  # [self.episode_length + 1, self.num_sensing_targets]
-                                 ("target_y", self.float_dtype(self.target_y_timelist), True),
+                                 ("target_y", self.float_dtype(self.target_y_time_list), True),
                                  # [self.episode_length + 1, self.num_sensing_targets]
                                  ("target_aoi", self.float_dtype(np.ones([self.num_sensing_targets, ])), True),
                                  ("target_coverage", self.int_dtype(np.zeros([self.num_sensing_targets, ])), True),
@@ -711,6 +767,7 @@ class CUDACrowdSim(CrowdSim, CUDAEnvironmentContext):
             self.timestep += 1
         logging.debug(f"Timestep in CUDACrowdSim {self.timestep}")
         args = [
+            _STATE,
             _OBSERVATIONS,
             _ACTIONS,
             _REWARDS,
@@ -756,12 +813,10 @@ class CUDACrowdSim(CrowdSim, CUDAEnvironmentContext):
             )
         else:
             raise Exception("CUDACrowdSim expects env_backend = 'pycuda' ")
-        # if False:
-        #     np.mean(self.cuda_data_manager.pull_data_from_device(name=_REWARDS), axis=0)
-        # done = {
-        #     "__all__": (self.timestep >= self.episode_length)
-        # }
+        # Pull data from the device
         dones = self.cuda_data_manager.pull_data_from_device("_done_")
+        # Update environment state
+        self.global_state = self.float_dtype(self.cuda_data_manager.pull_data_from_device(_STATE))
         return dones, self.collect_info()
 
 
@@ -786,8 +841,8 @@ class RLlibCUDACrowdSim(MultiAgentEnv):
         self.env_registrar = EnvironmentRegistrar()
         if not self.env_registrar.has_env(CUDACrowdSim.name, env_backend="pycuda"):
             self.env_registrar.add_cuda_env_src_path(CUDACrowdSim.name, os.path.join(get_project_root(),
-                                                                                "envs", "crowd_sim",
-                                                                                "crowd_sim_step.cu"))
+                                                                                     "envs", "crowd_sim",
+                                                                                     "crowd_sim_step.cu"))
         # self.env_registrar = additional_params['env_registrar']
         train_batch_size = self.trainer_params['train_batch_size']
         self.num_envs = self.trainer_params['num_envs']
@@ -800,18 +855,23 @@ class RLlibCUDACrowdSim(MultiAgentEnv):
         self.action_space: spaces.Space = next(iter(self.env.action_space.values()))
         # manually setting observation space
         self.agents = []
-        for name in teams_name:
-            self.agents += [f"{name}_{i}" for i in range(getattr(self.env, "num_" + name))]
-        self.num_agents = len(self.agents)
-        obs_ref = self.env.reset()[0]
-        box = binary_search_bound(obs_ref)
-        self.observation_space: spaces.Dict = spaces.Dict({"obs": box})
         self.env_wrapper: CUDAEnvWrapper = CUDAEnvWrapper(
             self.env,
             num_envs=self.num_envs,
             env_backend=self.env_backend,
             env_registrar=self.env_registrar
         )
+        self.global_state = self.env_wrapper.env.global_state
+        for name in teams_name:
+            self.agents += [f"{name}_{i}" for i in range(getattr(self.env, "num_" + name))]
+        self.num_agents = len(self.agents)
+        self.obs_ref = self.env.reset()[0]
+        self.observation_space: spaces.Dict = spaces.Dict({"obs": binary_search_bound(self.obs_ref)})
+        try:
+            state_space = binary_search_bound(self.global_state)
+            self.observation_space["state"] = state_space
+        except AttributeError:
+            pass
         if self.env_wrapper.env_backend == "pycuda":
             from warp_drive.cuda_managers.pycuda_function_manager import (
                 PyCUDASampler,
@@ -841,24 +901,6 @@ class RLlibCUDACrowdSim(MultiAgentEnv):
         if self.logging_config is not None:
             setup_wandb(self.logging_config)
 
-    def convert_to_dict(self, data_batch: np.ndarray, name: str) -> dict:
-        """
-        Convert observations from a NumPy array to a dictionary format.
-
-        :param data_batch: NumPy array of shape [self.num_envs, self.num_agents, dim_obs]
-        :return: Dictionary of the format {EnvID: {agent_id_1: obs1, agent_id_2: obs2, ...}, ...}
-        """
-        result = {}
-        for env_index in range(self.num_envs):
-            result[env_index] = {}
-            for agent_index in range(self.num_agents):
-                single_batch = data_batch[env_index, agent_index, :]
-                if name is not None:
-                    result[env_index][agent_index] = single_batch
-                else:
-                    result[env_index][agent_index] = {name: single_batch}
-        return result
-
     def get_env_info(self):
         """
         return a dict of env_info
@@ -882,7 +924,7 @@ class RLlibCUDACrowdSim(MultiAgentEnv):
         # convert it into a dict of {agent_id: {"obs": observation}}
         obs_list = []
         for env_index in range(self.num_envs):
-            obs_list.append(get_rllib_multi_agent_obs(current_observation[env_index], self.agents))
+            obs_list.append(get_rllib_multi_agent_obs(current_observation[env_index], self.global_state, self.agents))
         return obs_list
 
     def reset(self) -> MultiAgentDict:
@@ -908,25 +950,14 @@ class RLlibCUDACrowdSim(MultiAgentEnv):
         # convert observation to dict {EnvID: {AgentID: Action}...}
         obs_list, reward_list, info_list = [], [], []
         for env_index in range(self.num_envs):
-            one_obs = {}
-            one_reward = {}
-            for i, agent_name in enumerate(self.agents):
-                one_obs[agent_name] = {"obs": next_obs[env_index][i]}
-                one_reward[agent_name] = reward[env_index][i]
+            one_obs, one_reward = get_rllib_obs_and_reward(self.agents, self.global_state,
+                                                           next_obs[env_index], reward[env_index])
             obs_list.append(one_obs)
             reward_list.append(one_reward)
             info_list.append({})
         if all(dones):
             logging.info("All OK!")
-            self.iter += 1
-            if (self.iter + 1) % 100 == 0:
-                # Create table data
-                table_data = [["Metric Name", "Value"]]
-                table_data.extend([[key, value] for key, value in info.items()])
-                # Print the table
-                logging.info(tabulate(table_data, headers="firstrow", tablefmt="grid"))
-            if wandb.run is not None:
-                wandb.log(info)
+            log_env_metrics(self.iter, info)
         return obs_list, reward_list, dones, info_list
 
     def step(
@@ -940,8 +971,8 @@ class RLlibCUDACrowdSim(MultiAgentEnv):
         self.env.render(output_file, plot_loop, moving_line)
 
 
-def get_rllib_multi_agent_obs(current_observation, agents: list[str]) -> MultiAgentDict:
-    return {agent_name: {"obs": current_observation[i]} for i, agent_name in enumerate(agents)}
+def get_rllib_multi_agent_obs(current_observation, state, agents: list[Any]) -> MultiAgentDict:
+    return {agent_name: {"obs": current_observation[i], "state": state} for i, agent_name in enumerate(agents)}
 
 
 class RLlibCUDACrowdSimWrapper(VectorEnv):
@@ -1002,15 +1033,28 @@ def setup_wandb(logging_config: dict):
     wandb.define_metric(AOI_METRIC_NAME, summary="min")
 
 
-def get_rllib_obs_and_reward(action_dict, obs, reward):
+def get_rllib_obs_and_reward(agents, state, obs, reward):
     obs_dict = {}
     reward_dict = {}
-    for i, key in enumerate(action_dict.keys()):
+    for i, key in enumerate(agents):
         reward_dict[key] = reward[i]
         obs_dict[key] = {
-            "obs": np.array(obs[i])
+            "obs": np.array(obs[i]),
+            "state": state
         }
     return obs_dict, reward_dict
+
+
+def log_env_metrics(cur_iter, info: dict):
+    cur_iter += 1
+    if (cur_iter + 1) % 100 == 0:
+        # Create table data
+        table_data = [["Metric Name", "Value"]]
+        table_data.extend([[key, value] for key, value in info.items()])
+        # Print the table
+        logging.info(tabulate(table_data, headers="firstrow", tablefmt="grid"))
+    if wandb.run is not None:
+        wandb.log(info)
 
 
 class RLlibCrowdSim(MultiAgentEnv):
@@ -1038,12 +1082,16 @@ class RLlibCrowdSim(MultiAgentEnv):
             run_config["map_name"] = map_name
         self.action_space: spaces.Space = next(iter(self.env.action_space.values()))
         # manually setting observation space
-        obs_ref = self.env.reset()[0]
-        box = binary_search_bound(obs_ref)
+        self.obs_ref = self.env.reset()[0]
         self.agents = ([f"car_{i}" for i in range(self.env.num_drones)] +
                        [f"drone_{i}" for i in range(self.env.num_cars)])
         self.num_agents = len(self.agents)
-        self.observation_space: spaces.Dict = spaces.Dict({"obs": box})
+        self.observation_space: spaces.Dict = spaces.Dict({"obs": binary_search_bound(self.obs_ref)})
+        try:
+            state_space = binary_search_bound(self.env.global_state)
+            self.observation_space["state"] = state_space
+        except AttributeError:
+            pass
         if self.logging_config is not None:
             setup_wandb(self.logging_config)
 
@@ -1056,8 +1104,7 @@ class RLlibCrowdSim(MultiAgentEnv):
         current_observation = self.env.reset()
         # current_observation shape [n_agent, dim_obs]
         # convert it into a dict of {agent_id: {"obs": observation}}
-        obs_dict = {agent_name: {"obs": current_observation[i]} for i, agent_name in enumerate(self.agents)}
-        return obs_dict
+        return get_rllib_multi_agent_obs(current_observation, self.env.global_state, self.agents)
 
     def step(
             self, action_dict: MultiAgentDict
@@ -1068,17 +1115,9 @@ class RLlibCrowdSim(MultiAgentEnv):
         raw_action_dict = {i: value for i, value in enumerate(action_dict.values())}
         obs, reward, dones, info = self.env.step(raw_action_dict)
         # current_observation shape [n_agent, dim_obs]
-        obs_dict, reward_dict = get_rllib_obs_and_reward(action_dict, obs, reward)
+        obs_dict, reward_dict = get_rllib_obs_and_reward(self.agents, self.env.global_state, obs, reward)
         if dones["__all__"]:
-            self.iter += 1
-            if (self.iter + 1) % 100 == 0:
-                # Create table data
-                table_data = [["Metric Name", "Value"]]
-                table_data.extend([[key, value] for key, value in info.items()])
-                # Print the table
-                logging.info(tabulate(table_data, headers="firstrow", tablefmt="grid"))
-            if wandb.run is not None:
-                wandb.log(info)
+            log_env_metrics(self.iter, info)
         # else:
         # print("wandb not detected")
         # truncated = {"__all__": False}

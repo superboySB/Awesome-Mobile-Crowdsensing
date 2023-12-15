@@ -47,8 +47,73 @@ extern "C" {
 //     else if (pa->second > pb->second) return 1;
 //     else return 0;
 // }
+__device__ void CUDACrowdSimGenerateAoIGrid(
+  float * obs_arr,
+  float * agent_x_arr,
+  float * agent_y_arr,
+  const float * target_x_time_list,
+  const float * target_y_time_list,
+  float * target_aoi_arr,
+  int * env_timestep_arr,
+  const int kEnvId,
+  const int kThisAgentId,
+  const int kThisAgentArrayIdx,
+  const int kThisEnvAgentsOffset,
+  const int kNumAgents,
+  const int kNumAgentsObserved,
+  const int kNumTargets,
+  const int kEpisodeLength,
+  const int num_features,
+  const int max_distance_x,
+  const int max_distance_y
+) {
+      // ------------------------------------
+      // [Part 3] aoi grid (10 * 10)
+      float grid_center_x, grid_center_y;
+      if (kThisAgentId == -1) {
+        grid_center_x = max_distance_x >> 1;
+        grid_center_y = max_distance_y >> 1;
+      }
+      else{
+        grid_center_x = agent_x_arr[kThisAgentArrayIdx];
+        grid_center_y = agent_y_arr[kThisAgentArrayIdx];
+      }
+      const float x_width = max_distance_x >> 1;
+      const float y_width = max_distance_y >> 1;
+      float grid_min_x = grid_center_x - x_width;
+      float grid_min_y = grid_center_y - y_width;
+      float grid_max_x = grid_center_x + x_width;
+      float grid_max_y = grid_center_y + y_width;
+      int grid_point_count[100] = {0};
+      float temp_aoi_grid[100] = {0.0f};
+      const int kThisTargetPositionTimeListIdxOffset = env_timestep_arr[kEnvId] * kNumTargets;
+      const int kThisTargetAgeArrayIdxOffset = kEnvId * kNumTargets;
+
+      for (int i = 0; i < kNumTargets; ++i) {
+        int x = floorf((target_x_time_list[kThisTargetPositionTimeListIdxOffset+i] - grid_min_x) / (grid_max_x - grid_min_x) * 10);
+        int y = floorf((target_y_time_list[kThisTargetPositionTimeListIdxOffset+i] - grid_min_y) / (grid_max_y - grid_min_y) * 10);
+
+        if (0 <= x && x < 10 && 0 <= y && y < 10) {
+            int idx = x * 10 + y;
+            grid_point_count[idx]++;
+            temp_aoi_grid[idx] += target_aoi_arr[kThisTargetAgeArrayIdxOffset+i];
+        }
+      }
+      int kThisAgentAoIGridIdxOffset;
+      if (kThisAgentId == -1) {
+        kThisAgentAoIGridIdxOffset = kNumAgents << 2;
+      }
+      else{
+        kThisAgentAoIGridIdxOffset = (kThisAgentId + kThisEnvAgentsOffset) * num_features + 2 + (kNumAgentsObserved << 2);
+      }
+      for (int i = 0; i < 100; ++i) {
+        float aoi_value = grid_point_count[i] > 0 ? temp_aoi_grid[i] / grid_point_count[i] / kEpisodeLength : 0.0;
+        obs_arr[kThisAgentAoIGridIdxOffset + i] = aoi_value;
+    }
+}
   // Device helper function to generate observation
   __device__ void CudaCrowdSimGenerateObservation(
+      float * state_arr,
       float * obs_arr,
       const int * agent_types_arr,
       float * agent_x_arr,
@@ -69,19 +134,32 @@ extern "C" {
       int * env_timestep_arr,
       int kNumAgents,
       int kEpisodeLength,
+      const int num_features,
       const int kEnvId,
       const int kThisAgentId,
-      const int kThisAgentArrayIdx
+      const int kThisAgentArrayIdx,
+      const int kThisEnvAgentsOffset
   ) {
-    const int num_features = 2 + 2 * kNumAgentsObserved * 2 + 100;
+    // observation: agent type, agent energy, Heterogeneous and homogeneous visible agents
+    // displacements, 100 dim AoI Maps.
+    // state: all agents type, energy, position (4dim per agent) + 100 dim AoI Maps.
+    const int state_features = (kNumAgents << 2) + 100;
+    const int shifted_id = kThisAgentId << 2;
+    const int kThisEnvStateOffset = kEnvId * state_features;
     if (kThisAgentId < kNumAgents) {
-      const int kThisAgentIdxOffset = kEnvId * kNumAgents * num_features + kThisAgentId * num_features;
-      for (int i=0; i < num_features; i++){ obs_arr[kThisAgentIdxOffset + i] = 0.0;}
+      const int kThisAgentIdxOffset = kThisEnvAgentsOffset * num_features + kThisAgentId * num_features;
+      for (int i = 0; i < num_features; i++){
+      obs_arr[kThisAgentIdxOffset + i] = 0.0;
+      }
       // ------------------------------------
       // [Part 1] self info (2,)
-      obs_arr[kThisAgentIdxOffset + 0] = agent_types_arr[kThisAgentId];
-      obs_arr[kThisAgentIdxOffset + 1] = (agent_energy_arr[kThisAgentArrayIdx] / kAgentEnergyRange);
-
+      const int my_type = agent_types_arr[kThisAgentId];
+      const float my_energy = agent_energy_arr[kThisAgentArrayIdx] / kAgentEnergyRange;
+      obs_arr[kThisAgentIdxOffset + 0] = my_type;
+      obs_arr[kThisAgentIdxOffset + 1] = my_energy;
+      // Fill self info into state
+      state_arr[kThisEnvStateOffset + shifted_id + 0] = my_type;
+      state_arr[kThisEnvStateOffset + shifted_id + 1] = my_energy;
       // ------------------------------------
       // [Part 2] other agent's infos (2 * self.num_agents_observed * 2)
       // Other agents displacements are sorted by distance
@@ -90,20 +168,21 @@ extern "C" {
         obs_arr[kThisAgentIdxOffset + 2 + idx * 2 + 1] = 0.0;
       }
       // Sort the neighbor homogeneous and heterogeneous agents as the following part of observations
-      int i_index = 0;
-      const int kThisDistanceArrayIdxOffset = kEnvId * kNumAgents * (kNumAgents-1) + kThisAgentId * (kNumAgents-1);
+
+      const int kThisDistanceArrayIdxOffset = (kThisAgentId + kThisEnvAgentsOffset) * (kNumAgents - 1);
       for (int agent_idx = 0; agent_idx < kNumAgents; agent_idx++){
 //         dis_pair & current = neighbor_pairs[kThisDistanceArrayIdxOffset + i_index];
-        if (agent_idx == kThisAgentId){
-          continue;
-        }
-        float temp_x = agent_x_arr[kThisAgentArrayIdx] - agent_x_arr[kEnvId * kNumAgents+agent_idx];
-        float temp_y = agent_y_arr[kThisAgentArrayIdx] - agent_y_arr[kEnvId * kNumAgents+agent_idx];
+        if (agent_idx != kThisAgentId){
+        float temp_x = agent_x_arr[kThisAgentArrayIdx] - agent_x_arr[kThisEnvAgentsOffset + agent_idx];
+        float temp_y = agent_y_arr[kThisAgentArrayIdx] - agent_y_arr[kThisEnvAgentsOffset + agent_idx];
 //         current.first = sqrt(temp_x * temp_x + temp_y * temp_y);
 //         current.second = agent_idx;
-        neighbor_agent_distances_arr[kThisDistanceArrayIdxOffset + i_index] = sqrt(temp_x * temp_x + temp_y * temp_y);
-        neighbor_agent_ids_sorted_by_distances_arr[kThisDistanceArrayIdxOffset + i_index] = agent_idx;
-        i_index++;
+        neighbor_agent_distances_arr[kThisDistanceArrayIdxOffset + agent_idx] = sqrt(temp_x * temp_x + temp_y * temp_y);
+        neighbor_agent_ids_sorted_by_distances_arr[kThisDistanceArrayIdxOffset + agent_idx] = agent_idx;
+        }
+        //  state stores position of each agents
+        state_arr[kThisEnvStateOffset + shifted_id + 2] = agent_x_arr[kThisEnvAgentsOffset + agent_idx];
+        state_arr[kThisEnvStateOffset + shifted_id + 3] = agent_y_arr[kThisEnvAgentsOffset + agent_idx];
       }
       int j_index;  // A simple bubble sort within one gpu thread
       for (int i = 0; i < kNumAgents-2; i++) {
@@ -124,66 +203,53 @@ extern "C" {
 
       int homoge_part_idx = 0;
       int hetero_part_idx = 0;
-      const int kThisHomogeAgentIdxOffset = kEnvId * kNumAgents * num_features + kThisAgentId * num_features + 2;
-      const int kThisHeteroAgentIdxOffset = kEnvId * kNumAgents * num_features + kThisAgentId * num_features + 2 + 2 * kNumAgentsObserved;
+      const int kThisHomogeAgentIdxOffset = kThisEnvAgentsOffset * num_features + kThisAgentId * num_features + 2;
+      const int kThisHeteroAgentIdxOffset = kThisEnvAgentsOffset * num_features + kThisAgentId * num_features + 2 + 2 * kNumAgentsObserved;
       for (int i = 0; i < kNumAgents-1; i ++){
         int other_agent_idx = neighbor_agent_ids_sorted_by_distances_arr[kThisDistanceArrayIdxOffset + i];
 //         int other_agent_idx = neighbor_pairs[kThisDistanceArrayIdxOffset + i].first;
         // printf("agent %d - other idx: %d\n", kThisAgentId,other_agent_idx);
         if ((agent_types_arr[kThisAgentId] == agent_types_arr[other_agent_idx]) && (homoge_part_idx < kNumAgentsObserved)){
-          float delta_x = (agent_x_arr[kEnvId * kNumAgents + other_agent_idx]  - agent_x_arr[kThisAgentArrayIdx]) / kAgentXRange;
-          float delta_y = (agent_y_arr[kEnvId * kNumAgents + other_agent_idx]  - agent_y_arr[kThisAgentArrayIdx]) / kAgentYRange;
+          float delta_x = (agent_x_arr[kThisEnvAgentsOffset + other_agent_idx]  - agent_x_arr[kThisAgentArrayIdx]) / kAgentXRange;
+          float delta_y = (agent_y_arr[kThisEnvAgentsOffset + other_agent_idx]  - agent_y_arr[kThisAgentArrayIdx]) / kAgentYRange;
           obs_arr[kThisHomogeAgentIdxOffset + homoge_part_idx*2 + 0] = delta_x;
           obs_arr[kThisHomogeAgentIdxOffset + homoge_part_idx*2 + 1] = delta_y;
           homoge_part_idx++;
         }
         if ((agent_types_arr[kThisAgentId] != agent_types_arr[other_agent_idx]) && (hetero_part_idx < kNumAgentsObserved)){
-          float delta_x = (agent_x_arr[kEnvId * kNumAgents + other_agent_idx] - agent_x_arr[kThisAgentArrayIdx]) / kAgentXRange;
-          float delta_y = (agent_y_arr[kEnvId * kNumAgents + other_agent_idx] - agent_y_arr[kThisAgentArrayIdx]) / kAgentYRange;
+          float delta_x = (agent_x_arr[kThisEnvAgentsOffset + other_agent_idx] - agent_x_arr[kThisAgentArrayIdx]) / kAgentXRange;
+          float delta_y = (agent_y_arr[kThisEnvAgentsOffset + other_agent_idx] - agent_y_arr[kThisAgentArrayIdx]) / kAgentYRange;
           obs_arr[kThisHeteroAgentIdxOffset + hetero_part_idx*2 + 0] = delta_x;
           obs_arr[kThisHeteroAgentIdxOffset + hetero_part_idx*2 + 1] = delta_y;
           hetero_part_idx++;
         }
       }
-
-      // ------------------------------------
-      // [Part 3] aoi grid (10 * 10)
-      float grid_center_x = agent_x_arr[kThisAgentArrayIdx];
-      float grid_center_y = agent_y_arr[kThisAgentArrayIdx];
-      const float grid_width = kDroneCarCommRange * 2 / 10;
-      float grid_min_x = grid_center_x - 5 * grid_width;
-      float grid_min_y = grid_center_y - 5 * grid_width;
-      float grid_max_x = grid_center_x + 5 * grid_width;
-      float grid_max_y = grid_center_y + 5 * grid_width;
-      int grid_point_count[100] = {0}; 
-      float temp_aoi_grid[100] = {0.0f};
-      const int kThisTargetPositionTimeListIdxOffset = env_timestep_arr[kEnvId] * kNumTargets; 
-      const int kThisTargetAgeArrayIdxOffset = kEnvId * kNumTargets;
-
-      for (int i = 0; i < kNumTargets; ++i) {
-        int x = floorf((target_x_time_list[kThisTargetPositionTimeListIdxOffset+i] - grid_min_x) / (grid_max_x - grid_min_x) * 10);
-        int y = floorf((target_y_time_list[kThisTargetPositionTimeListIdxOffset+i] - grid_min_y) / (grid_max_y - grid_min_y) * 10);
-
-        if (0 <= x && x < 10 && 0 <= y && y < 10) {
-            int idx = x * 10 + y;
-            grid_point_count[idx]++;
-            temp_aoi_grid[idx] += target_aoi_arr[kThisTargetAgeArrayIdxOffset+i];
-        }
-      }
-
-      const int kThisAgentAoIGridIdxOffset = kEnvId * kNumAgents * num_features + kThisAgentId * num_features + 2 + 2 * kNumAgentsObserved * 2;
-      for (int i = 0; i < 100; ++i) {
-          if (grid_point_count[i] > 0) {
-              obs_arr[kThisAgentAoIGridIdxOffset+i] = temp_aoi_grid[i] / grid_point_count[i] / kEpisodeLength;
-          } else {
-              obs_arr[kThisAgentAoIGridIdxOffset+i] = 0.0;
-          }
-      }
-    }
+      CUDACrowdSimGenerateAoIGrid(
+        obs_arr,
+        agent_x_arr,
+        agent_y_arr,
+        target_x_time_list,
+        target_y_time_list,
+        target_aoi_arr,
+        env_timestep_arr,
+        kEnvId,
+        kThisAgentId,
+        kThisAgentArrayIdx,
+        kThisEnvAgentsOffset,
+        kNumAgents,
+        kNumAgentsObserved,
+        kNumTargets,
+        kEpisodeLength,
+        num_features,
+        kDroneCarCommRange,
+        kDroneCarCommRange
+      );
   }
+}
 
   // k: const with timesteps, arr: on current timestep, time_list: multiple timesteps
   __global__ void CudaCrowdSimStep(
+    float * state_arr,
     float * obs_arr,
     int * action_indices_arr,
     float * rewards_arr,
@@ -223,7 +289,8 @@ extern "C" {
   ) {
     const int kEnvId = getEnvID(blockIdx.x);
     const int kThisAgentId = getAgentID(threadIdx.x, blockIdx.x, blockDim.x);
-    const int kThisAgentArrayIdx = kEnvId * kNumAgents + kThisAgentId;
+    const int kThisEnvAgentsOffset = kEnvId * kNumAgents;
+    const int kThisAgentArrayIdx = kThisEnvAgentsOffset + kThisAgentId;
     const int kNumActionDim = 1;  // use Discrete instead of MultiDiscrete
     // -------------------------------
     // Update Timestep
@@ -241,8 +308,7 @@ extern "C" {
     // -------------------------------
     // Load Actions to update agent positions
     if (kThisAgentId < kNumAgents) {
-      int kThisAgentActionIdxOffset = kEnvId * kNumAgents * kNumActionDim +
-        kThisAgentId * kNumActionDim;
+      int kThisAgentActionIdxOffset = (kThisEnvAgentsOffset + kThisAgentId) * kNumActionDim;
       float dx,dy;
       bool is_drone = agent_types_arr[kThisAgentId];
       if (!is_drone){ // Car Movement
@@ -290,8 +356,10 @@ extern "C" {
         for (int other_agent_id = 0; other_agent_id < kNumAgents; other_agent_id++) {
           bool is_car = !agent_types_arr[other_agent_id];
           if (is_car) {
-            float temp_x = agent_x_arr[kEnvId * kNumAgents+kThisAgentId] - agent_x_arr[kEnvId * kNumAgents+other_agent_id];
-            float temp_y = agent_y_arr[kEnvId * kNumAgents+kThisAgentId] - agent_y_arr[kEnvId * kNumAgents+other_agent_id];
+            float temp_x = agent_x_arr[kThisEnvAgentsOffset + kThisAgentId] - \
+            agent_x_arr[kThisEnvAgentsOffset + other_agent_id];
+            float temp_y = agent_y_arr[kThisEnvAgentsOffset + kThisAgentId] - \
+            agent_y_arr[kThisEnvAgentsOffset + other_agent_id];
             float dist = sqrt(temp_x * temp_x + temp_y * temp_y);
             if (dist < min_dist) {
               min_dist = dist;
@@ -312,7 +380,7 @@ extern "C" {
       
     }
     __sync_env_threads(); // Make sure all agents have updated their valid status
-    // printf("%d\n", neighbor_agent_ids_arr[kEnvId * kNumAgents + 5]);
+    // printf("%d\n", neighbor_agent_ids_arr[kThisEnvAgentsOffset + 5]);
 
     // -------------------------------
     // Compute reward
@@ -324,28 +392,28 @@ extern "C" {
         float min_dist = kMaxDistance; 
         int nearest_agent_id = -1;
         for (int agent_idx=0; agent_idx < kNumAgents; agent_idx++){
-          bool is_valid = valid_status_arr[kEnvId * kNumAgents+agent_idx];
+          bool is_valid = valid_status_arr[kThisEnvAgentsOffset+agent_idx];
           if (!is_valid){
             continue;
           }
           else{
-          float temp_x = agent_x_arr[kEnvId * kNumAgents+agent_idx] - target_x_time_list[kThisTargetPositionTimeListIdxOffset+target_idx];
-          float temp_y = agent_y_arr[kEnvId * kNumAgents+agent_idx] - target_y_time_list[kThisTargetPositionTimeListIdxOffset+target_idx];
+          float temp_x = agent_x_arr[kThisEnvAgentsOffset+agent_idx] - target_x_time_list[kThisTargetPositionTimeListIdxOffset+target_idx];
+          float temp_y = agent_y_arr[kThisEnvAgentsOffset+agent_idx] - target_y_time_list[kThisTargetPositionTimeListIdxOffset+target_idx];
             float dist = sqrt(temp_x * temp_x + temp_y * temp_y);
             if (dist < min_dist) {
                 min_dist = dist;
                 nearest_agent_id = agent_idx;
             }
           }
-          // printf("t:%d a:%d valid: %d\n", target_idx, agent_idx, valid_status_arr[kEnvId * kNumAgents+agent_idx]);
+          // printf("t:%d a:%d valid: %d\n", target_idx, agent_idx, valid_status_arr[kThisEnvAgentsOffset+agent_idx]);
         }
         if (min_dist <= kDroneSensingRange){
           bool is_drone = agent_types_arr[nearest_agent_id];
-          rewards_arr[kEnvId * kNumAgents + nearest_agent_id] += (target_aoi_arr[kThisTargetAgeArrayIdxOffset + target_idx]-1) / kEpisodeLength;
+          rewards_arr[kThisEnvAgentsOffset + nearest_agent_id] += (target_aoi_arr[kThisTargetAgeArrayIdxOffset + target_idx]-1) / kEpisodeLength;
           if (is_drone){
-            int drone_nearest_car_id = neighbor_agent_ids_arr[kEnvId * kNumAgents + nearest_agent_id];
-            rewards_arr[kEnvId * kNumAgents + drone_nearest_car_id] += (target_aoi_arr[kThisTargetAgeArrayIdxOffset + target_idx]-1) / kEpisodeLength;
-            // printf("t:%d a:%d na: %d rew: %f\n", target_idx, nearest_agent_id, drone_nearest_car_id, rewards_arr[kEnvId * kNumAgents + nearest_agent_id]);
+            int drone_nearest_car_id = neighbor_agent_ids_arr[kThisEnvAgentsOffset + nearest_agent_id];
+            rewards_arr[kThisEnvAgentsOffset + drone_nearest_car_id] += (target_aoi_arr[kThisTargetAgeArrayIdxOffset + target_idx]-1) / kEpisodeLength;
+            // printf("t:%d a:%d na: %d rew: %f\n", target_idx, nearest_agent_id, drone_nearest_car_id, rewards_arr[kThisEnvAgentsOffset + nearest_agent_id]);
           }
           target_aoi_arr[kThisTargetAgeArrayIdxOffset + target_idx] = 1.0;
           target_coverage_arr[kThisTargetAgeArrayIdxOffset + target_idx] = 1.0;
@@ -356,10 +424,11 @@ extern "C" {
       }
     }
     __sync_env_threads(); // Make sure all agents have calculated the reward
-
+    const int num_features = 2 + (kNumAgentsObserved << 2) + 100;
     // -------------------------------
     // Compute Observation
     CudaCrowdSimGenerateObservation(
+      state_arr,
       obs_arr,
       agent_types_arr,
       agent_x_arr,
@@ -380,12 +449,36 @@ extern "C" {
       env_timestep_arr,
       kNumAgents,
       kEpisodeLength,
+      num_features,
       kEnvId,
       kThisAgentId,
-      kThisAgentArrayIdx);
+      kThisAgentArrayIdx,
+      kThisEnvAgentsOffset
+      );
 
     __sync_env_threads();  // Wait here to update observation before determining done_arr
-
+        const int global_range = kDroneCarCommRange * 2;
+        CUDACrowdSimGenerateAoIGrid(
+        obs_arr,
+        agent_x_arr,
+        agent_y_arr,
+        target_x_time_list,
+        target_y_time_list,
+        target_aoi_arr,
+        env_timestep_arr,
+        kEnvId,
+        -1,
+        kThisAgentArrayIdx,
+        kThisEnvAgentsOffset,
+        kNumAgents,
+        kNumAgentsObserved,
+        kNumTargets,
+        kEpisodeLength,
+        num_features,
+        max_distance_x,
+        max_distance_y
+      );
+    __sync_env_threads();
     // -------------------------------
     // Use only agent 0's thread to set done_arr
     if (kThisAgentId == 0) {

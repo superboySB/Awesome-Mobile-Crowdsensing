@@ -39,7 +39,9 @@ from warp_drive.utils.pycuda_utils import (
     update_env_header,
     update_env_runner,
 )
+from warp_drive.utils.constants import Constants
 
+_STATE = Constants.STATE
 
 class PyCUDAFunctionManager(CUDAFunctionManager):
     """"""

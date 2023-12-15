@@ -25,8 +25,8 @@ def generate_crowd_sim_animations(
     assert isinstance(episode_states, dict)
     env: CUDACrowdSim = trainer.cuda_envs.env
     # TODO: Hack at here, env is filled with the last timestep or something else, need to figure out why
-    env.agent_x_timelist = episode_states['agent_x']
-    env.agent_y_timelist = episode_states['agent_y']
+    env.agent_x_time_list = episode_states['agent_x']
+    env.agent_y_time_list = episode_states['agent_y']
     metrics = env.collect_info()
     if verbose:
         printer = Metrics()

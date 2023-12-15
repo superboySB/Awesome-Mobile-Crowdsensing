@@ -12,6 +12,7 @@ from gym.spaces import Box, Dict, Discrete, MultiDiscrete
 from warp_drive.utils.constants import Constants
 from warp_drive.utils.data_feed import DataFeed
 
+_STATE = Constants.STATE
 _OBSERVATIONS = Constants.OBSERVATIONS
 _PROCESSED_OBSERVATIONS = Constants.PROCESSED_OBSERVATIONS
 _ACTIONS = Constants.ACTIONS
@@ -344,7 +345,8 @@ def _create_observation_placeholders_helper(
     tensor_feed = DataFeed()
 
     num_envs = env_wrapper.n_envs
-    obs = [env_wrapper.obs_at_reset() for _ in range(num_envs)]
+    first_obs = env_wrapper.obs_at_reset()
+    obs = [first_obs for _ in range(num_envs)]
     assert len(obs) == num_envs
     first_env_id = 0
     if len(agent_ids) == 0:
@@ -380,7 +382,14 @@ def _create_observation_placeholders_helper(
             )
     else:
         raise NotImplementedError("Only array or dict type observations are supported!")
-
+    try:
+        # not considering dim first or last
+        state = env_wrapper.env.global_state
+        tensor_feed.add_data(
+            name=_STATE, data=np.tile(state, reps=num_envs).reshape(num_envs, -1), save_copy_and_apply_at_reset=True
+        )
+    except AttributeError:
+        print("No Global State Exists for this Environment")
     env_wrapper.cuda_data_manager.push_data_to_device(
         tensor_feed, torch_accessible=True
     )
