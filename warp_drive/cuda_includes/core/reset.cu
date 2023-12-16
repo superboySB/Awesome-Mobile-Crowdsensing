@@ -30,6 +30,18 @@ int* done, int feature_dim, int force_reset) {
   }
 }
 
+__global__ void reset_in_bool_when_done_2d(bool* data, const int* ref,
+int* done, int feature_dim, int force_reset) {
+  int env_id = getEnvID(blockIdx.x);
+  int tid = getAgentID(threadIdx.x, blockIdx.x, blockDim.x);
+  if (force_reset > 0.5 || done[env_id] > 0.5) {
+    if (tid < feature_dim) {
+      int data_index = env_id * feature_dim + tid;
+      data[data_index] = ref[data_index];
+    }
+  }
+}
+
 template <class T>
 __device__ void reset_helper_3d(T* data, const T* ref, int feature_dim,
 int data_index) {
@@ -50,6 +62,7 @@ int* done, int agent_dim, int feature_dim, int force_reset) {
   }
 }
 
+
 __global__ void reset_in_int_when_done_3d(int* data, const int* ref,
 int* done, int agent_dim, int feature_dim, int force_reset) {
   int env_id = getEnvID(blockIdx.x);
@@ -61,6 +74,7 @@ int* done, int agent_dim, int feature_dim, int force_reset) {
     }
   }
 }
+
 
 __global__ void undo_done_flag_and_reset_timestep(int* done, int* timestep,
 int force_reset) {

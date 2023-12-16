@@ -145,7 +145,7 @@ class WarpDriveModule(LightningModule):
             default_config = yaml.safe_load(fp)
 
         self.config = config
-        del config['env']['env_config']
+        del config['env_args']['env_config']
         # Fill in any missing configuration parameters using the default values
         # Trainer-related configurations
         self.config["trainer"] = recursive_merge_config_dicts(

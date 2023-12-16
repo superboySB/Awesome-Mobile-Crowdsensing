@@ -1,15 +1,13 @@
 import argparse
 import logging
 import os
-from typing import Union
 from argparse import ArgumentParser
-from datetime import datetime
 import wandb
 import types
 import traceback
 import torch
 
-from common import add_common_arguments, logging_dir
+from common import add_common_arguments, logging_dir, customize_experiment
 from run_configs.mcs_configs_python import run_config, PROJECT_NAME, RUN_NAME, ENV_NAME, checkpoint_dir
 from envs.crowd_sim.crowd_sim import (AOI_METRIC_NAME, DATA_METRIC_NAME,
                                       ENERGY_METRIC_NAME, COVERAGE_METRIC_NAME, MAIN_METRIC_NAME, LARGE_DATASET_NAME)
@@ -19,55 +17,6 @@ import multiprocessing as mp
 import setproctitle
 
 my_root = get_project_root()
-
-
-def update_config_from_tags(tags, config):
-    """
-    automatically update config from tags, following the format:
-    tag1=value1 tag2=value2 ...
-    when inputting a schedule, use the format:
-    tag1=[[epoch1,value1],[epoch2,value2], ...], without space
-    """
-    # Define the keys and their corresponding paths in the config
-    config_paths = {
-        "lr": ('policy', 'lr'),  # Both car and drone
-        "batch_size": ('trainer', 'train_batch_size'),
-        "num_envs": ('trainer', 'num_envs'),
-        "num_episodes": ('trainer', 'num_episodes'),
-        "minibatch": ('trainer', 'num_mini_batches'),
-    }
-
-    # Convert tags into a dictionary for easy lookup
-    tag_dict: dict[str, Union[str, None]] = {}
-    for tag in tags:
-        key, value = tag.split('=') if '=' in tag else (tag, None)
-        tag_dict[key] = value
-
-    # Extract 'num_episodes' first if it exists
-    num_episodes = int(tag_dict['num_episodes']) if 'num_episodes' in tag_dict else 0
-
-    # Process each config key
-    for key, path in config_paths.items():
-        if key in tag_dict:
-            value = tag_dict[key]
-            if isinstance(value, str):  # Update the config if value is provided
-                if key == "lr":  # Special case for lr as it might be a schedule
-                    if '[' in value:  # Check if it's a schedule
-                        # Replace 'num_episodes' token in the lr value, if present
-                        if num_episodes != 0:
-                            value = value.replace('num_episodes', str(num_episodes))
-                        # Parse the schedule string into a list of lists
-                        lr_schedule = eval(value)
-                        # Update the config for car and drone with the lr schedule
-                        config[path[0]]['car'][path[1]] = lr_schedule
-                        config[path[0]]['drone'][path[1]] = lr_schedule
-                    else:
-                        new_value = float(value)
-                        config[path[0]]['car'][path[1]] = new_value
-                        config[path[0]]['drone'][path[1]] = new_value
-                else:
-                    new_value = int(value)
-                    config[path[0]][path[1]] = new_value
 
 
 def run_experiment():
@@ -125,7 +74,7 @@ def run_experiment():
         else:
             logging_option = False
             actual_config = run_config
-        actual_config['env']['env_config'] = new_args.env_config
+        actual_config['env_args']['env_config'] = new_args.env_config
         update_dot_config(actual_config)
         train_batch_size = actual_config['trainer']['train_batch_size']
         num_envs = actual_config['trainer']['num_envs']
@@ -137,7 +86,7 @@ def run_experiment():
         env_registrar.add_cuda_env_src_path(CUDACrowdSim.name,
                                             os.path.join(my_root, "envs", ENV_NAME, "crowd_sim_step.cu"))
         env_wrapper = CUDAEnvWrapper(
-            CUDACrowdSim(**actual_config["env"]),
+            CUDACrowdSim(**actual_config["env_args"]),
             num_envs=num_envs,
             env_backend="pycuda",
             env_registrar=env_registrar
@@ -232,18 +181,7 @@ if __name__ == '__main__':
         help="sweep config for wandb"
     )
     args = parser.parse_args()
-    current_datetime = datetime.now()
-    # Format the date and time as a string
-    datetime_string = current_datetime.strftime("%m%d-%H%M%S")
-    expr_name = (f"{datetime_string}_car{run_config['env']['num_cars']}"
-                 f"_drone{run_config['env']['num_drones']}_kdd2024")
-    if args.tag is not None:
-        # args.tag like [a,b], concat it into a_b
-        full_tag = '_'.join(args.tag)
-        expr_name += f"_{full_tag}"
-    else:
-        args.tag = []
-    update_config_from_tags(args.tag, run_config)
+    expr_name = customize_experiment(args)
     if args.ckpt is not None:
         expr_start_time, train_timestep = args.ckpt
         parent_path = os.path.join(checkpoint_dir, ENV_NAME, RUN_NAME, expr_start_time)

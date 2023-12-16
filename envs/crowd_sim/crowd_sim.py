@@ -2,6 +2,7 @@ import logging
 import os
 from typing import Optional, Tuple, Dict, List, Union, Any
 
+import numpy as np
 import torch
 import folium
 import wandb
@@ -41,6 +42,7 @@ _AGENT_ENERGY = Constants.AGENT_ENERGY
 _OBSERVATIONS = Constants.OBSERVATIONS
 _ACTIONS = Constants.ACTIONS
 _REWARDS = Constants.REWARDS
+_GLOBAL_REWARD = Constants.GLOBAL_REWARDS
 _STATE = Constants.STATE
 teams_name = ("cars", "drones")
 policy_mapping_dict = {
@@ -93,9 +95,11 @@ class CrowdSim:
             env_backend="cpu",
             dynamic_zero_shot=False,
             env_config=None,
+            centralized=True
     ):
         self.float_dtype = np.float32
         self.int_dtype = np.int32
+        self.bool_dtype = np.bool_
         # small number to prevent indeterminate cases
         self.eps = self.float_dtype(1e-10)
         self.config = env_config()
@@ -104,6 +108,7 @@ class CrowdSim:
         if seed is not None:
             self.seed(seed)
 
+        self.centralized = centralized
         self.num_drones = num_drones
         self.num_cars = num_cars
         self.num_agents = self.num_drones + self.num_cars
@@ -161,7 +166,7 @@ class CrowdSim:
         self.target_x_time_list = np.zeros([self.episode_length + 1, self.num_sensing_targets], dtype=np.int_)
         self.target_y_time_list = np.zeros([self.episode_length + 1, self.num_sensing_targets], dtype=np.int_)
         self.target_aoi_timelist = np.ones([self.episode_length + 1, self.num_sensing_targets], dtype=np.int_)
-        self.target_coveraged_timelist = np.zeros([self.episode_length + 1, self.num_sensing_targets], dtype=np.bool_)
+        self.target_coveraged_timelist = np.zeros([self.episode_length + 1, self.num_sensing_targets], dtype=np.int_)
 
         # Fill the new array with data from the full DataFrame
         for _, row in self.human_df.iterrows():
@@ -279,16 +284,13 @@ class CrowdSim:
         self.agent_x_time_list[self.timestep, :] = self.starting_location_x
         self.agent_y_time_list[self.timestep, :] = self.starting_location_y
         self.agent_energy_timelist[self.timestep, :] = self.max_uav_energy
-
         # for target_id in range(self.num_sensing_targets):
         self.target_aoi_timelist[self.timestep, :] = 1
-
         # reset global distance matrix
         self.calculate_global_distance_matrix()
-
         # for logging
         self.data_collection = 0
-        self.target_coveraged_timelist = np.zeros([self.episode_length + 1, self.num_sensing_targets])
+        self.target_coveraged_timelist = np.zeros([self.episode_length + 1, self.num_sensing_targets], dtype=np.int_)
         return self.generate_observation_and_update_state()
 
     def calculate_global_distance_matrix(self):
@@ -339,8 +341,8 @@ class CrowdSim:
         other_agents_y = self.agent_y_time_list[self.timestep, other_agent_ids]
 
         # Calculate relative positions
-        relative_positions_x = (other_agents_x - agent_x) / self.nlon
-        relative_positions_y = (other_agents_y - agent_y) / self.nlat
+        relative_positions_x = (other_agents_x - agent_x)
+        relative_positions_y = (other_agents_y - agent_y)
 
         # Stack the relative positions
         relative_positions = np.stack((relative_positions_x, relative_positions_y), axis=-1)
@@ -375,30 +377,34 @@ class CrowdSim:
                                                 grid_size)
 
         # Generate global state AoI grid
-        state_aoi_grid = self.generate_aoi_grid(int(self.max_distance_x // 2), int(self.max_distance_y // 2),
-                                                self.drone_car_comm_range * 4, self.drone_car_comm_range * 4, grid_size)
+        state_aoi_grid = self.generate_aoi_grid(int(self.max_distance_x // 2),
+                                                int(self.max_distance_y // 2),
+                                                self.drone_car_comm_range * 4,
+                                                self.drone_car_comm_range * 4,
+                                                grid_size)
 
         # Merge parts for observations
         observations = self.float_dtype(np.hstack((self_parts, homoge_parts.reshape(self.num_agents, -1),
                                                    hetero_parts.reshape(self.num_agents, -1),
                                                    aoi_grid_parts.reshape(self.num_agents, -1))))
 
-        agents_state = np.hstack([self_parts, self.agent_x_time_list[self.timestep, :].reshape(-1, 1) / self.nlon,
-                                  self.agent_y_time_list[self.timestep, :].reshape(-1, 1) / self.nlat])
+        agents_state = np.hstack([self_parts, self.agent_x_time_list[self.timestep, :].reshape(-1, 1),
+                                  self.agent_y_time_list[self.timestep, :].reshape(-1, 1)])
         # Global state
         self.global_state = self.float_dtype(np.concatenate([agents_state.ravel(), state_aoi_grid.ravel()]))
         observations = {agent_id: observations[agent_id] for agent_id in range(self.num_agents)}
         return observations
 
-    def generate_aoi_grid(self, grid_centers_x: Union[np.ndarray, int], grid_centers_y: Union[np.ndarray, int],
+    def generate_aoi_grid(self, grid_centers_x: Union[np.ndarray, int, float],
+                          grid_centers_y: Union[np.ndarray, int, float],
                           sensing_range_x: int, sensing_range_y: int, grid_size: int) -> np.ndarray:
         """
         Generate AoI grid parts for each agent. (Grid_centers can be vectored or scalar)
         """
         # AOI grid for all agents
-        if isinstance(grid_centers_x, int):
+        if isinstance(grid_centers_x, (float, int)):
             grid_centers_x = np.array([grid_centers_x], dtype=self.float_dtype)
-        if isinstance(grid_centers_y, int):
+        if isinstance(grid_centers_y, (float, int)):
             grid_centers_y = np.array([grid_centers_y], dtype=self.float_dtype)
         grid_centers = np.stack((grid_centers_x, grid_centers_y), axis=-1)
         # Define grid min and max for each axis
@@ -499,42 +505,52 @@ class CrowdSim:
 
         self.calculate_global_distance_matrix()
 
-        drone_nearest_car_id = np.argsort(self.global_distance_matrix[self.num_cars:self.num_agents, :self.num_cars],
-                                          axis=-1, kind='stable')[:, 0]
-        drone_car_min_distance = self.global_distance_matrix[self.num_cars:self.num_agents, :self.num_cars][
+        # Calculate the minimum distance from each drone to its nearest car
+        drone_nearest_car_id = np.argmin(self.global_distance_matrix[self.num_cars:self.num_agents, :self.num_cars],
+                                         axis=1)
+        drone_car_min_distance = self.global_distance_matrix[self.num_cars:self.num_agents, np.arange(self.num_cars)][
             np.arange(self.num_drones), drone_nearest_car_id]
-        target_nearest_agent_ids = np.argsort(self.global_distance_matrix[:, self.num_agents:], axis=0, kind='stable')
-        target_nearest_agent_distances = self.global_distance_matrix[:, self.num_agents:][
-            target_nearest_agent_ids, np.arange(self.num_sensing_targets)]
 
-        rew = {agent_id: 0.0 for agent_id in range(self.num_agents)}
-        for target_id in range(self.num_sensing_targets):
-            increase_aoi_flag = True
-            for agent_id, target_agent_distance in zip(target_nearest_agent_ids[:, target_id],
-                                                       target_nearest_agent_distances[:, target_id]):
-                if self.agent_types[agent_id] == 0 \
-                        and target_agent_distance <= self.drone_sensing_range:  # TODO：目前假设car和drone的sensing
-                    # range相同，便于判断
-                    rew[agent_id] += (self.target_aoi_timelist[self.timestep - 1, target_id] - 1) / self.episode_length
-                    increase_aoi_flag = False
+        # Calculate the nearest agent for each target and their distances
+        target_nearest_agent_ids = np.argmin(self.global_distance_matrix[:, self.num_agents:], axis=0)
+        target_nearest_agent_distances = self.global_distance_matrix[
+            np.arange(self.num_agents), target_nearest_agent_ids + self.num_agents]
 
-                if self.agent_types[agent_id] == 1 \
-                        and target_agent_distance <= self.drone_sensing_range \
-                        and drone_car_min_distance[agent_id - self.num_cars] <= self.drone_car_comm_range:
-                    rew[agent_id] += (self.target_aoi_timelist[self.timestep - 1, target_id] - 1) / self.episode_length
-                    rew[int(drone_nearest_car_id[agent_id - self.num_cars])] \
-                        += (self.target_aoi_timelist[self.timestep - 1, target_id] - 1) / self.episode_length
-                    increase_aoi_flag = False
+        # Calculate rewards based on agent type and distance
+        is_drone = self.agent_types == 1
+        is_car = self.agent_types == 0
 
-            if increase_aoi_flag:
-                self.target_aoi_timelist[self.timestep, target_id] = self.target_aoi_timelist[
-                                                                         self.timestep - 1, target_id] + 1
-            else:
-                self.target_aoi_timelist[self.timestep, target_id] = 1
-                self.target_coveraged_timelist[self.timestep - 1, target_id] = 1
-                logging.debug(f"target {target_id} is covered at timestep {self.timestep - 1}")
-                self.data_collection += (self.target_aoi_timelist[self.timestep - 1, target_id] -
-                                         self.target_aoi_timelist[self.timestep, target_id])
+        # Reward calculation for drones
+        drone_condition = (is_drone & (target_nearest_agent_distances <= self.drone_sensing_range) & (
+                drone_car_min_distance <= self.drone_car_comm_range))
+
+        # Reward calculation for cars
+        car_condition = (is_car & (target_nearest_agent_distances <= self.drone_sensing_range))
+
+        # Update AOI for targets
+        increase_aoi_flags = ~np.any(np.vstack([car_condition, drone_condition]), axis=0)
+        self.target_aoi_timelist[self.timestep] = np.where(increase_aoi_flags,
+                                                           self.target_aoi_timelist[self.timestep - 1] + 1, 1)
+
+        # Initialize rewards
+        if self.centralized:
+            # Calculate Global reward where each target AoI is recorded.
+            global_reward = np.sum(
+                (self.target_aoi_timelist[self.timestep - 1] - self.target_aoi_timelist[self.timestep])
+                / self.episode_length)
+            rew = np.full(self.num_agents, global_reward)
+        else:
+            rew = np.zeros(self.num_agents)
+            rew += (car_condition * (self.target_aoi_timelist[self.timestep - 1] - 1) / self.episode_length)
+            rew += (drone_condition * (self.target_aoi_timelist[self.timestep - 1] - 1) / self.episode_length)
+
+        # Update coverage and data collection
+        self.target_coveraged_timelist[self.timestep - 1] = np.where(~increase_aoi_flags, True, False)
+        self.data_collection += np.sum(
+            self.target_aoi_timelist[self.timestep - 1] - self.target_aoi_timelist[self.timestep])
+
+        # Convert rewards back to a dictionary format if needed
+        rew_dict = {agent_id: rew_val for agent_id, rew_val in enumerate(rew)}
 
         obs = self.generate_observation_and_update_state()
 
@@ -542,7 +558,7 @@ class CrowdSim:
             "__all__": (self.timestep >= self.episode_length) or over_range
         }
 
-        return obs, rew, done, self.collect_info()
+        return obs, rew_dict, done, self.collect_info()
 
     def collect_info(self) -> Dict[str, float]:
         if isinstance(self, CUDACrowdSim):
@@ -556,12 +572,11 @@ class CrowdSim:
             self.target_aoi_timelist[self.timestep] - self.target_aoi_timelist[self.timestep - 1])
         coverage = np.sum(self.target_coveraged_timelist) / (self.episode_length * self.num_sensing_targets)
         mean_aoi = np.mean(self.target_aoi_timelist[self.timestep])
-        freshness_factor = 1 - np.mean(np.clip(self.target_aoi_timelist[self.timestep] /
+        freshness_factor = 1 - np.mean(np.clip(self.float_dtype(self.target_aoi_timelist[self.timestep]) /
                                                self.aoi_threshold, a_min=0, a_max=1) ** 2)
         # logging.debug(f"freshness_factor: {freshness_factor}, mean_aoi: {mean_aoi}")
         mean_energy = np.mean(self.agent_energy_timelist[self.timestep])
         energy_consumption_ratio = mean_energy / self.max_uav_energy
-        energy_remaining_ratio = 1.0 - energy_consumption_ratio
         info = {AOI_METRIC_NAME: mean_aoi,
                 ENERGY_METRIC_NAME: energy_consumption_ratio,
                 DATA_METRIC_NAME: self.data_collection / (self.episode_length * self.num_sensing_targets),
@@ -569,6 +584,7 @@ class CrowdSim:
                 MAIN_METRIC_NAME: freshness_factor * coverage
                 }
         return info
+
 
     def render(self, output_file=None, plot_loop=False, moving_line=False):
         import geopandas as gpd
@@ -682,25 +698,6 @@ class CrowdSim:
 
         folium.LayerControl().add_to(m)
 
-        # if self.config.env.tallest_locs is not None:
-        #     # 绘制正方形
-        #     for tallest_loc in self.config.env.tallest_locs:
-        #         # folium.Rectangle(
-        #         #     bounds=[(tallest_loc[0] + 0.00025, tallest_loc[1] + 0.0003),
-        #         #             (tallest_loc[0] - 0.00025, tallest_loc[1] - 0.0003)],  # 解决经纬度在地图上的尺度不一致
-        #         #     color="black",
-        #         #     fill=True,
-        #         # ).add_to(m)
-        #         icon_square = folium.plugins.BeautifyIcon(
-        #             icon_shape='rectangle-dot',
-        #             border_color='red',
-        #             border_width=8,
-        #         )
-        #         folium.Marker(location=[tallest_loc[0], tallest_loc[1]],
-        #                         popup=folium.Popup(html=f'<p>raw coord: ({tallest_loc[1]},{tallest_loc[0]})</p>'),
-        #                         tooltip='High-rise building',
-        #                         icon=icon_square).add_to(m)
-
         m.get_root().render()
         m.get_root().save(output_file)
         logging.info(f"{output_file} saved!")
@@ -740,19 +737,17 @@ class CUDACrowdSim(CrowdSim, CUDAEnvironmentContext):
                                  # [self.episode_length + 1, self.num_sensing_targets]
                                  ("target_y", self.float_dtype(self.target_y_time_list), True),
                                  # [self.episode_length + 1, self.num_sensing_targets]
-                                 ("target_aoi", self.float_dtype(np.ones([self.num_sensing_targets, ])), True),
-                                 ("target_coverage", self.int_dtype(np.zeros([self.num_sensing_targets, ])), True),
-                                 ("valid_status", self.int_dtype(np.ones([self.num_agents, ])), True),
+                                 ("target_aoi", self.int_dtype(np.ones([self.num_sensing_targets, ])), True),
+                                 ("target_coverage", self.bool_dtype(np.zeros([self.num_sensing_targets, ])), True),
+                                 ("valid_status", self.bool_dtype(np.ones([self.num_agents, ])), True),
                                  ("neighbor_agent_ids", self.int_dtype(np.full([self.num_agents, ], -1)), True),
                                  ("car_sensing_range", self.float_dtype(self.car_sensing_range)),
                                  ("drone_sensing_range", self.float_dtype(self.drone_sensing_range)),
                                  ("drone_car_comm_range", self.float_dtype(self.drone_car_comm_range)),
-                                 # ("neighbor_pairs", [[Pair() for _ in range(self.num_agents)] for _ in range(self.num_agents - 1)], True),
                                  ("neighbor_agent_distances",
                                   self.float_dtype(np.zeros([self.num_agents, self.num_agents - 1])), True),
                                  ("neighbor_agent_ids_sorted",
                                   self.int_dtype(np.zeros([self.num_agents, self.num_agents - 1])), True),
-                                 # ("timestep", self.int_dtype(self.timestep), True),
                                  ("max_distance_x", self.float_dtype(self.max_distance_x)),
                                  ("max_distance_y", self.float_dtype(self.max_distance_y)),
                                  ("slot_time", self.float_dtype(self.step_time)),
@@ -771,6 +766,7 @@ class CUDACrowdSim(CrowdSim, CUDAEnvironmentContext):
             _OBSERVATIONS,
             _ACTIONS,
             _REWARDS,
+            _GLOBAL_REWARD,
             "agent_types",
             "car_action_space_dx",
             "car_action_space_dy",
@@ -822,6 +818,9 @@ class CUDACrowdSim(CrowdSim, CUDAEnvironmentContext):
 
 class RLlibCUDACrowdSim(MultiAgentEnv):
     def __init__(self, run_config: dict):
+        os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"
+        os.environ["CUDA_VISIBLE_DEVICES"] = str(run_config.get("gpu_id", 0))
+        super().__init__()
         self.iter: int = 0
         requirements = ["env_params", "trainer"]
         for requirement in requirements:
@@ -839,10 +838,16 @@ class RLlibCUDACrowdSim(MultiAgentEnv):
         self.logging_config = additional_params.get('logging_config', None)
         self.trainer_params = run_config.pop("trainer")
         self.env_registrar = EnvironmentRegistrar()
+        self.centralized = additional_params.get('centralized', False)
         if not self.env_registrar.has_env(CUDACrowdSim.name, env_backend="pycuda"):
-            self.env_registrar.add_cuda_env_src_path(CUDACrowdSim.name, os.path.join(get_project_root(),
-                                                                                     "envs", "crowd_sim",
-                                                                                     "crowd_sim_step.cu"))
+            self.env_registrar.add_cuda_env_src_path(CUDACrowdSim.name,
+                                                     os.path.join(
+                                                         get_project_root(),
+                                                         "envs",
+                                                         "crowd_sim",
+                                                         "crowd_sim_step.cu"
+                                                     )
+                                                     )
         # self.env_registrar = additional_params['env_registrar']
         train_batch_size = self.trainer_params['train_batch_size']
         self.num_envs = self.trainer_params['num_envs']
@@ -915,9 +920,13 @@ class RLlibCUDACrowdSim(MultiAgentEnv):
         return env_info
 
     def close(self):
-        pass
+        if wandb.run is not None:
+            wandb.finish()
 
     def vector_reset(self) -> List[EnvObsType]:
+        """
+        Reset all environments.
+        """
         self.env_wrapper.reset()
         # current_observation shape [n_agent, dim_obs]
         current_observation = self.env_wrapper.cuda_data_manager.pull_data_from_device(_OBSERVATIONS)
@@ -936,17 +945,25 @@ class RLlibCUDACrowdSim(MultiAgentEnv):
     def vector_step(
             self, actions: List[EnvActionType]
     ) -> Tuple[List[EnvObsType], List[Dict], List[Dict], List[EnvInfoDict]]:
+        """
+        step all cuda environments at the same time.
+        """
         # convert MultiAgentDict to an ndarray with shape [num_agent, action_index]
         vectorized_actions = np.expand_dims(np.vstack([np.array(list(action_dict.values()))
                                                        for action_dict in actions]), axis=-1)
         # np.asarray(list(map(int, {1: 2, 2: 5, 3: 8}.values()))), 30% faster than
         # actions_ls = [int(actions[agent_id]) for agent_id in actions.keys()]
+        # upload actions to device
         self.env_wrapper.cuda_data_manager.data_on_device_via_torch(_ACTIONS)[:] = (
             torch.tensor(vectorized_actions).cuda())
         dones, info = self.env_wrapper.step()
         # current_observation shape [n_envs, n_agent, dim_obs]
         next_obs = self.env_wrapper.cuda_data_manager.pull_data_from_device(_OBSERVATIONS)
-        reward = self.env_wrapper.cuda_data_manager.pull_data_from_device(_REWARDS)
+        if self.centralized:
+            reward = np.tile(self.env_wrapper.cuda_data_manager.pull_data_from_device(_GLOBAL_REWARD),
+                             reps=self.num_agents).reshape(-1, self.num_agents)
+        else:
+            reward = self.env_wrapper.cuda_data_manager.pull_data_from_device(_REWARDS)
         # convert observation to dict {EnvID: {AgentID: Action}...}
         obs_list, reward_list, info_list = [], [], []
         for env_index in range(self.num_envs):
@@ -1033,7 +1050,18 @@ def setup_wandb(logging_config: dict):
     wandb.define_metric(AOI_METRIC_NAME, summary="min")
 
 
-def get_rllib_obs_and_reward(agents, state, obs, reward):
+def get_rllib_obs_and_reward(agents: list[Any], state: np.ndarray, obs: dict[int, np.ndarray],
+                             reward: dict[int, int]) -> Tuple[Dict, Dict]:
+    """
+    :param agents: list of agent names
+    :param state: global state
+    :param obs: observation
+    :param reward: reward
+    :return: obs_dict, reward_dict
+
+    obs_dict: {agent_name: {"obs": observation, "state": state}}
+    reward_dict: {agent_name: reward}
+    """
     obs_dict = {}
     reward_dict = {}
     for i, key in enumerate(agents):
@@ -1062,24 +1090,22 @@ class RLlibCrowdSim(MultiAgentEnv):
         # print("passed run_config is", run_config)
         super().__init__()
         self.iter = 0
-        map_name = None
-        run_config = deepcopy(run_config)
+        self.iter: int = 0
+        requirements = ["env_params", "trainer"]
+        for requirement in requirements:
+            if requirement not in run_config:
+                raise Exception(f"RLlibCUDACrowdSim expects '{requirement}' in run_config")
+        # assert 'env_registrar' in run_config['env_params'], 'env_registrar must be specified in env_params'
+        assert 'env_setup' in run_config['env_params'], 'env_setup must be specified in env_params'
         # Remove 'map_name' key
-        if "map_name" in run_config:
-            map_name = run_config.pop("map_name")
-        # Rename 'env_params' to 'env_config'
-        if "env_params" in run_config:
-            # print("env_params detected!")
-            additional_params = run_config.pop("env_params")
-            run_config['env_config'] = additional_params['env_setup']
-            self.logging_config = additional_params.get('logging_config', None)
-            # print(f"self.logging_config is {self.logging_config}")
-            run_config.pop("trainer")
-        if "logging_config" in run_config and self.logging_config is None:
-            self.logging_config = run_config.pop("logging_config")
+        try:
+            run_config.pop("map_name")
+        except KeyError:
+            pass
+        additional_params = run_config.pop("env_params")
+        run_config['env_config'] = additional_params['env_setup']
+        self.logging_config = additional_params.get('logging_config', None)
         self.env = CrowdSim(**run_config)
-        if map_name is not None:
-            run_config["map_name"] = map_name
         self.action_space: spaces.Space = next(iter(self.env.action_space.values()))
         # manually setting observation space
         self.obs_ref = self.env.reset()[0]

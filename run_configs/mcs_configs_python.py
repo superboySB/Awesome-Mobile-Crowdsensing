@@ -10,7 +10,7 @@ run_config = dict(
     model_ckpt_filepath=None,
     name=ENV_NAME,
     # Environment settings.
-    env=dict(
+    env_args=dict(
         num_cars=3,  # number of drones in the environment
         num_drones=3,  # number of runners in the environment
     ),

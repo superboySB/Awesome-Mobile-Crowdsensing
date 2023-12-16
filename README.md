@@ -129,7 +129,7 @@ python warp_drive/trainer_pytiotoporch.py --env tag_continuous --auto_scale
 - [X] Finish CUDA implementation
 - [X] Finish PPO baseline
 - [X] Add mobile users as PoIs
-- [ ] Add RLlib wrapper to support more popular RL baselines
+- [X] Add RLlib wrapper to support more popular RL baselines
 - [ ] Try to improve the PPO in warp-drive (currently so naive.)
 - [ ] Add Charging Stations with alive-and-dead settings (currently the electricity is unlimited)
 - [ ] Add macro stragies of mobile users as fixed PoIs

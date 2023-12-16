@@ -4,12 +4,9 @@ import os
 
 from envs.crowd_sim.crowd_sim import (RLlibCUDACrowdSim, LARGE_DATASET_NAME, RLlibCUDACrowdSimWrapper)
 from warp_drive.utils.common import get_project_root
-from common import add_common_arguments, logging_dir
+from common import add_common_arguments, logging_dir, customize_experiment
 from marllib import marl
 from marllib.envs.base_env import ENV_REGISTRY
-from datetime import datetime
-from common import logging_dir
-
 # import warnings
 
 # Suppress UserWarning
@@ -25,14 +22,11 @@ if __name__ == '__main__':
     logging.getLogger().setLevel(logging.WARN)
     parser = argparse.ArgumentParser()
     add_common_arguments(parser)
+    parser.add_argument('--centralized', action='store_true', help='use centralized reward function')
+    # add argument for resume
+    parser.add_argument('--resume', action='store_true', help='resume training')
     args = parser.parse_args()
-
-    current_datetime = datetime.now()
-    # Format the date and time as a string
-    datetime_string = current_datetime.strftime("%m%d-%H%M%S")
-    expr_name = f"{datetime_string}_kdd2024"
-    logging_config = {'log_level': 'INFO', 'logging_dir': logging_dir, 'group': "debug", 'dataset': "SanFrancisco",
-                      'tag': None, 'expr_name': expr_name}
+    expr_name = customize_experiment(args)
     # register new env
     ENV_REGISTRY["crowdsim"] = RLlibCUDACrowdSim
     # initialize env
@@ -44,7 +38,13 @@ if __name__ == '__main__':
     env_params = {'env_setup': BaseEnvConfig}
     # env_params['env_registrar'] = env_registrar
     if args.track:
+        # link logging config with tag
+        logging_config = {'log_level': 'INFO', 'logging_dir': logging_dir, 'group': args.group, 'dataset': args.dataset,
+                          'tag': args.tag, 'expr_name': expr_name}
         env_params['logging_config'] = logging_config
+    else:
+        logging_config = None
+    env_params['centralized'] = args.centralized
     # this is a mocking env not used in actual run.
     env = marl.make_env(environment_name="crowdsim", map_name=LARGE_DATASET_NAME,
                         abs_path=os.path.join(get_project_root(), "run_configs", "mcs_data_collection.yaml"),
@@ -54,8 +54,8 @@ if __name__ == '__main__':
     # customize model
     model = marl.build_model(env, mappo, {"core_arch": "mlp", "encode_layer": "512-512"})
     # start learning
-    mappo.fit(env, model, stop={'episode_reward_mean': 2000, 'timesteps_total': 40000000}, local_mode=False,
-              num_workers=1, sshare_policy='all', checkpoint_freq=100,
+    mappo.fit(env, model, stop={'timesteps_total': 40000000}, local_mode=False,
+              num_workers=0, sshare_policy='all', checkpoint_freq=100,
               ckpt_path=os.path.join("/workspace", "checkpoints", "marllib"), resume=False, evaluation_interval=False,
               logging_config=logging_config if args.track else None, remote_worker_envs=False,
               custom_vector_env=RLlibCUDACrowdSimWrapper

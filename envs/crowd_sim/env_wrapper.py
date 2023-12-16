@@ -314,6 +314,10 @@ class CUDAEnvWrapper:
             self.env_resetter.reset_when_done(
                 self.cuda_data_manager, mode="force_reset"
             )
+            try:
+                self.env.data_collection = 0
+            except AttributeError:
+                pass
             return {}
         return obs  # CPU version
 

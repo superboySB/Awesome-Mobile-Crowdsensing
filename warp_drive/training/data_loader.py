@@ -8,9 +8,8 @@ import logging
 
 import numpy as np
 from gym.spaces import Box, Dict, Discrete, MultiDiscrete
-
-from warp_drive.utils.constants import Constants
 from warp_drive.utils.data_feed import DataFeed
+from warp_drive.utils.constants import Constants
 
 _STATE = Constants.STATE
 _OBSERVATIONS = Constants.OBSERVATIONS
@@ -18,6 +17,7 @@ _PROCESSED_OBSERVATIONS = Constants.PROCESSED_OBSERVATIONS
 _ACTIONS = Constants.ACTIONS
 _ACTION_MASK = Constants.ACTION_MASK
 _REWARDS = Constants.REWARDS
+_GLOBAL_REWARDS = Constants.GLOBAL_REWARDS
 _DONE_FLAGS = Constants.DONE_FLAGS
 
 
@@ -574,7 +574,7 @@ def _create_reward_placeholders_helper(
     # Push rewards to the device
     rewards_placeholder = np.zeros((num_envs, num_agents), dtype=np.float32)
     tensor_feed.add_data(name=_REWARDS + policy_suffix, data=rewards_placeholder)
-
+    tensor_feed.add_data(name=_GLOBAL_REWARDS + policy_suffix, data=np.zeros((num_envs,), dtype=np.float32))
     env_wrapper.cuda_data_manager.push_data_to_device(
         tensor_feed, torch_accessible=True
     )

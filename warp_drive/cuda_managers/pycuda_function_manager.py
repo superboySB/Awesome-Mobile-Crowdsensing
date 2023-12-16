@@ -8,6 +8,7 @@
 
 import logging
 import os
+import re
 import shutil
 import subprocess
 import time
@@ -167,8 +168,8 @@ class PyCUDAFunctionManager(CUDAFunctionManager):
         """
 
         # cubin_file is the targeted compiled exe
-        bin_path = f"{get_project_root()}/warp_drive/cuda_bin"
-        cubin_file = f"{bin_path}/env_runner.fatbin"
+        bin_path = os.path.join(get_project_root(), "warp_drive", "cuda_bin")
+        cubin_file = os.path.join(bin_path, f"{env_name}.cubin")
 
         # Only process 0 is taking care of the compilation
         if self._process_id > 0:
@@ -323,20 +324,32 @@ class PyCUDAFunctionManager(CUDAFunctionManager):
         Default function list defined in the src/core. They can be initialized if
         the CUDA compilation includes src/core
         """
-        default_func_names = [
-            "reset_log_mask",
-            "update_log_mask",
-            "log_one_step_in_float",
-            "log_one_step_in_int",
-            "reset_in_float_when_done_2d",
-            "reset_in_int_when_done_2d",
-            "reset_in_float_when_done_3d",
-            "reset_in_int_when_done_3d",
-            "undo_done_flag_and_reset_timestep",
-            "init_random",
-            "free_random",
-            "sample_actions",
-        ]
+
+        def parse_function_names_from_cpp_header(file_path):
+            # Regular expression pattern for C++ function declarations
+            # This pattern might need to be adjusted depending on your specific code format
+            pattern = r'extern "C" __global__ void\s+\b([A-Za-z_][A-Za-z0-9_]*)\b'
+
+            function_names = []
+
+            with open(file_path, 'r') as file:
+                for line in file:
+                    # Search for patterns that match a function declaration
+                    match = re.search(pattern, line)
+                    if match:
+                        # Add the function name to the list
+                        function_names.append(match.group(1))
+
+            return function_names
+
+        # enumerate the path and search for file:
+        default_func_names = []
+        for root, dirs, files in os.walk(os.path.join(get_project_root(), "warp_drive", "cuda_includes", "core")):
+            for file in files:
+                if file.endswith(".h"):
+                    default_path = os.path.join(root, file)
+                    default_func_names += parse_function_names_from_cpp_header(default_path)
+        print("func_names_number", len(default_func_names))
         self.initialize_functions(default_func_names)
         self._default_functions_initialized = True
         logging.info(
@@ -622,12 +635,16 @@ class PyCUDAEnvironmentReset(CUDAEnvironmentReset):
         self.reset_func_in_int_2d = self._function_manager.get_function(
             "reset_in_int_when_done_2d"
         )
+        self.reset_func_in_bool_2d = self._function_manager.get_function(
+            "reset_in_bool_when_done_2d"
+        )
         self.reset_func_in_float_3d = self._function_manager.get_function(
             "reset_in_float_when_done_3d"
         )
         self.reset_func_in_int_3d = self._function_manager.get_function(
             "reset_in_int_when_done_3d"
         )
+
         self.undo = self._function_manager.get_function(
             "undo_done_flag_and_reset_timestep"
         )
@@ -728,6 +745,8 @@ class PyCUDAEnvironmentReset(CUDAEnvironmentReset):
                     reset_func = self.reset_func_in_float_2d
                 elif "int" in dtype:
                     reset_func = self.reset_func_in_int_2d
+                elif "bool" in dtype:
+                    reset_func = self.reset_func_in_bool_2d
                 else:
                     raise Exception(f"unknown dtype: {dtype}")
                 reset_func(
