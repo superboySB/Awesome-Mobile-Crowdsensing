@@ -23,7 +23,7 @@ import numpy as np
 import torch
 import yaml
 from pytorch_lightning import LightningModule, seed_everything
-from pytorch_lightning.callbacks import Callback
+from pytorch_lightning.callbacks import Callback, ProgressBar
 from torch import Tensor
 from torch.utils.data import DataLoader, Dataset
 
@@ -134,7 +134,7 @@ class WarpDriveModule(LightningModule):
         assert isinstance(create_separate_placeholders_for_each_policy, bool)
         assert obs_dim_corresponding_to_num_agents in ["first", "last"]
         self.obs_dim_corresponding_to_num_agents = obs_dim_corresponding_to_num_agents
-
+        # self.current_batch_episode = 0
         self.cuda_envs: EnvWrapper = env_wrapper
 
         # Load in the default configuration
@@ -209,9 +209,11 @@ class WarpDriveModule(LightningModule):
         assert self.num_episodes > 0
         self.training_batch_size = self._get_config(["trainer", "train_batch_size"])
         self.num_envs = self._get_config(["trainer", "num_envs"])
-
+        self.rollout_count = self.cuda_envs.episode_length // (self.training_batch_size // self.num_envs)
+        assert self.rollout_count > 0
         self.training_batch_size_per_env = self.training_batch_size // self.num_envs
         assert self.training_batch_size_per_env > 0
+        self.print_freq = self._get_config(["saving", "metrics_print_freq"])
 
         # Push all the data and tensor arrays to the GPU
         # upon resetting environments for the very first time.
@@ -831,13 +833,17 @@ class WarpDriveModule(LightningModule):
         # if optimizer_idx == 0:
         # Do this only once for all the optimizers
         self.iters += 1
-
+        # self.current_batch_episode = self.iters // self.rollout_count
         # Flag for logging (which also happens after the last iteration)
         logging_flag = (
-                self.iters % self.config["saving"]["metrics_log_freq"] == 0
+                self.iters % self.rollout_count == 0
                 or self.iters == self.num_iters - 1
         )
-
+        # print(f"{self.current_batch_episode} {logging_flag}")
+        print_flag = (
+                self.iters % self.print_freq == 0
+                or self.iters == self.num_iters - 1
+        )
         optimizers = self.optimizers()
         optimizers = [optimizers] if not isinstance(optimizers, list) else optimizers
         lr_schedulers = self.lr_schedulers()
@@ -846,51 +852,44 @@ class WarpDriveModule(LightningModule):
         num_mini_batches = self.config['trainer']['num_mini_batches']
         env_info = batch[_ENV_INFO]
         del batch[_ENV_INFO]
-        divided_data = shuffle_and_divide_data_dict(batch, num_mini_batches)
         for index, policy in enumerate(self.policies_to_train):
             # Update the timestep and learning rate based on the schedule
             self.current_timestep[policy] += self.training_batch_size
-            batch_loss = torch.tensor(0.0, device=self.device)
             # Initialize metrics dictionary
             if self.config['trainer']['sync_optimizer']:
                 index = 0
-            policy_metrics = {}
-            for batch in divided_data:
-                actions_batch, rewards_batch, done_flags_batch, processed_obs_batch = batch[policy]
-                # Policy evaluation for the entire batch
-                probabilities_batch, value_functions_batch = self.models[policy](obs=processed_obs_batch)
-                optimizers[index].zero_grad()
-                # Loss and metrics computation
-                loss, metrics = self.trainers[policy].compute_loss_and_metrics(
-                    self.current_timestep[policy],
-                    actions_batch,
-                    rewards_batch,
-                    done_flags_batch,
-                    probabilities_batch,
-                    value_functions_batch,
-                    perform_logging=logging_flag,
-                )
-                self.manual_backward(loss)
-                self.configure_gradient_clipping(optimizers[index], index)
-                optimizers[index].step()
-                batch_loss += loss
-
-                # Aggregate metrics for each mini-batch
-                for key, value in metrics.items():
-                    policy_metrics[key] = policy_metrics.get(key, 0) + value
-            lr_schedulers[index].step()
-            # Average metrics over all mini-batches
-            for key in policy_metrics:
-                policy_metrics[key] /= num_mini_batches
+            actions_batch, rewards_batch, done_flags_batch, processed_obs_batch = batch[policy]
+            # Policy evaluation for the entire batch
+            # probabilities_batch, value_functions_batch = self.models[policy](obs=processed_obs_batch)
+            optimizers[index].zero_grad()
+            # Loss and metrics computation
+            loss, metrics = self.trainers[policy].compute_loss_and_metrics(
+                self.current_timestep[policy],
+                processed_obs_batch,
+                actions_batch,
+                rewards_batch,
+                done_flags_batch,
+                self.models[policy],
+                perform_logging=logging_flag,
+                num_mini_batches=num_mini_batches,
+            )
+            self.manual_backward(loss)
+            self.configure_gradient_clipping(optimizers[index], index)
+            optimizers[index].step()
+            # Accumulate losses over policies
+            if losses is None:
+                losses = loss.mean()
+            else:
+                losses += loss.mean()
 
             # Compute and log metrics outside the mini-batch loop
-            if logging_flag:
+            if metrics:
                 # Compute the gradient norm
                 grad_norm = sum(param.grad.data.norm(2).item() for param in self.models[policy].parameters() if
                                 param.grad is not None)
 
                 # Update the metrics dictionary with additional metrics
-                policy_metrics.update(
+                metrics.update(
                     {
                         "Current timestep": int(self.current_timestep[policy]),
                         "Gradient norm": grad_norm,
@@ -902,25 +901,18 @@ class WarpDriveModule(LightningModule):
                 # Reset the sum and counter
                 self.episodic_reward_sum[policy] = torch.tensor(0, dtype=torch.float32, device=self.device)
                 self.num_completed_episodes[policy] = 0
+                if print_flag:
+                    # Log the metrics
+                    self._log_metrics({policy: metrics})
+                for key in metrics:
+                    self.log(f"{policy}/{key}", metrics[key], prog_bar=False, on_step=False, on_epoch=True)
+        lr_schedulers[index].step()
 
-                # Log the metrics
-                self._log_metrics({policy: policy_metrics})
-                for key in policy_metrics:
-                    self.log(f"{policy}/{key}", policy_metrics[key], prog_bar=False, on_step=False, on_epoch=True)
-
-            # Accumulate losses over policies
-            if losses is None:
-                losses = batch_loss.mean()
-            else:
-                losses += batch_loss.mean()
-
-        # Logging that should be done once per epoch, outside the policy loop
-        if torch.sum(done_flags_batch) > 0:
+        if logging_flag:
             for k, v in env_info.items():
                 if isinstance(v, torch.Tensor):
                     env_info[k] = v.mean().item()
                     self.log(f"{k}", env_info[k], prog_bar=False, on_step=False, on_epoch=True)
-            self._log_metrics({_ENV_INFO: env_info})
             # log learning rate from optimizers
             optimizers = self.optimizers()
             optimizers = [optimizers] * len(self.policies_to_train) \
@@ -934,6 +926,10 @@ class WarpDriveModule(LightningModule):
                     on_step=False,
                     on_epoch=True,
                 )
+
+        # Logging that should be done once per epoch, outside the policy loop
+        if print_flag:
+            self._log_metrics({_ENV_INFO: env_info})
 
         # Return the accumulated losses
         return losses
@@ -1034,15 +1030,12 @@ class PerfStatsCallback(Callback):
     Performance stats that will be included in rollout metrics.
     """
 
-    def __init__(self, batch_size=None, num_iters=None, log_freq=1):
-        assert batch_size is not None
-        assert num_iters is not None
+    def __init__(self, batch_size: int, num_iters: int, log_freq=1):
         super().__init__()
         self.batch_size = batch_size
         self.num_iters = num_iters
         self.log_freq = log_freq
-        self.iters = 0
-        self.steps = 0
+        self.iters = self.steps = self.episodes = 0
         self.training_time = 0.0
         self.total_time = 0.0
 
@@ -1084,7 +1077,7 @@ class PerfStatsCallback(Callback):
         assert trainer is not None
         assert pl_module is not None
         self.iters += 1
-        self.steps = self.iters * self.batch_size
+        self.steps += self.batch_size
         self.start_event_batch.record()
 
     def on_train_batch_end(self, trainer=None, pl_module=None, outputs=None, batch=None, batch_idx=None):
@@ -1096,8 +1089,7 @@ class PerfStatsCallback(Callback):
         self.training_time += (
                 self.start_event_batch.elapsed_time(self.end_event_batch) / 1000
         )
-
-        if self.iters % self.log_freq == 0 or self.iters == self.num_iters:
+        if (self.iters % self.log_freq) == 0 or self.iters == self.num_iters:
             self.pretty_print(self.get_perf_stats())
 
     def on_fit_start(self, trainer=None, pl_module=None):
@@ -1134,3 +1126,17 @@ class CUDACallback(Callback):
         assert trainer is not None
         assert pl_module is not None
         print("Training is complete!")
+
+
+class EpochOnlyProgressBar(ProgressBar):
+    def on_train_batch_end(self, trainer, pl_module, outputs, batch, batch_idx, dataloader_idx):
+        # Override to do nothing at the batch level
+        pass
+
+    def on_validation_batch_end(self, trainer, pl_module, outputs, batch, batch_idx, dataloader_idx):
+        # Override to do nothing at the batch level
+        pass
+
+    def on_test_batch_end(self, trainer, pl_module, outputs, batch, batch_idx, dataloader_idx):
+        # Override to do nothing at the batch level
+        pass

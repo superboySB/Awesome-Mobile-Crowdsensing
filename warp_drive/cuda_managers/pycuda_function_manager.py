@@ -349,7 +349,7 @@ class PyCUDAFunctionManager(CUDAFunctionManager):
                 if file.endswith(".h"):
                     default_path = os.path.join(root, file)
                     default_func_names += parse_function_names_from_cpp_header(default_path)
-        print("func_names_number", len(default_func_names))
+        # print("func_names_number", len(default_func_names))
         self.initialize_functions(default_func_names)
         self._default_functions_initialized = True
         logging.info(

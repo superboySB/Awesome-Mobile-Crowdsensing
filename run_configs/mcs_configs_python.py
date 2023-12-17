@@ -19,6 +19,7 @@ run_config = dict(
     trainer=dict(
         num_envs=500,  # number of environment replicas (number of GPU blocks used)
         train_batch_size=8000,  # total batch size used for training per iteration (across all the environments)
+        episode_length=120,
         num_episodes=num_episodes,
         # total number of episodes to run the training for (can be arbitrarily high!) # 120 x 5000000 = 600M
         num_mini_batches=4,  # number of mini-batches to split the training batch into
@@ -66,7 +67,7 @@ run_config = dict(
     ),
     # Checkpoint saving setting.
     saving=dict(
-        metrics_log_freq=1000,  # how often (in iterations) to print the metrics
+        metrics_print_freq=100,  # how often (in iterations) to print the metrics
         model_params_save_freq=5000,  # how often (in iterations) to save the model parameters
         basedir=checkpoint_dir,  # base folder used for saving, do not change (because of docker)
         name=ENV_NAME,  # experiment name

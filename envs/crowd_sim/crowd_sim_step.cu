@@ -385,7 +385,6 @@ __device__ void CUDACrowdSimGenerateAoIGrid(
     }
     __sync_env_threads(); // Make sure all agents have updated their valid status
     // printf("%d\n", neighbor_agent_ids_arr[kThisEnvAgentsOffset + 5]);
-
     // -------------------------------
     // Compute reward
     int count = 0;
@@ -434,12 +433,11 @@ __device__ void CUDACrowdSimGenerateAoIGrid(
         }
     }
     // Normalize rewards
-    int total = kEpisodeLength * kNumTargets;
     for(int i = 0;i < kNumAgents;i++){
       rewards_arr[kThisEnvAgentsOffset + i] /= kEpisodeLength;
 //       printf("agent %d reward: %f\n", i, rewards_arr[kThisEnvAgentsOffset + i]);
     }
-    global_rewards_arr[kEnvId] /= total;
+    global_rewards_arr[kEnvId] /= kEpisodeLength;
   }
     __sync_env_threads(); // Make sure all agents have calculated the reward
     const int num_features = 2 + (kNumAgentsObserved << 2) + 100;

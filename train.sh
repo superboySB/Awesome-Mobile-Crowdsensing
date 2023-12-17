@@ -2,8 +2,8 @@
 
 dataset_name='SanFrancisco'
 exp_name='WARP'_$dataset_name
-session_name=$exp_name'_2'
-cards=(1 3 1 3 0 2)
+session_name=$exp_name
+cards=(0 1 2 3)
 card_num=${#cards[@]}
 dry_run=false
 # Process command-line arguments
@@ -20,12 +20,14 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 trains=(
-    "--track --dataset '$dataset_name' --tag 'lr=4e-5' 'batch_size=4000' 'num_episodes=10000000' single-optim"
-    "--track --dataset '$dataset_name' --tag 'lr=[[0,8e-5],[num_episodes*120,0]]' 'batch_size=4000' 'num_episodes=10000000' single-optim"
-    "--track --dataset '$dataset_name' --tag 'lr=8e-5' 'batch_size=4000' 'num_episodes=10000000' single-optim"
-    "--track --dataset '$dataset_name' --tag 'lr=4e-5' 'batch_size=8000' 'num_episodes=10000000' single-optim"
-    "--track --dataset '$dataset_name' --tag 'lr=[[0,8e-5],[num_episodes*120,0]]' 'batch_size=8000' 'num_episodes=10000000' single-optim"
-    "--track --dataset '$dataset_name' --tag 'lr=8e-5' 'batch_size=8000' 'num_episodes=10000000' single-optim"
+    "--tag 'lr=4e-5' 'batch_size=15000' 'num_episodes=10000000'"
+    "--tag 'lr=[[0,8e-5],[num_episodes*120,0]]' 'batch_size=15000' 'num_episodes=10000000'"
+    "--tag 'lr=8e-5' 'batch_size=15000' 'num_episodes=10000000'"
+    "--tag 'lr=8e-5' 'batch_size=15000' 'num_episodes=10000000' 'use_gae=True'"
+    "--tag 'lr=4e-5' 'batch_size=20000' 'num_episodes=10000000'"
+    "--tag 'lr=[[0,8e-5],[num_episodes*120,0]]' 'batch_size=20000' 'num_episodes=10000000'"
+    "--tag 'lr=8e-5' 'batch_size=20000' 'num_episodes=10000000'"
+    "--tag 'lr=8e-5' 'batch_size=20000' 'num_episodes=10000000' 'use_gae=True'"
 )
 
 
@@ -59,7 +61,7 @@ for ((i = 0; i < train_num; i++)); do
   # shellcheck disable=SC2004
   # if want to add $PATH, remember to add / before $
   command="CUDA_VISIBLE_DEVICES=${cards[card_id]}\
-  python train_rl_policy.py ${trains[i]}"
+  python train_rl_policy.py --track --dataset '$dataset_name' ${trains[i]}"
   echo "$command"
   if [ "$dry_run" = "false" ]
   then

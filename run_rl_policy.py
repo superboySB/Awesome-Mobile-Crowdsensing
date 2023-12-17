@@ -1,10 +1,11 @@
 """
 Helper file for generating an environment rollout
 """
+from marllib import marl
 
 from warp_drive.trainer_lightning import WarpDriveModule
 from warp_drive.training.trainer import Metrics
-from envs.crowd_sim.crowd_sim import COVERAGE_METRIC_NAME, LARGE_DATASET_NAME
+from envs.crowd_sim.crowd_sim import COVERAGE_METRIC_NAME, LARGE_DATASET_NAME, RLlibCUDACrowdSim
 from run_configs.mcs_configs_python import run_config, checkpoint_dir
 from tqdm import tqdm
 import matplotlib.pyplot as plt
@@ -13,7 +14,21 @@ import re
 import subprocess
 
 
-def generate_crowd_sim_animations(
+def generate_crowd_sim_animations_rllib(
+        model,
+        env: RLlibCUDACrowdSim,
+):
+    terminated = truncated = False
+    episode_reward = 0
+    obs = env.reset()
+    while not terminated and not truncated:
+        action = model.compute_single_action(obs)
+        obs, reward, terminated, info = env.step(action)
+        episode_reward += reward
+    return episode_reward
+
+
+def generate_crowd_sim_animations_warp_drive(
         trainer: WarpDriveModule,
         animate: bool = False,
         verbose: bool = False,
@@ -52,10 +67,10 @@ def setup_cuda_crowd_sim_env(dynamic_zero_shot: bool = False, dataset: str = Non
         from datasets.KAIST.env_config import BaseEnvConfig
     else:
         raise NotImplementedError(f"dataset {dataset} not supported")
-    run_config["env"]['dynamic_zero_shot'] = dynamic_zero_shot
-    run_config["env"]['env_config'] = BaseEnvConfig
+    run_config["env_args"]['dynamic_zero_shot'] = dynamic_zero_shot
+    run_config["env_args"]['env_config'] = BaseEnvConfig
     env_wrapper = CUDAEnvWrapper(
-        CUDACrowdSim(**run_config["env"]),
+        CUDACrowdSim(**run_config["env_args"]),
         num_envs=run_config["trainer"]["num_envs"],
         env_backend="pycuda",
         env_registrar=env_registrar
@@ -105,7 +120,7 @@ def benchmark_coverage(directory: str):
 
         if os.path.exists(car_path) and os.path.exists(drone_path):
             wd_module.load_model_checkpoint_separate({"car": car_path, "drone": drone_path})
-            metrics = generate_crowd_sim_animations(wd_module)
+            metrics = generate_crowd_sim_animations_warp_drive(wd_module)
             coverage_list.append(metrics[COVERAGE_METRIC_NAME])
 
             if metrics[COVERAGE_METRIC_NAME] > best_coverage:
@@ -138,6 +153,11 @@ if __name__ == "__main__":
     from warp_drive.utils.env_registrar import EnvironmentRegistrar
     from warp_drive.utils.common import get_project_root
 
+    # register all scenario with env class
+    ENV_REGISTRY = {}
+    # add nvcc path to os environment
+    os.environ["PATH"] += os.pathsep + '/usr/local/cuda/bin'
+
     parser = argparse.ArgumentParser()
     default_output_dir = os.path.join('/workspace', 'saved_data', 'trajectories', 'logs.html')
     parser.add_argument('--output_dir', type=str, default=default_output_dir)
@@ -146,6 +166,23 @@ if __name__ == "__main__":
     parser.add_argument('--moving_line', action='store_true')
     parser.add_argument("--dyn_zero_shot", action="store_true")
     args = parser.parse_args()
+    # register new env
+    ENV_REGISTRY["crowdsim"] = RLlibCUDACrowdSim
+    # initialize env
+    if args.dataset == LARGE_DATASET_NAME:
+        from datasets.Sanfrancisco.env_config import BaseEnvConfig
+    else:
+        from datasets.KAIST.env_config import BaseEnvConfig
+
+    env_params = {'env_setup': BaseEnvConfig}
+    env = marl.make_env(environment_name="crowdsim", map_name=LARGE_DATASET_NAME,
+                        abs_path=os.path.join(get_project_root(), "run_configs", "mcs_data_collection.yaml"),
+                        env_params=env_params)
+    # pick mappo algorithms
+    mappo = marl.algos.mappo(hyperparam_source="common")
+    # customize model
+    model = marl.build_model(env, mappo, {"core_arch": "mlp", "encode_layer": "512-512"})
+    generate_crowd_sim_animations_rllib()
     wd_module = setup_cuda_crowd_sim_env(args.dyn_zero_shot, args.dataset)
     # generalized from KAIST to San Francisco
     parent_path = checkpoint_dir
@@ -170,7 +207,7 @@ if __name__ == "__main__":
                 wd_module.load_model_checkpoint(full_ckpt_name)
             else:
                 print("no valid checkpoint found")
-        generate_crowd_sim_animations(wd_module, animate=True, verbose=True)
+        generate_crowd_sim_animations_warp_drive(wd_module, animate=True, verbose=True)
         # # send html to local
         # result_file = args.output_dir
         # destination = "Charlie@10.108.17.19:~/Downloads"

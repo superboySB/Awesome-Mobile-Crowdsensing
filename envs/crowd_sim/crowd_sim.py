@@ -572,14 +572,13 @@ class CrowdSim:
                 _AGENT_ENERGY).mean(axis=0)
             self.target_coveraged_timelist[self.timestep, :] = self.cuda_data_manager.pull_data_from_device(
                 "target_coverage").mean(axis=0)
-            # print(f"timestep: {self.timestep} {np.sum(self.target_coveraged_timelist)}")
         self.data_collection += np.sum(
             self.target_aoi_timelist[self.timestep] - self.target_aoi_timelist[self.timestep - 1])
         coverage = np.sum(self.target_coveraged_timelist) / (self.episode_length * self.num_sensing_targets)
         mean_aoi = np.mean(self.target_aoi_timelist[self.timestep])
         freshness_factor = 1 - np.mean(np.clip(self.float_dtype(self.target_aoi_timelist[self.timestep]) /
                                                self.aoi_threshold, a_min=0, a_max=1) ** 2)
-        # logging.debug(f"freshness_factor: {freshness_factor}, mean_aoi: {mean_aoi}")
+        logging.debug(f"freshness_factor: {freshness_factor}, mean_aoi: {mean_aoi}")
         mean_energy = np.mean(self.agent_energy_timelist[self.timestep])
         energy_consumption_ratio = mean_energy / self.max_uav_energy
         info = {AOI_METRIC_NAME: mean_aoi,
@@ -764,7 +763,6 @@ class CUDACrowdSim(CrowdSim, CUDAEnvironmentContext):
         return data_dict
 
     def step(self, actions=None) -> Tuple[Dict, Dict]:
-        print(f"Timestep in CUDACrowdSim {self.timestep}")
         logging.debug(f"Timestep in CUDACrowdSim {self.timestep}")
         args = [
             _STATE,
@@ -826,7 +824,7 @@ class CUDACrowdSim(CrowdSim, CUDAEnvironmentContext):
 class RLlibCUDACrowdSim(MultiAgentEnv):
     def __init__(self, run_config: dict):
         os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"
-        os.environ["CUDA_VISIBLE_DEVICES"] = str(run_config.get("gpu_id", 0))
+        os.environ["CUDA_VISIBLE_DEVICES"] = str(run_config.get("gpu_id", 1))
         super().__init__()
         self.iter: int = 0
         requirements = ["env_params", "trainer"]
@@ -1081,13 +1079,11 @@ def get_rllib_obs_and_reward(agents: list[Any], state: np.ndarray, obs: dict[int
 
 
 def log_env_metrics(cur_iter, info: dict):
-    cur_iter += 1
-    if (cur_iter + 1) % 100 == 0:
-        # Create table data
-        table_data = [["Metric Name", "Value"]]
-        table_data.extend([[key, value] for key, value in info.items()])
-        # Print the table
-        logging.info(tabulate(table_data, headers="firstrow", tablefmt="grid"))
+    # Create table data
+    table_data = [["Metric Name", "Value"]]
+    table_data.extend([[key, value] for key, value in info.items()])
+    # Print the table
+    logging.info(tabulate(table_data, headers="firstrow", tablefmt="grid"))
     if wandb.run is not None:
         wandb.log(info)
 
@@ -1152,7 +1148,7 @@ class RLlibCrowdSim(MultiAgentEnv):
         if dones["__all__"]:
             log_env_metrics(self.iter, info)
         # else:
-        # print("wandb not detected")
+        logging.debug("wandb not detected")
         # truncated = {"__all__": False}
         # figure out a way to transfer metrics information out, in marllib, info can only be the subset of obs.
         # see 1.8.0 ray/rllib/env/base_env.py L437

@@ -7,7 +7,7 @@ import types
 import traceback
 import torch
 
-from common import add_common_arguments, logging_dir, customize_experiment
+from common import add_common_arguments, logging_dir, customize_experiment, closest_multiple
 from run_configs.mcs_configs_python import run_config, PROJECT_NAME, RUN_NAME, ENV_NAME, checkpoint_dir
 from envs.crowd_sim.crowd_sim import (AOI_METRIC_NAME, DATA_METRIC_NAME,
                                       ENERGY_METRIC_NAME, COVERAGE_METRIC_NAME, MAIN_METRIC_NAME, LARGE_DATASET_NAME)
@@ -15,6 +15,8 @@ from warp_drive.utils.common import get_project_root
 from pytorch_lightning.callbacks import ModelCheckpoint
 import multiprocessing as mp
 import setproctitle
+
+total_logging_limit = 100000
 
 my_root = get_project_root()
 
@@ -96,6 +98,14 @@ def run_experiment():
             "car": list(env_wrapper.env.cars),
             "drone": list(env_wrapper.env.drones),
         }
+        episode_length = env_wrapper.env.episode_length
+        rollout_count = episode_length // (train_batch_size // num_envs)
+        print_freq = closest_multiple(rollout_count, actual_config["saving"]["metrics_print_freq"])
+        actual_config["saving"]["metrics_print_freq"] = print_freq
+        # logging_limit = 100000
+        # num_iters = actual_config['trainer']['num_episodes'] * episode_length / train_batch_size
+        # log_freq = 1 if num_iters > logging_limit else ceil(num_iters / logging_limit)
+        # Define callbacks.
         wd_module = WarpDriveModule(
             env_wrapper=env_wrapper,
             config=dict(actual_config),
@@ -105,19 +115,17 @@ def run_experiment():
             verbose=True,
             results_dir=expr_name
         )
-        log_freq = actual_config["saving"]["metrics_log_freq"]
-        # Define callbacks.
         cuda_callback = CUDACallback(module=wd_module)
         perf_stats_callback = PerfStatsCallback(
             batch_size=wd_module.training_batch_size,
             num_iters=wd_module.num_iters,
-            log_freq=log_freq,
+            log_freq=print_freq,
         )
         checkpoint_callback = ModelCheckpoint(
             dirpath=os.path.join(checkpoint_dir, ENV_NAME, RUN_NAME, expr_name),
             # Specify the path to save the checkpoints
             filename='checkpoint_{epoch}',  # Naming convention for checkpoint files
-            every_n_epochs=actual_config['saving']['model_params_save_freq'],  # Save a checkpoint every 5 epochs
+            every_n_epochs=actual_config['saving']['model_params_save_freq'],
             every_n_train_steps=None,  # Set this to a number if you want checkpointing by steps
             save_top_k=-1,  # Set how many of the latest checkpoints you want to keep
             save_weights_only=False  # Set to False if you want to save the whole model
@@ -126,7 +134,6 @@ def run_experiment():
         # # Also, set the number of gpus to 1, since this notebook uses just a single GPU.
         num_gpus = 1
         num_episodes = actual_config["trainer"]["num_episodes"]
-        episode_length = env_wrapper.env.episode_length
         training_batch_size = actual_config["trainer"]["train_batch_size"]
         num_epochs = int(num_episodes * episode_length / training_batch_size)
         # Set reload_dataloaders_every_n_epochs=1 to invoke
@@ -181,7 +188,7 @@ if __name__ == '__main__':
         help="sweep config for wandb"
     )
     args = parser.parse_args()
-    expr_name = customize_experiment(args)
+    expr_name = customize_experiment(args, run_config=run_config)
     if args.ckpt is not None:
         expr_start_time, train_timestep = args.ckpt
         parent_path = os.path.join(checkpoint_dir, ENV_NAME, RUN_NAME, expr_start_time)

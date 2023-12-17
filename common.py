@@ -6,7 +6,6 @@ import yaml
 from datetime import datetime
 import argparse
 from envs.crowd_sim.crowd_sim import LARGE_DATASET_NAME
-from run_configs.mcs_configs_python import run_config
 
 
 def add_common_arguments(parser: ArgumentParser):
@@ -40,7 +39,7 @@ def add_common_arguments(parser: ArgumentParser):
 logging_dir = os.path.join("/workspace", "saved_data")
 
 
-def customize_experiment(args: argparse.Namespace, yaml_config_path: str = None):
+def customize_experiment(args: argparse.Namespace, run_config: dict = None, yaml_config_path: str = None, ):
     """
     Setup tags to update hyperparameters based on argparse arguments and optionally a YAML configuration file.
     The function appends attributes set to True in both argparse and the YAML file as tags.
@@ -70,7 +69,8 @@ def customize_experiment(args: argparse.Namespace, yaml_config_path: str = None)
         full_tag = '_'.join(tags)
         expr_name += f"_{full_tag}"
 
-    update_config_from_tags(tags, run_config)
+    if run_config is not None:
+        update_config_from_tags(tags, run_config)
 
     return expr_name
 
@@ -85,6 +85,7 @@ def update_config_from_tags(tags, config):
     # Define the keys and their corresponding paths in the config
     config_paths = {
         "lr": ('policy', 'lr'),  # Both car and drone
+        "use_gae": ('policy', 'use_gae'),
         "batch_size": ('trainer', 'train_batch_size'),
         "num_envs": ('trainer', 'num_envs'),
         "num_episodes": ('trainer', 'num_episodes'),
@@ -105,20 +106,33 @@ def update_config_from_tags(tags, config):
         if key in tag_dict:
             value = tag_dict[key]
             if isinstance(value, str):  # Update the config if value is provided
-                if key == "lr":  # Special case for lr as it might be a schedule
+                if key == "lr" or key == "use_gae":  # Special case for lr as it might be a schedule
                     if '[' in value:  # Check if it's a schedule
                         # Replace 'num_episodes' token in the lr value, if present
                         if num_episodes != 0:
                             value = value.replace('num_episodes', str(num_episodes))
-                        # Parse the schedule string into a list of lists
-                        lr_schedule = eval(value)
-                        # Update the config for car and drone with the lr schedule
-                        config[path[0]]['car'][path[1]] = lr_schedule
-                        config[path[0]]['drone'][path[1]] = lr_schedule
-                    else:
-                        new_value = float(value)
-                        config[path[0]]['car'][path[1]] = new_value
-                        config[path[0]]['drone'][path[1]] = new_value
+                    new_value = eval(value)
+                    config[path[0]]['car'][path[1]] = new_value
+                    config[path[0]]['drone'][path[1]] = new_value
                 else:
-                    new_value = int(value)
+                    new_value = eval(value)
                     config[path[0]][path[1]] = new_value
+
+
+def closest_multiple(a, b):
+    """
+    Calculate the multiple of number 'a' which is closest to number 'b'.
+
+    Parameters:
+    a (int): The number whose multiple is to be found.
+    b (int): The target number to approach.
+
+    Returns:
+    int: The multiple of 'a' closest to 'b'.
+    """
+    # Finding the nearest multiple of 'a' to 'b' can be done by dividing 'b' by 'a',
+    # rounding the result to the nearest whole number, and then multiplying by 'a'.
+    if b % a == 0:
+        return b
+    multiple = round(b / a) * a
+    return multiple
