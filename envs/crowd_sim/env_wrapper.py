@@ -314,10 +314,7 @@ class CUDAEnvWrapper:
             self.env_resetter.reset_when_done(
                 self.cuda_data_manager, mode="force_reset"
             )
-            try:
-                self.env.data_collection = 0
-            except AttributeError:
-                pass
+            self.env.history_reset()
             return {}
         return obs  # CPU version
 
@@ -334,7 +331,7 @@ class CUDAEnvWrapper:
             "reset_only_done_envs() only works "
             "for pycuda backends and self.reset_on_host = False"
         )
-
+        self.env.history_reset()
         self.env_resetter.reset_when_done(self.cuda_data_manager, mode="if_done")
         return {}
 

@@ -166,7 +166,7 @@ class CrowdSim:
         self.target_x_time_list = np.zeros([self.episode_length + 1, self.num_sensing_targets], dtype=np.int_)
         self.target_y_time_list = np.zeros([self.episode_length + 1, self.num_sensing_targets], dtype=np.int_)
         self.target_aoi_timelist = np.ones([self.episode_length + 1, self.num_sensing_targets], dtype=np.int_)
-        self.target_coveraged_timelist = np.zeros([self.episode_length + 1, self.num_sensing_targets], dtype=np.int_)
+        self.target_coveraged_timelist = np.zeros([self.episode_length + 1, self.num_sensing_targets], dtype=np.bool_)
 
         # Fill the new array with data from the full DataFrame
         for _, row in self.human_df.iterrows():
@@ -272,25 +272,29 @@ class CrowdSim:
         self.np_random.seed(seed)
         return [seed]
 
-    def reset(self):
-        """
-        Env reset().
-        """
+    def history_reset(self):
         # Reset time to the beginning
         self.timestep = 0
-
         # Re-initialize the global state
         # for agent_id in range(self.num_agents):
         self.agent_x_time_list[self.timestep, :] = self.starting_location_x
         self.agent_y_time_list[self.timestep, :] = self.starting_location_y
         self.agent_energy_timelist[self.timestep, :] = self.max_uav_energy
         # for target_id in range(self.num_sensing_targets):
+        self.target_aoi_timelist = np.zeros([self.episode_length + 1, self.num_sensing_targets], dtype=np.int_)
         self.target_aoi_timelist[self.timestep, :] = 1
         # reset global distance matrix
         self.calculate_global_distance_matrix()
         # for logging
         self.data_collection = 0
-        self.target_coveraged_timelist = np.zeros([self.episode_length + 1, self.num_sensing_targets], dtype=np.int_)
+        # print("Reset target coverage timelist")
+        self.target_coveraged_timelist = np.zeros([self.episode_length + 1, self.num_sensing_targets], dtype=np.bool_)
+
+    def reset(self):
+        """
+        Env reset().
+        """
+        self.history_reset()
         return self.generate_observation_and_update_state()
 
     def calculate_global_distance_matrix(self):
@@ -341,8 +345,8 @@ class CrowdSim:
         other_agents_y = self.agent_y_time_list[self.timestep, other_agent_ids]
 
         # Calculate relative positions
-        relative_positions_x = (other_agents_x - agent_x)
-        relative_positions_y = (other_agents_y - agent_y)
+        relative_positions_x = (other_agents_x - agent_x) / self.nlon
+        relative_positions_y = (other_agents_y - agent_y) / self.nlat
 
         # Stack the relative positions
         relative_positions = np.stack((relative_positions_x, relative_positions_y), axis=-1)
@@ -388,8 +392,8 @@ class CrowdSim:
                                                    hetero_parts.reshape(self.num_agents, -1),
                                                    aoi_grid_parts.reshape(self.num_agents, -1))))
 
-        agents_state = np.hstack([self_parts, self.agent_x_time_list[self.timestep, :].reshape(-1, 1),
-                                  self.agent_y_time_list[self.timestep, :].reshape(-1, 1)])
+        agents_state = np.hstack([self_parts, self.agent_x_time_list[self.timestep, :].reshape(-1, 1) / self.nlon,
+                                  self.agent_y_time_list[self.timestep, :].reshape(-1, 1) / self.nlat])
         # Global state
         self.global_state = self.float_dtype(np.concatenate([agents_state.ravel(), state_aoi_grid.ravel()]))
         observations = {agent_id: observations[agent_id] for agent_id in range(self.num_agents)}
@@ -568,6 +572,7 @@ class CrowdSim:
                 _AGENT_ENERGY).mean(axis=0)
             self.target_coveraged_timelist[self.timestep, :] = self.cuda_data_manager.pull_data_from_device(
                 "target_coverage").mean(axis=0)
+            # print(f"timestep: {self.timestep} {np.sum(self.target_coveraged_timelist)}")
         self.data_collection += np.sum(
             self.target_aoi_timelist[self.timestep] - self.target_aoi_timelist[self.timestep - 1])
         coverage = np.sum(self.target_coveraged_timelist) / (self.episode_length * self.num_sensing_targets)
@@ -710,6 +715,9 @@ class CUDACrowdSim(CrowdSim, CUDAEnvironmentContext):
     and also the CUDAEnvironmentContext
     """
 
+    def history_reset(self):
+        super().history_reset()
+
     def get_data_dictionary(self):
         """
         Create a dictionary of data to push to the device
@@ -756,10 +764,7 @@ class CUDACrowdSim(CrowdSim, CUDAEnvironmentContext):
         return data_dict
 
     def step(self, actions=None) -> Tuple[Dict, Dict]:
-        if self.timestep >= self.episode_length:
-            self.timestep = 0
-        else:
-            self.timestep += 1
+        print(f"Timestep in CUDACrowdSim {self.timestep}")
         logging.debug(f"Timestep in CUDACrowdSim {self.timestep}")
         args = [
             _STATE,
@@ -810,9 +815,11 @@ class CUDACrowdSim(CrowdSim, CUDAEnvironmentContext):
         else:
             raise Exception("CUDACrowdSim expects env_backend = 'pycuda' ")
         # Pull data from the device
-        dones = self.cuda_data_manager.pull_data_from_device("_done_")
-        # Update environment state
+        # dones = self.cuda_data_manager.pull_data_from_device("_done_")
+        # Update environment state (note self.global_state is vectorized for RLlib)
+        dones = self.bool_dtype(self.cuda_data_manager.pull_data_from_device("_done_"))
         self.global_state = self.float_dtype(self.cuda_data_manager.pull_data_from_device(_STATE))
+        self.timestep = int(self.cuda_data_manager.pull_data_from_device("_timestep_").mean())
         return dones, self.collect_info()
 
 

@@ -388,10 +388,12 @@ __device__ void CUDACrowdSimGenerateAoIGrid(
 
     // -------------------------------
     // Compute reward
+    int count = 0;
     if (kThisAgentId == 0){
       const int kThisTargetAgeArrayIdxOffset = kEnvId * kNumTargets;
       const int kThisTargetPositionTimeListIdxOffset = env_timestep_arr[kEnvId] * kNumTargets;
     for (int target_idx = 0; target_idx < kNumTargets; target_idx++) {
+        target_coverage_arr[kThisTargetAgeArrayIdxOffset + target_idx] = false;
         float min_dist = kMaxDistance;
         int nearest_agent_id = -1;
         float target_x = target_x_time_list[kThisTargetPositionTimeListIdxOffset + target_idx];
@@ -422,18 +424,20 @@ __device__ void CUDACrowdSimGenerateAoIGrid(
             }
             target_aoi_arr[kThisTargetAgeArrayIdxOffset + target_idx] = 1;
             target_coverage_arr[kThisTargetAgeArrayIdxOffset + target_idx] = true;
+            count++;
             global_rewards_arr[kEnvId] += reward_increment;
-//             printf("target %d covered\n", target_idx);
+//             printf("target %d covered, coverage arr %d\n", target_idx, target_coverage_arr[kThisTargetAgeArrayIdxOffset + target_idx]);
         } else {
             target_aoi_arr[kThisTargetAgeArrayIdxOffset + target_idx]++;
             global_rewards_arr[kEnvId]--;
-//             printf("target %d not covered\n", target_idx);
+//             printf("target %d not covered, coverage arr %d\n", target_idx, target_coverage_arr[kThisTargetAgeArrayIdxOffset + target_idx]);
         }
     }
     // Normalize rewards
     int total = kEpisodeLength * kNumTargets;
     for(int i = 0;i < kNumAgents;i++){
       rewards_arr[kThisEnvAgentsOffset + i] /= kEpisodeLength;
+//       printf("agent %d reward: %f\n", i, rewards_arr[kThisEnvAgentsOffset + i]);
     }
     global_rewards_arr[kEnvId] /= total;
   }
@@ -503,6 +507,7 @@ __device__ void CUDACrowdSimGenerateAoIGrid(
     if (kThisAgentId == 0) {
       if (env_timestep_arr[kEnvId] == kEpisodeLength || over_range) {
           done_arr[kEnvId] = 1;
+//           printf("coverage: %d\n", count);
       }
     }
   }

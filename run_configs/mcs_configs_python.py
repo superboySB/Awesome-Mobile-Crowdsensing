@@ -66,7 +66,7 @@ run_config = dict(
     ),
     # Checkpoint saving setting.
     saving=dict(
-        metrics_log_freq=100,  # how often (in iterations) to print the metrics
+        metrics_log_freq=1000,  # how often (in iterations) to print the metrics
         model_params_save_freq=5000,  # how often (in iterations) to save the model parameters
         basedir=checkpoint_dir,  # base folder used for saving, do not change (because of docker)
         name=ENV_NAME,  # experiment name

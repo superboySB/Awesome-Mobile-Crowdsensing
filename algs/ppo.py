@@ -68,7 +68,7 @@ class PPO:
             returns_batch, advantages_batch, deltas_batch = (torch.zeros_like(rewards_batch),) * 3
             returns_batch[-1] = (
                     done_flags_batch[-1][:, None] * rewards_batch[-1]
-                    + (1 - done_flags_batch[-1][:, None]) * value_functions_batch_detached[-1]
+                    + (~ done_flags_batch[-1][:, None]) * value_functions_batch_detached[-1]
             )
             prev_advantage = torch.zeros_like(returns_batch[0])
             num_of_steps = returns_batch.shape[0]
@@ -76,18 +76,18 @@ class PPO:
             for step in reversed(range(num_of_steps - 1)):
                 if self.use_gae:
                     deltas_batch[step] = (rewards_batch[step] +
-                                          self.discount_factor_gamma * (1 - done_flags_batch[step][:, None]) *
+                                          self.discount_factor_gamma * (~ done_flags_batch[step][:, None]) *
                                           prev_value - value_functions_batch_detached[
                                               step]
                                           )
                     advantages_batch[step] = deltas_batch[step] + self.discount_factor_gamma * self.lambda_gae * (
-                            1 - done_flags_batch[step][:, None]) * prev_advantage
+                        ~ done_flags_batch[step][:, None]) * prev_advantage
                     returns_batch[step] = value_functions_batch_detached[step] + advantages_batch[step]
                 else:
                     if step == num_of_steps - 1:
                         continue
                     future_return = (
-                            (1 - done_flags_batch[step][:, None])
+                            (~ done_flags_batch[step][:, None])
                             * self.discount_factor_gamma
                             * returns_batch[step + 1]
                     )

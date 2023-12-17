@@ -447,18 +447,18 @@ class WarpDriveModule(LightningModule):
                     name=_ACTIONS + policy_suffix
                 )[:, :, action_type_id] = actions[:, :, 0]
 
-    def _bookkeep_rewards_and_done_flags(self, batch_index):
+    def _bookkeep_rewards_and_done_flags(self, batch_index, done_env_ids):
         """
         Push rewards and done flags to the corresponding batched versions.
         Also, update the episodic reward
         """
         assert isinstance(batch_index, int)
 
-        done_flags = (
-                self.cuda_envs.cuda_data_manager.data_on_device_via_torch("_done_") > 0
-        )
-
-        done_env_ids = done_flags.nonzero()
+        # done_flags = (
+        #         self.cuda_envs.cuda_data_manager.data_on_device_via_torch("_done_") > 0
+        # )
+        # 
+        # done_env_ids = done_flags.nonzero()
 
         # update the episodic rewards
         if self.create_separate_placeholders_for_each_policy:
@@ -481,7 +481,7 @@ class WarpDriveModule(LightningModule):
                     done_env_ids,
                     policy,
                 )
-        return done_flags
+        # return done_flags
 
     def _update_episodic_rewards(self, rewards, done_env_ids, policy):
         self.reward_running_sum[policy] += rewards
@@ -728,10 +728,11 @@ class WarpDriveModule(LightningModule):
 
         # Step through all the environments
         start_event.record()
-        interact_result = self.cuda_envs.step_all_envs()
+        done_flags, info_dict = self.cuda_envs.step_all_envs()
 
         # Bookkeeping rewards and done flags
-        done_flags = self._bookkeep_rewards_and_done_flags(batch_index=batch_index)
+        self._bookkeep_rewards_and_done_flags(batch_index=batch_index,
+                                              done_env_ids=done_flags.nonzero())
 
         # Reset all the environments that are in done state.
         if done_flags.any():
@@ -739,7 +740,7 @@ class WarpDriveModule(LightningModule):
 
         end_event.record()
         torch.cuda.synchronize()
-        return interact_result
+        return done_flags, info_dict
 
     # APIs to integrate with Pytorch Lightning
     # ----------------------------------------
@@ -914,8 +915,7 @@ class WarpDriveModule(LightningModule):
                 losses += batch_loss.mean()
 
         # Logging that should be done once per epoch, outside the policy loop
-        if logging_flag:
-            del env_info['__all__']
+        if torch.sum(done_flags_batch) > 0:
             for k, v in env_info.items():
                 if isinstance(v, torch.Tensor):
                     env_info[k] = v.mean().item()
@@ -979,7 +979,7 @@ def generate_training_data(wd_module: WarpDriveModule, batch_index=0):
     end_event = torch.cuda.Event(enable_timing=True)
 
     # Evaluate policies and run step functions
-    done, result = wd_module.generate_rollout(start_event, end_event, batch_index=batch_index)
+    done_flags, result = wd_module.generate_rollout(start_event, end_event, batch_index=batch_index)
     for k, v in result.items():
         if isinstance(v, torch.Tensor):
             result[k] = v.mean().item()
@@ -993,7 +993,6 @@ def generate_training_data(wd_module: WarpDriveModule, batch_index=0):
         all_rewards = wd_module.cuda_envs.cuda_data_manager.data_on_device_via_torch(
             f"{_REWARDS}"
         )
-    done_flags = wd_module.cuda_envs.cuda_data_manager.data_on_device_via_torch("_done_")
     # On the device, observations_batch, actions_batch,
     # rewards_batch are all shaped
     # (batch_size, num_envs, num_agents, *feature_dim).
@@ -1027,7 +1026,6 @@ def generate_training_data(wd_module: WarpDriveModule, batch_index=0):
             processed_obs[batch_index],
         )
     training_batch['env_info'] = result
-    training_batch['env_info'].update({'__all__': done})
     return training_batch
 
 
