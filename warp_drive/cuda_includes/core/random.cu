@@ -27,7 +27,9 @@ __global__ void free_random() {
   if (tidx >= wkNumberEnvs * wkNumberAgents)
       return;
   curandState_t* s = states[tidx];
-  delete s;
+  if (s != 0){
+    delete s;
+  }
 }
 
 __device__ int search_index(float* distr, float p, int l, int r) {

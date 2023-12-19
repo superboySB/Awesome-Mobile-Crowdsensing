@@ -1,6 +1,6 @@
 import logging
 import os
-from typing import Optional, Tuple, Dict, List, Union, Any
+from typing import Optional, Tuple, Dict, List, Union, Any, Union
 
 import numpy as np
 import torch
@@ -11,6 +11,8 @@ import time
 import pandas as pd
 from folium.plugins import TimestampedGeoJson, AntPath
 from gym import spaces
+from ray.rllib.env import GroupAgentsWrapper
+
 from run_configs.mcs_configs_python import PROJECT_NAME
 from warp_drive.utils.common import get_project_root
 from warp_drive.utils.env_registrar import EnvironmentRegistrar
@@ -18,6 +20,7 @@ from ray.rllib.utils.typing import MultiAgentDict, EnvActionType, EnvObsType, En
 from shapely.geometry import Point
 from pytorch_lightning import seed_everything
 from ray.rllib.env.vector_env import VectorEnv
+from ray.rllib.env.base_env import dummy_group_id, dummy_agent_id
 from ray.rllib.env.multi_agent_env import MultiAgentEnv
 from tabulate import tabulate
 
@@ -44,7 +47,7 @@ _ACTIONS = Constants.ACTIONS
 _REWARDS = Constants.REWARDS
 _GLOBAL_REWARD = Constants.GLOBAL_REWARDS
 _STATE = Constants.STATE
-teams_name = ("cars", "drones")
+teams_name = ("cars_", "drones_")
 policy_mapping_dict = {
     "SanFrancisco": {
         "description": "two team cooperate to collect data",
@@ -583,6 +586,7 @@ class CrowdSim:
         energy_consumption_ratio = mean_energy / self.max_uav_energy
         info = {AOI_METRIC_NAME: mean_aoi,
                 ENERGY_METRIC_NAME: energy_consumption_ratio,
+                "freshness_factor": freshness_factor,
                 DATA_METRIC_NAME: self.data_collection / (self.episode_length * self.num_sensing_targets),
                 COVERAGE_METRIC_NAME: coverage,
                 MAIN_METRIC_NAME: freshness_factor * coverage
@@ -823,9 +827,8 @@ class CUDACrowdSim(CrowdSim, CUDAEnvironmentContext):
 
 class RLlibCUDACrowdSim(MultiAgentEnv):
     def __init__(self, run_config: dict):
-        os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"
-        os.environ["CUDA_VISIBLE_DEVICES"] = str(run_config.get("gpu_id", 1))
         super().__init__()
+        os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"
         self.iter: int = 0
         requirements = ["env_params", "trainer"]
         for requirement in requirements:
@@ -839,6 +842,7 @@ class RLlibCUDACrowdSim(MultiAgentEnv):
         except KeyError:
             pass
         additional_params = run_config.pop("env_params")
+        os.environ["CUDA_VISIBLE_DEVICES"] = str(additional_params.get("gpu_id", 0))
         run_config['env_config'] = additional_params['env_setup']
         self.logging_config = additional_params.get('logging_config', None)
         self.trainer_params = run_config.pop("trainer")
@@ -873,7 +877,7 @@ class RLlibCUDACrowdSim(MultiAgentEnv):
         )
         self.global_state = self.env_wrapper.env.global_state
         for name in teams_name:
-            self.agents += [f"{name}_{i}" for i in range(getattr(self.env, "num_" + name))]
+            self.agents += [f"{name}{i}" for i in range(getattr(self.env, "num_" + name.strip("_")))]
         self.num_agents = len(self.agents)
         self.obs_ref = self.env.reset()[0]
         self.observation_space: spaces.Dict = spaces.Dict({"obs": binary_search_bound(self.obs_ref)})
@@ -998,25 +1002,58 @@ def get_rllib_multi_agent_obs(current_observation, state, agents: list[Any]) -> 
 
 
 class RLlibCUDACrowdSimWrapper(VectorEnv):
-    def __init__(self, env: RLlibCUDACrowdSim):
-        super().__init__(env.observation_space, env.action_space, env.num_envs)
-        self.num_envs = env.num_envs
-        self.num_agents = env.num_agents
-        self.agents = env.agents
-        self.env = env
-        self.env_wrapper = env.env_wrapper
+    def __init__(self, env: Union[RLlibCUDACrowdSim, GroupAgentsWrapper]):
+        if isinstance(env, GroupAgentsWrapper):
+            # For IQL (No Grouping) Compatibility
+            actual_env = env.env
+            self.group_wrapper: GroupAgentsWrapper = env
+        else:
+            actual_env = env
+            self.group_wrapper = None
+        self.observation_space = actual_env.observation_space
+        self.action_space = actual_env.action_space
+        self.num_envs = actual_env.num_envs
+        self.num_agents = actual_env.num_agents
+        self.agents = actual_env.agents
+        self.env_wrapper = actual_env.env_wrapper
         self.obs_at_reset = None
+        self.env = actual_env
+
 
     def vector_step(
             self, actions: List[EnvActionType]
     ) -> Tuple[List[EnvObsType], List[Dict], List[Dict], List[EnvInfoDict]]:
         logging.debug("vector_step() called")
-        # logging.debug(f"Current Timestep: {self.env.env.timestep}")
-        return self.env.vector_step(actions)
+        logging.debug(f"Current Timestep: {self.env.env.timestep}")
+        if self.group_wrapper is not None:
+            actions = [self.group_wrapper._ungroup_items(item) for item in actions]
+        logging.debug(actions)
+        step_result = self.env.vector_step(actions)
+
+        if self.group_wrapper is not None:
+            obs_list, reward_list, done_list, info_list = step_result
+            obs_group_list = [self.group_wrapper._group_items(item) for item in obs_list]
+            reward_group_list = [self.group_wrapper._group_items(item) for item in reward_list]
+            for rewards in reward_group_list:
+                for agent_id, rew in rewards.items():
+                    if isinstance(rew, list):
+                        rewards[agent_id] = sum(rew)
+            info_group_list = [{dummy_group_id: item} for item in info_list]
+            logging.debug(done_list[:10])
+            logging.debug(reward_group_list[:10])
+            return obs_group_list, reward_group_list, done_list, info_group_list
+        else:
+            return step_result
 
     def vector_reset(self) -> List[EnvObsType]:
         logging.debug("vector_reset() called")
-        return self.env.vector_reset()
+        reset_obs_list = self.env.vector_reset()
+        # print(reset_obs_list[0])
+        # print(self.group_wrapper._group_items(reset_obs_list[0]))
+        if self.group_wrapper is not None:
+            return [self.group_wrapper._group_items(item) for item in reset_obs_list]
+        else:
+            return reset_obs_list
 
     def reset_at(self, index: Optional[int] = None) -> EnvObsType:
         # logging.debug(f"resetting environment {index} called")
@@ -1046,7 +1083,8 @@ def binary_search_bound(array: np.ndarray) -> spaces.Box:
 def setup_wandb(logging_config: dict):
     wandb.init(project=PROJECT_NAME, name=logging_config['expr_name'], group=logging_config['group'],
                tags=[logging_config['dataset']] + logging_config['tag']
-               if logging_config['tag'] is not None else [], dir=logging_config['logging_dir'])
+               if logging_config['tag'] is not None else [], dir=logging_config['logging_dir'],
+               resume=logging_config['resume'])
     # prefix = 'env/'
     wandb.define_metric(COVERAGE_METRIC_NAME, summary="max")
     wandb.define_metric(ENERGY_METRIC_NAME, summary="min")
@@ -1112,8 +1150,9 @@ class RLlibCrowdSim(MultiAgentEnv):
         self.action_space: spaces.Space = next(iter(self.env.action_space.values()))
         # manually setting observation space
         self.obs_ref = self.env.reset()[0]
-        self.agents = ([f"car_{i}" for i in range(self.env.num_drones)] +
-                       [f"drone_{i}" for i in range(self.env.num_cars)])
+        self.agents = []
+        for name in teams_name:
+            self.agents += [f"{name}{i}" for i in range(getattr(self.env, "num_" + name.strip("_")))]
         self.num_agents = len(self.agents)
         self.observation_space: spaces.Dict = spaces.Dict({"obs": binary_search_bound(self.obs_ref)})
         try:
@@ -1130,6 +1169,7 @@ class RLlibCrowdSim(MultiAgentEnv):
             seed: Optional[int] = None,
             options: Optional[dict] = None,
     ) -> MultiAgentDict:
+        self.timestep = 0
         current_observation = self.env.reset()
         # current_observation shape [n_agent, dim_obs]
         # convert it into a dict of {agent_id: {"obs": observation}}
@@ -1173,3 +1213,4 @@ class RLlibCrowdSim(MultiAgentEnv):
 
 
 LARGE_DATASET_NAME = 'SanFrancisco'
+import ray.rllib.models.preprocessors

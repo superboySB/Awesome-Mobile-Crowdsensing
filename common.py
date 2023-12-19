@@ -34,6 +34,10 @@ def add_common_arguments(parser: ArgumentParser):
         default=None,
         help="special comments for each experiment"
     )
+    parser.add_argument("--gpu_id", type=str, default="0",
+                        help="gpu id to use, will be setted to CUDA_VISIBLE_DEVICES")
+    # add argument for resume
+    parser.add_argument('--resume', action='store_true', help='resume training')
 
 
 logging_dir = os.path.join("/workspace", "saved_data")
@@ -47,12 +51,11 @@ def customize_experiment(args: argparse.Namespace, run_config: dict = None, yaml
     current_datetime = datetime.now()
     datetime_string = current_datetime.strftime("%m%d-%H%M%S")
 
-    expr_name = f"{datetime_string}"
+    expr_name = f"{datetime_string}_{args.algo}"
     tags = args.tag if args.tag is not None else []
-
     # Process argparse arguments
-    for arg in vars(args):
-        if arg != 'track' and getattr(args, arg) is True:
+    for arg in set(vars(args)) - {'track'}:
+        if getattr(args, arg) is True:
             tags.append(arg)
 
     # Process YAML configuration if provided

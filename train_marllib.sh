@@ -2,7 +2,7 @@
 
 dataset_name='SanFrancisco'
 exp_name='WARP'_$dataset_name
-session_name=$exp_name
+session_name=$exp_name'_2'
 cards=(0 1 2 3)
 card_num=${#cards[@]}
 dry_run=false
@@ -20,14 +20,10 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 trains=(
-    "--tag 'lr=4e-5' 'batch_size=15000' 'num_episodes=10000000'"
-    "--tag 'lr=[[0,8e-5],[num_episodes*120,0]]' 'batch_size=15000' 'num_episodes=10000000'"
-    "--tag 'lr=8e-5' 'batch_size=15000' 'num_episodes=10000000'"
-    "--tag 'lr=8e-5' 'batch_size=15000' 'num_episodes=10000000' 'use_gae=True'"
-    "--tag 'lr=4e-5' 'batch_size=20000' 'num_episodes=10000000'"
-    "--tag 'lr=[[0,8e-5],[num_episodes*120,0]]' 'batch_size=20000' 'num_episodes=10000000'"
-    "--tag 'lr=8e-5' 'batch_size=20000' 'num_episodes=10000000'"
-    "--tag 'lr=8e-5' 'batch_size=20000' 'num_episodes=10000000' 'use_gae=True'"
+  "--algo ippo"
+  "--algo happo"
+  "--algo hatrpo"
+  "--algo vdppo"
 )
 
 
@@ -60,7 +56,8 @@ for ((i = 0; i < train_num; i++)); do
   card_id=$((i % card_num))
   # shellcheck disable=SC2004
   # if want to add $PATH, remember to add / before $
-  command="python train_rl_policy.py --track --dataset '$dataset_name' --gpu_id ${cards[card_id]} ${trains[i]}"
+  command="python warp_drive/marllib_crowdsim_run.py --track --dataset '$dataset_name'\
+  --gpu_id ${cards[card_id]} ${trains[i]}"
   echo "$command"
   if [ "$dry_run" = "false" ]
   then
