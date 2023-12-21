@@ -138,6 +138,7 @@ class CUDAEnvWrapper:
             # Number of environments to run in parallel
             assert num_envs >= 1
             self.n_envs = num_envs
+            logging.debug("We will run {} parallel environments".format(self.n_envs))
             if blocks_per_env is not None:
                 self.blocks_per_env = blocks_per_env
             else:

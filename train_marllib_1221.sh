@@ -41,7 +41,7 @@ then
 
     # Check the user's choice
     if [ "$choice" = "y" ] || [ "$choice" = "Y" ] || [ "$choice" = "" ] ; then
-        echo "Proceeding with the operation."
+        echo "Proceeding with operations."
         tmux kill-session -t $session_name;
         tmux new-session -d -s ${session_name};
         tmux set -g mouse on;
@@ -52,7 +52,7 @@ then
     fi
 fi
 for ((i = 0; i < train_num; i++)); do
-  if [ "$dry_run" = "false" ]
+  if [ "$dry_run" = "false" ] && [ "$choice" != "n" ]
   then
       tmux send-keys -t $session_name:0."$i" 'cd /workspace/Awesome-Mobile-Crowdsensing' Enter;
       tmux send-keys -t $session_name:0."$i" 'conda activate mcs' Enter;
@@ -63,18 +63,17 @@ for ((i = 0; i < train_num; i++)); do
   command="python warp_drive/marllib_crowdsim_run.py --track --dataset '$dataset_name'\
   --gpu_id ${cards[card_id]} ${trains[i]}"
   echo "$command"
-  if [ "$dry_run" = "false" ]
+  if [ "$dry_run" = "false" ] && [ "$choice" != "n" ]
   then
       tmux send-keys -t $session_name:0."$i" "$command" Enter;
       echo "exp ${i} runs successfully"
       sleep 5
   fi
 done
-
-if [ "$dry_run" = "false" ]
+if [ "$dry_run" = "false" ] && [ "$choice" != "n" ]
 then
   tmux attach-session -t $session_name
 else
-  echo "Operation not executed."
+  echo "Operations not executed."
   # Add any cleanup or exit code here if needed
 fi

@@ -215,7 +215,7 @@ class PyCUDAFunctionManager(CUDAFunctionManager):
             )
             config_path = os.path.join(header_path, "env_config.h")
             logging.debug(
-                f"header file {config_path}"
+                f"header file {config_path} "
                 f"has number_agents: {self._num_agents}, "
                 f"num_agents per block: {self.block[0]}, "
                 f"num_envs: {self._num_envs}, num of blocks: {self.grid[0]} "

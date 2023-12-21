@@ -12,7 +12,7 @@ lz4
 marllib~=1.0.3
 matplotlib~=3.7.4
 movingpandas
-numpy~=1.21.0
+numpy~=1.22.0
 osmnx~=1.7.1
 opencv-python
 pandas~=2.0.3

@@ -4,8 +4,7 @@
 # SPDX-License-Identifier: BSD-3-Clause
 # For full license text, see the LICENSE file in the repo root
 # or https://opensource.org/licenses/BSD-3-Clause
-
-
+import logging
 from typing import Optional, Union
 
 import numpy as np
@@ -79,6 +78,7 @@ class PyCUDADataManager(CUDADataManager):
             return self._host_data[name]
 
         if self.is_data_on_device_via_torch(name):
+            # logging.debug(f"data example: {self._device_data_via_torch[name][0]}")
             return self._device_data_via_torch[name].cpu().numpy()
 
         assert name in self._device_data_pointer

@@ -20,7 +20,7 @@ from ray.rllib.utils.typing import MultiAgentDict, EnvActionType, EnvObsType, En
 from shapely.geometry import Point
 from pytorch_lightning import seed_everything
 from ray.rllib.env.vector_env import VectorEnv
-from ray.rllib.env.base_env import dummy_group_id, dummy_agent_id
+from ray.rllib.env.base_env import dummy_group_id
 from ray.rllib.env.multi_agent_env import MultiAgentEnv
 from tabulate import tabulate
 
@@ -56,6 +56,7 @@ policy_mapping_dict = {
         "one_agent_one_policy": True,
     },
 }
+excluded_keys = {"trainer", "env_params", "map_name"}
 logging.getLogger().setLevel(logging.WARN)
 
 
@@ -598,117 +599,121 @@ class CrowdSim:
         import geopandas as gpd
         import movingpandas as mpd
         mixed_df = self.human_df.copy()
+        if isinstance(self, CUDACrowdSim):
+            self.agent_x_time_list[self.timestep, :] = self.cuda_data_manager.pull_data_from_device("agent_x")[0]
+            self.agent_y_time_list[self.timestep, :] = self.cuda_data_manager.pull_data_from_device("agent_y")[0]
+        if self.timestep == self.config.env.num_timestep:
+            # output final trajectory
+            # 可将机器人traj，可以载入到human的dataframe中，id从-1开始递减
+            for i in range(self.num_agents):
+                x_list = self.agent_x_time_list[:, i]
+                y_list = self.agent_y_time_list[:, i]
+                id_list = np.full_like(x_list, -i - 1)
+                aoi_list = np.full_like(x_list, -1)
+                energy_list = self.agent_energy_timelist[:, i]
+                timestamp_list = [self.start_timestamp + i * self.step_time for i in range(self.episode_length + 1)]
+                x_distance_list = x_list * self.max_distance_x / self.nlon + self.max_distance_x / self.nlon / 2
+                y_distance_list = y_list * self.max_distance_y / self.nlat + self.max_distance_y / self.nlat / 2
+                max_longitude = abs(self.lower_left[0] - self.upper_right[0])
+                max_latitude = abs(self.lower_left[1] - self.upper_right[1])
+                longitude_list = x_list * max_longitude / self.nlon + max_longitude / self.nlon / 2 + self.lower_left[0]
+                latitude_list = y_list * max_latitude / self.nlat + max_latitude / self.nlat / 2 + self.lower_left[1]
 
-        # 可将机器人traj，可以载入到human的dataframe中，id从-1开始递减
-        for i in range(self.num_agents):
-            x_list = self.agent_x_time_list[:, i]
-            y_list = self.agent_y_time_list[:, i]
-            id_list = np.full_like(x_list, -i - 1)
-            aoi_list = np.full_like(x_list, -1)
-            energy_list = self.agent_energy_timelist[:, i]
-            timestamp_list = [self.start_timestamp + i * self.step_time for i in range(self.episode_length + 1)]
-            x_distance_list = x_list * self.max_distance_x / self.nlon + self.max_distance_x / self.nlon / 2
-            y_distance_list = y_list * self.max_distance_y / self.nlat + self.max_distance_y / self.nlat / 2
-            max_longitude = abs(self.lower_left[0] - self.upper_right[0])
-            max_latitude = abs(self.lower_left[1] - self.upper_right[1])
-            longitude_list = x_list * max_longitude / self.nlon + max_longitude / self.nlon / 2 + self.lower_left[0]
-            latitude_list = y_list * max_latitude / self.nlat + max_latitude / self.nlat / 2 + self.lower_left[1]
+                data = {"id": id_list, "longitude": longitude_list, "latitude": latitude_list,
+                        "x": x_list, "y": y_list, "x_distance": x_distance_list, "y_distance": y_distance_list,
+                        "timestamp": timestamp_list, "aoi": aoi_list, "energy": energy_list}
+                robot_df = pd.DataFrame(data)
+                robot_df['t'] = pd.to_datetime(robot_df['timestamp'], unit='s')  # s表示时间戳转换
+                mixed_df = pd.concat([mixed_df, robot_df])
 
-            data = {"id": id_list, "longitude": longitude_list, "latitude": latitude_list,
-                    "x": x_list, "y": y_list, "x_distance": x_distance_list, "y_distance": y_distance_list,
-                    "timestamp": timestamp_list, "aoi": aoi_list, "energy": energy_list}
-            robot_df = pd.DataFrame(data)
-            robot_df['t'] = pd.to_datetime(robot_df['timestamp'], unit='s')  # s表示时间戳转换
-            mixed_df = pd.concat([mixed_df, robot_df])
+            # ------------------------------------------------------------------------------------
+            # 建立moving pandas轨迹，也可以选择调用高级API继续清洗轨迹。
+            mixed_gdf = gpd.GeoDataFrame(mixed_df, geometry=gpd.points_from_xy(mixed_df.longitude, mixed_df.latitude),
+                                         crs=4326)
+            mixed_gdf = mixed_gdf.set_index('t').tz_localize(None)  # tz=time zone, 以本地时间为准
+            mixed_gdf = mixed_gdf.sort_values(by=["id", "t"], ascending=[True, True])
+            trajs = mpd.TrajectoryCollection(mixed_gdf, 'id')
 
-        # ------------------------------------------------------------------------------------
-        # 建立moving pandas轨迹，也可以选择调用高级API继续清洗轨迹。
-        mixed_gdf = gpd.GeoDataFrame(mixed_df, geometry=gpd.points_from_xy(mixed_df.longitude, mixed_df.latitude),
-                                     crs=4326)
-        mixed_gdf = mixed_gdf.set_index('t').tz_localize(None)  # tz=time zone, 以本地时间为准
-        mixed_gdf = mixed_gdf.sort_values(by=["id", "t"], ascending=[True, True])
-        trajs = mpd.TrajectoryCollection(mixed_gdf, 'id')
+            start_point = trajs.trajectories[0].get_start_location()
 
-        start_point = trajs.trajectories[0].get_start_location()
+            # 经纬度反向
+            m = folium.Map(location=[start_point.y, start_point.x], tiles="cartodbpositron", zoom_start=14, max_zoom=24)
 
-        # 经纬度反向
-        m = folium.Map(location=[start_point.y, start_point.x], tiles="cartodbpositron", zoom_start=14, max_zoom=24)
+            m.add_child(folium.LatLngPopup())
+            minimap = folium.plugins.MiniMap()
+            m.add_child(minimap)
+            folium.TileLayer('Stamen Terrain',
+                             attr='Map tiles by Stamen Design, under CC BY 3.0. Data by OpenStreetMap, under ODbL').add_to(
+                m)
 
-        m.add_child(folium.LatLngPopup())
-        minimap = folium.plugins.MiniMap()
-        m.add_child(minimap)
-        folium.TileLayer('Stamen Terrain',
-                         attr='Map tiles by Stamen Design, under CC BY 3.0. Data by OpenStreetMap, under ODbL').add_to(
-            m)
+            folium.TileLayer('Stamen Toner',
+                             attr='Map tiles by Stamen Design, under CC BY 3.0. Data by OpenStreetMap, under ODbL').add_to(
+                m)
 
-        folium.TileLayer('Stamen Toner',
-                         attr='Map tiles by Stamen Design, under CC BY 3.0. Data by OpenStreetMap, under ODbL').add_to(
-            m)
+            folium.TileLayer('cartodbpositron',
+                             attr='Map tiles by Carto, under CC BY 3.0. Data by OpenStreetMap, under ODbL').add_to(m)
 
-        folium.TileLayer('cartodbpositron',
-                         attr='Map tiles by Carto, under CC BY 3.0. Data by OpenStreetMap, under ODbL').add_to(m)
+            folium.TileLayer('OpenStreetMap', attr='© OpenStreetMap contributors').add_to(m)
 
-        folium.TileLayer('OpenStreetMap', attr='© OpenStreetMap contributors').add_to(m)
+            # 锁定范围
+            grid_geo_json = get_border(self.upper_right, self.lower_left)
+            color = "red"
+            border = folium.GeoJson(grid_geo_json,
+                                    style_function=lambda feature, clr=color: {
+                                        'fillColor': color,
+                                        'color': "black",
+                                        'weight': 2,
+                                        'dashArray': '5,5',
+                                        'fillOpacity': 0,
+                                    })
+            m.add_child(border)
 
-        # 锁定范围
-        grid_geo_json = get_border(self.upper_right, self.lower_left)
-        color = "red"
-        border = folium.GeoJson(grid_geo_json,
-                                style_function=lambda feature, clr=color: {
-                                    'fillColor': color,
-                                    'color': "black",
-                                    'weight': 2,
-                                    'dashArray': '5,5',
-                                    'fillOpacity': 0,
-                                })
-        m.add_child(border)
-
-        for index, traj in enumerate(trajs.trajectories):
-            if 0 > traj.df['id'].iloc[0] >= (-self.num_cars):
-                name = f"Agent {self.num_agents - index - 1} (Car)"
-            elif traj.df['id'].iloc[0] < (-self.num_cars):
-                name = f"Agent {self.num_agents - index - 1} (Drone)"
-            else:
-                name = f"Human {traj.df['id'].iloc[0]}"
-
-            def rand_byte():
-                """
-                return a random integer between 0 and 255 ( a byte)
-                """
-                return np.random.randint(0, 255)
-
-            color = '#%02X%02X%02X' % (rand_byte(), rand_byte(), rand_byte())  # black
-
-            # point
-            features = traj_to_timestamped_geojson(index, traj, self.num_cars, self.num_drones, color)
-            TimestampedGeoJson(
-                {
-                    "type": "FeatureCollection",
-                    "features": features,
-                },
-                period="PT15S",
-                add_last_point=True,
-                transition_time=5,
-                loop=plot_loop,
-            ).add_to(m)  # sub_map
-
-            # line
-            if index < self.num_agents:
-                geo_col = traj.to_point_gdf().geometry
-                xy = [[y, x] for x, y in zip(geo_col.x, geo_col.y)]
-                f1 = folium.FeatureGroup(name)
-                if moving_line:
-                    AntPath(locations=xy, color=color, weight=4, opacity=0.7, dash_array=[100, 20],
-                            delay=1000).add_to(f1)
+            for index, traj in enumerate(trajs.trajectories):
+                if 0 > traj.df['id'].iloc[0] >= (-self.num_cars):
+                    name = f"Agent {self.num_agents - index - 1} (Car)"
+                elif traj.df['id'].iloc[0] < (-self.num_cars):
+                    name = f"Agent {self.num_agents - index - 1} (Drone)"
                 else:
-                    folium.PolyLine(locations=xy, color=color, weight=4, opacity=0.7).add_to(f1)
-                f1.add_to(m)
+                    name = f"Human {traj.df['id'].iloc[0]}"
 
-        folium.LayerControl().add_to(m)
+                def rand_byte():
+                    """
+                    return a random integer between 0 and 255 ( a byte)
+                    """
+                    return np.random.randint(0, 255)
 
-        m.get_root().render()
-        m.get_root().save(output_file)
-        logging.info(f"{output_file} saved!")
+                color = '#%02X%02X%02X' % (rand_byte(), rand_byte(), rand_byte())  # black
+
+                # point
+                features = traj_to_timestamped_geojson(index, traj, self.num_cars, self.num_drones, color)
+                TimestampedGeoJson(
+                    {
+                        "type": "FeatureCollection",
+                        "features": features,
+                    },
+                    period="PT15S",
+                    add_last_point=True,
+                    transition_time=5,
+                    loop=plot_loop,
+                ).add_to(m)  # sub_map
+
+                # line
+                if index < self.num_agents:
+                    geo_col = traj.to_point_gdf().geometry
+                    xy = [[y, x] for x, y in zip(geo_col.x, geo_col.y)]
+                    f1 = folium.FeatureGroup(name)
+                    if moving_line:
+                        AntPath(locations=xy, color=color, weight=4, opacity=0.7, dash_array=[100, 20],
+                                delay=1000).add_to(f1)
+                    else:
+                        folium.PolyLine(locations=xy, color=color, weight=4, opacity=0.7).add_to(f1)
+                    f1.add_to(m)
+
+            folium.LayerControl().add_to(m)
+
+            m.get_root().render()
+            m.get_root().save(output_file)
+            logging.info(f"{output_file} saved!")
 
 
 class CUDACrowdSim(CrowdSim, CUDAEnvironmentContext):
@@ -767,7 +772,7 @@ class CUDACrowdSim(CrowdSim, CUDAEnvironmentContext):
         return data_dict
 
     def step(self, actions=None) -> Tuple[Dict, Dict]:
-        logging.debug(f"Timestep in CUDACrowdSim {self.timestep}")
+        # logging.debug(f"Timestep in CUDACrowdSim {self.timestep}")
         args = [
             _STATE,
             _OBSERVATIONS,
@@ -828,6 +833,7 @@ class CUDACrowdSim(CrowdSim, CUDAEnvironmentContext):
 class RLlibCUDACrowdSim(MultiAgentEnv):
     def __init__(self, run_config: dict):
         super().__init__()
+        logging.debug("received run_config: " + str(run_config))
         os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"
         self.iter: int = 0
         requirements = ["env_params", "trainer"]
@@ -836,19 +842,15 @@ class RLlibCUDACrowdSim(MultiAgentEnv):
                 raise Exception(f"RLlibCUDACrowdSim expects '{requirement}' in run_config")
         # assert 'env_registrar' in run_config['env_params'], 'env_registrar must be specified in env_params'
         assert 'env_setup' in run_config['env_params'], 'env_setup must be specified in env_params'
-        # Remove 'map_name' key
-        try:
-            run_config.pop("map_name")
-        except KeyError:
-            pass
-        additional_params = run_config.pop("env_params")
+        additional_params = run_config["env_params"]
+        logging.debug("additional_params: " + str(additional_params))
         os.environ["CUDA_VISIBLE_DEVICES"] = str(additional_params.get("gpu_id", 0))
         run_config['env_config'] = additional_params['env_setup']
         self.logging_config = additional_params.get('logging_config', None)
-        self.trainer_params = run_config.pop("trainer")
+        self.trainer_params = run_config["trainer"]
         self.env_registrar = EnvironmentRegistrar()
         self.centralized = additional_params.get('centralized', False)
-        if not self.env_registrar.has_env(CUDACrowdSim.name, env_backend="pycuda"):
+        if "mock" not in additional_params:
             self.env_registrar.add_cuda_env_src_path(CUDACrowdSim.name,
                                                      os.path.join(
                                                          get_project_root(),
@@ -864,18 +866,25 @@ class RLlibCUDACrowdSim(MultiAgentEnv):
         if (train_batch_size // self.num_envs) < num_mini_batches:
             logging.error("Batch per env must be larger than num_mini_batches, Exiting...")
             return
-        self.env = CUDACrowdSim(**run_config)
+
+        # Using dictionary comprehension to exclude specific keys
+        new_dict = {k: v for k, v in run_config.items() if k not in excluded_keys}
+        self.env = CUDACrowdSim(**new_dict)
         self.env_backend = self.env.env_backend = "pycuda"
         self.action_space: spaces.Space = next(iter(self.env.action_space.values()))
         # manually setting observation space
         self.agents = []
-        self.env_wrapper: CUDAEnvWrapper = CUDAEnvWrapper(
-            self.env,
-            num_envs=self.num_envs,
-            env_backend=self.env_backend,
-            env_registrar=self.env_registrar
-        )
-        self.global_state = self.env_wrapper.env.global_state
+        if "mock" not in additional_params:
+            self.env_wrapper: CUDAEnvWrapper = CUDAEnvWrapper(
+                self.env,
+                num_envs=self.num_envs,
+                env_backend=self.env_backend,
+                env_registrar=self.env_registrar
+            )
+            self.global_state = self.env_wrapper.env.global_state
+        else:
+            self.env_wrapper = None
+            self.global_state = None
         for name in teams_name:
             self.agents += [f"{name}{i}" for i in range(getattr(self.env, "num_" + name.strip("_")))]
         self.num_agents = len(self.agents)
@@ -886,7 +895,7 @@ class RLlibCUDACrowdSim(MultiAgentEnv):
             self.observation_space["state"] = state_space
         except AttributeError:
             pass
-        if self.env_wrapper.env_backend == "pycuda":
+        if "mock" not in additional_params and self.env_wrapper.env_backend == "pycuda":
             from warp_drive.cuda_managers.pycuda_function_manager import (
                 PyCUDASampler,
             )
@@ -895,25 +904,27 @@ class RLlibCUDACrowdSim(MultiAgentEnv):
                 self.env_wrapper.cuda_function_manager
             )
 
-        policy_tag_to_agent_id_map = {
-            "car": list(self.env_wrapper.env.cars),
-            "drone": list(self.env_wrapper.env.drones),
-        }
+            policy_tag_to_agent_id_map = {
+                "car": list(self.env_wrapper.env.cars),
+                "drone": list(self.env_wrapper.env.drones),
+            }
 
-        # Create and push data placeholders to the device
-        create_and_push_data_placeholders(
-            env_wrapper=self.env_wrapper,
-            action_sampler=self.cuda_sample_controller,
-            policy_tag_to_agent_id_map=policy_tag_to_agent_id_map,
-            push_data_batch_placeholders=False,  # we use lightning to batch
-        )
-        # Seeding
-        if self.trainer_params is not None:
-            seed = self.trainer_params.get("seed", np.int32(time.time()))
-            seed_everything(seed)
-            self.cuda_sample_controller.init_random(seed)
-        if self.logging_config is not None:
-            setup_wandb(self.logging_config)
+            # Seeding
+            if self.trainer_params is not None:
+                seed = self.trainer_params.get("seed", np.int32(time.time()))
+                seed_everything(seed)
+                self.cuda_sample_controller.init_random(seed)
+            if self.logging_config is not None:
+                setup_wandb(self.logging_config)
+
+            # Create and push data placeholders to the device
+            create_and_push_data_placeholders(
+                env_wrapper=self.env_wrapper,
+                action_sampler=self.cuda_sample_controller,
+                policy_tag_to_agent_id_map=policy_tag_to_agent_id_map,
+                push_data_batch_placeholders=False,  # we use lightning to batch
+            )
+
 
     def get_env_info(self):
         """
@@ -993,8 +1004,9 @@ class RLlibCUDACrowdSim(MultiAgentEnv):
         obs_list, reward_list, dones, info_list = self.vector_step([new_dict] * self.num_envs)
         return obs_list[0], reward_list[0], dones[0], info_list[0]
 
-    def render(self, output_file=None, plot_loop=False, moving_line=False):
-        self.env.render(output_file, plot_loop, moving_line)
+    def render(self, mode=None):
+        logging.debug("render called")
+        self.env.render("/workspace/saved_data/new_logs.html", False, False)
 
 
 def get_rllib_multi_agent_obs(current_observation, state, agents: list[Any]) -> MultiAgentDict:
@@ -1027,7 +1039,7 @@ class RLlibCUDACrowdSimWrapper(VectorEnv):
         logging.debug(f"Current Timestep: {self.env.env.timestep}")
         if self.group_wrapper is not None:
             actions = [self.group_wrapper._ungroup_items(item) for item in actions]
-        logging.debug(actions)
+        # logging.debug(actions)
         step_result = self.env.vector_step(actions)
 
         if self.group_wrapper is not None:
@@ -1060,6 +1072,10 @@ class RLlibCUDACrowdSimWrapper(VectorEnv):
         if index == 0:
             self.obs_at_reset = self.vector_reset()
         return self.obs_at_reset[index]
+
+    def try_render_at(self, index: Optional[int] = None) -> \
+            Optional[np.ndarray]:
+        self.env.render()
 
     def stop(self):
         pass
@@ -1138,14 +1154,10 @@ class RLlibCrowdSim(MultiAgentEnv):
                 raise Exception(f"RLlibCUDACrowdSim expects '{requirement}' in run_config")
         # assert 'env_registrar' in run_config['env_params'], 'env_registrar must be specified in env_params'
         assert 'env_setup' in run_config['env_params'], 'env_setup must be specified in env_params'
-        # Remove 'map_name' key
-        try:
-            run_config.pop("map_name")
-        except KeyError:
-            pass
-        additional_params = run_config.pop("env_params")
+        additional_params = run_config["env_params"]
         run_config['env_config'] = additional_params['env_setup']
         self.logging_config = additional_params.get('logging_config', None)
+        new_dict = {k: v for k, v in run_config.items() if k not in excluded_keys}
         self.env = CrowdSim(**run_config)
         self.action_space: spaces.Space = next(iter(self.env.action_space.values()))
         # manually setting observation space
@@ -1210,7 +1222,7 @@ class RLlibCrowdSim(MultiAgentEnv):
 
     def render(self, mode=None) -> None:
         pass
+        # self.env.render()
 
 
 LARGE_DATASET_NAME = 'SanFrancisco'
-import ray.rllib.models.preprocessors

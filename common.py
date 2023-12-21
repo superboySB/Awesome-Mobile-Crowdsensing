@@ -74,7 +74,7 @@ def customize_experiment(args: argparse.Namespace, run_config: dict = None, yaml
 
     if run_config is not None:
         update_config_from_tags(tags, run_config)
-
+    args.tag = tags
     return expr_name
 
 
