@@ -1,0 +1,13 @@
+method: grid
+metric:
+  name: target_coverage
+  goal: maximize
+parameters:
+  trainer.train_batch_size:
+    values: [ 4000, 8000 ]
+  trainer.num_episodes:
+    values: [ 10000000 ]
+  #  trainer.num_envs:
+  #        values: [400, 500, 800, 1000]
+  policy.lr:
+    values: [ 4e-5, [ [ 0,8e-5 ],[ num_episodes*120,0 ] ], 8e-5 ]

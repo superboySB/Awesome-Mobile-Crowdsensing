@@ -1,7 +1,6 @@
 import torch
 import pycuda.driver as cuda_driver
 
-
 def make_current_context(device_id=None):
     torch.cuda.init()
     cuda_driver.init()

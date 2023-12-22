@@ -87,7 +87,7 @@ class EnvWrapper:
 
         # Need to pass in an environment instance
         if env_obj is not None:
-            self.env = env_obj
+            self.env: CUDAEnvironmentContext = env_obj
         else:
             assert (
                 env_name is not None
@@ -331,6 +331,7 @@ class EnvWrapper:
         )
 
         self.env_resetter.reset_when_done(self.cuda_data_manager, mode="if_done")
+        self.env.history_reset()
         return {}
 
     def custom_reset_all_envs(self, args=None, block=None, grid=None):

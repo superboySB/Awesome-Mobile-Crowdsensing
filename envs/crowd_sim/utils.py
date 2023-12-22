@@ -95,14 +95,14 @@ def traj_to_timestamped_geojson(index, trajectory, car_num, drone_num, color):
         current_time = [row["time"].isoformat()]
 
 
-        if point_gdf['id'][0]<0 and point_gdf['id'][0]>=(-car_num):
+        if point_gdf['id'].iloc[0] < 0 and point_gdf['id'].iloc[0] >= (-car_num):
             radius = 4  # 125(5 units)
             opacity = 0.05
             popup_html = f'<h4> (Car) Agent {car_num+drone_num-index-1}</h4>' + f'<p>raw coord: {corrent_point_coordinates}</p>' \
                          + f'<p>grid coord: ({row["x"]},{row["y"]})</p>' \
                          + f'<p>dist coord: ({row["x_distance"]}m, {row["y_distance"]}m)</p>' \
                          + f'<p>energy: {row["energy"]}J </p>'
-        elif point_gdf['id'][0]<(-car_num):
+        elif point_gdf['id'].iloc[0]<(-car_num):
             radius = 8  # 125(5 units)
             opacity = 0.05
             popup_html = f'<h4> (Drone) Agent {car_num+drone_num-index-1}</h4>' + f'<p>raw coord: {corrent_point_coordinates}</p>' \

@@ -18,6 +18,7 @@ def main(args):
 
         if done['__all__']:
             ongoing = False
+            print("Render After")
             env.render(args.output_dir, args.plot_loop, args.moving_line)
 
 

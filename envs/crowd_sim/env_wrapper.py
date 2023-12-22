@@ -12,7 +12,6 @@ The env wrapper class
 import logging
 
 import numpy as np
-
 from warp_drive.cuda_managers.function_manager import CUDAFunctionFeed
 from warp_drive.utils.argument_fix import Argfix
 from warp_drive.utils.common import get_project_root
@@ -24,7 +23,7 @@ from warp_drive.utils.recursive_obs_dict_to_spaces_dict import (
 _CUBIN_FILEPATH = f"{get_project_root()}/warp_drive/cuda_bin"
 
 
-class CrowdSimEnvWrapper:
+class CUDAEnvWrapper:
     """
     The environment wrapper class.
     This wrapper determines whether the environment reset and steps happen on the
@@ -36,7 +35,7 @@ class CrowdSimEnvWrapper:
     all happen on the GPU.
 
     Note: Versions <= 1.7.0 has `use_cuda = True or False`. For users who are using the
-    old API for their application but have the new library installed, we add a runtime
+    old API for their application, but have the new library installed, we add a runtime
     arg fixer that if old API arg is seen by the new library, it will raise a warning
     and convert to the new syntax. It will not do anything otherwise.
     """
@@ -57,7 +56,7 @@ class CrowdSimEnvWrapper:
         process_id=0,
     ):
         """
-        :param env_obj: an environment object
+        :param env_obj: an environment objects
         :param env_name: an environment name that is registered on the
             WarpDrive environment registrar
         :param env_config: environment configuration to instantiate
@@ -69,7 +68,7 @@ class CrowdSimEnvWrapper:
             otherwise it will be reinforced
         :param env_backend: environment backend, choose between pycuda, or cpu.
             Before version 2.0, the old argument is 'use_cuda' = True or False
-        :param use_cuda: deprecated since version 1.8
+        (:param use_cuda: deprecated since version 1.8)
         :param testing_mode: a flag used to determine whether to simply load the .cubin (when
             testing) or compile the .cu source code to create a .cubin and use that.
         :param testing_bin_filename: load the specified .cubin or .fatbin directly,
@@ -114,9 +113,10 @@ class CrowdSimEnvWrapper:
         # -----------------------------
         # Flag to determine which backend to use
         if env_backend not in ("pycuda", "cpu"):
-            logging.warn("Environment backend not recognized, defaulting to cpu")
+            logging.warning("Environment backend not recognized, defaulting to cpu")
             env_backend = "cpu"
         self.env_backend = env_backend
+        logging.debug(f"Using backend {self.env_backend}")
         if hasattr(self.env, "env_backend"):
             self.env.env_backend = env_backend
 
@@ -138,6 +138,7 @@ class CrowdSimEnvWrapper:
             # Number of environments to run in parallel
             assert num_envs >= 1
             self.n_envs = num_envs
+            logging.debug("We will run {} parallel environments".format(self.n_envs))
             if blocks_per_env is not None:
                 self.blocks_per_env = blocks_per_env
             else:
@@ -163,7 +164,10 @@ class CrowdSimEnvWrapper:
                 backend_data_manager = PyCUDADataManager
                 backend_function_manager = PyCUDAFunctionManager
                 backend_env_resetter = PyCUDAEnvironmentReset
-
+            else:
+                raise NotImplementedError(
+                    f"Backend {self.env_backend} not implemented"
+                )
             logging.info("Initializing the CUDA data manager...")
             self.cuda_data_manager = backend_data_manager(
                 num_agents=self.n_agents,
@@ -297,9 +301,7 @@ class CrowdSimEnvWrapper:
 
                 self.cuda_data_manager.push_data_to_device(data_dictionary)
 
-                self.cuda_data_manager.push_data_to_device(
-                    tensor_dictionary, torch_accessible=True
-                )
+                self.cuda_data_manager.push_data_to_device(tensor_dictionary, torch_accessible=True)
 
                 self.cuda_data_manager.push_data_to_device(reset_pool_dictionary)
 
@@ -313,6 +315,7 @@ class CrowdSimEnvWrapper:
             self.env_resetter.reset_when_done(
                 self.cuda_data_manager, mode="force_reset"
             )
+            self.env.history_reset()
             return {}
         return obs  # CPU version
 
@@ -329,7 +332,7 @@ class CrowdSimEnvWrapper:
             "reset_only_done_envs() only works "
             "for pycuda backends and self.reset_on_host = False"
         )
-
+        self.env.history_reset()
         self.env_resetter.reset_when_done(self.cuda_data_manager, mode="if_done")
         return {}
 
@@ -341,12 +344,12 @@ class CrowdSimEnvWrapper:
         """
         Step through all the environments
         """
-        if not self.env_backend == "cpu":
-            self.env.step()
-            result = None  # Do not return anything
-        else:
+        # logging.debug("step_all_envs() called")
+        if self.env_backend == "cpu":
             assert actions is not None, "Please provide actions to step with."
             result = self.env.step(actions)
+        else:
+            return self.env.step()
         return result
 
     def obs_at_reset(self):

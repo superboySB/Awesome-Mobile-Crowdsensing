@@ -4,9 +4,8 @@
 # SPDX-License-Identifier: BSD-3-Clause
 # For full license text, see the LICENSE file in the repo root
 # or https://opensource.org/licenses/BSD-3-Clause
-
-
-from typing import Optional
+import logging
+from typing import Optional, Union
 
 import numpy as np
 from warp_drive.utils import autoinit_pycuda
@@ -15,16 +14,13 @@ import torch
 
 from warp_drive.cuda_managers.data_manager import CUDADataManager
 
-
 class CudaTensorHolder(pycuda_driver.PointerHolderBase):
     """
     A class that facilitates casting tensors to pointers.
     """
-
     def __init__(self, t):
         super().__init__()
         self.gpudata = t.data_ptr()
-
 
 class PyCUDADataManager(CUDADataManager):
     """"""
@@ -40,7 +36,7 @@ class PyCUDADataManager(CUDADataManager):
                                                [0, 0, 0, 0, 0]])
                       )
         data1.add_data(name="a", data=100)
-        cuda_data_manager.push_data_to_device(data)
+        cuda_data_manager.push_data_to_device(data1, torch_accessible=True)
 
         data2 = DataFeed()
         data2.add_data(name="Y", data=[[0.1,0.2,0.3,0.4,0.5],
@@ -76,13 +72,13 @@ class PyCUDADataManager(CUDADataManager):
             episode_length=episode_length,
         )
 
-    def pull_data_from_device(self, name: str):
-
+    def pull_data_from_device(self, name: str) -> Union[int, float, np.ndarray]:
         assert name in self._host_data
         if name in self._scalar_data_list:
             return self._host_data[name]
 
         if self.is_data_on_device_via_torch(name):
+            # logging.debug(f"data example: {self._device_data_via_torch[name][0]}")
             return self._device_data_via_torch[name].cpu().numpy()
 
         assert name in self._device_data_pointer

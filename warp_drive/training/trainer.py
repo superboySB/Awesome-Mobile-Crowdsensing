@@ -317,8 +317,8 @@ class Trainer:
     def _initialize_policy_algorithm(self, policy):
         algorithm = self._get_config(["policy", policy, "algorithm"])
         assert algorithm in ["A2C", "PPO"]
-        entropy_coeff = self._get_config(["policy", policy, "entropy_coeff"])
-        vf_loss_coeff = self._get_config(["policy", policy, "vf_loss_coeff"])
+        entropy_coeff = self._get_config(["policy", policy, "entropy_coefficient"])
+        vf_loss_coeff = self._get_config(["policy", policy, "vf_loss_coefficient"])
         self.clip_grad_norm[policy] = self._get_config(
             ["policy", policy, "clip_grad_norm"]
         )
@@ -349,8 +349,8 @@ class Trainer:
                 clip_param=clip_param,
                 normalize_advantage=normalize_advantage,
                 normalize_return=normalize_return,
-                vf_loss_coeff=vf_loss_coeff,
-                entropy_coeff=entropy_coeff,
+                vf_loss_coefficient=vf_loss_coeff,
+                entropy_coefficient=entropy_coeff,
             )
             logging.info(f"Initializing the PPO trainer for policy {policy}")
         else:
@@ -1028,10 +1028,22 @@ class Metrics:
     def pretty_print(self, metrics):
         assert metrics is not None
         assert isinstance(metrics, dict)
-
-        for policy in metrics:
-            print("=" * 40)
-            print(f"Metrics for policy '{policy}'")
-            print("=" * 40)
-            for k, v in metrics[policy].items():
+        if isinstance(next(iter(metrics.values())), dict):
+            for policy in metrics:
+                print("=" * 40)
+                title_string = f"Metrics for policy '{policy}'" if 'env' not in policy else f"Metrics for env"
+                print(title_string)
+                print("=" * 40)
+                try:
+                    del metrics[policy]['__all__']
+                except KeyError:
+                    pass
+                for k, v in metrics[policy].items():
+                    if isinstance(v, torch.Tensor) and '__all__' != k:
+                        v = v.mean().item()
+                    print(f"{k:40}: {v:10.5f}")
+        else:
+            for k, v in metrics.items():
+                if isinstance(v, torch.Tensor) and '__all__' != k:
+                    v = v.mean().item()
                 print(f"{k:40}: {v:10.5f}")

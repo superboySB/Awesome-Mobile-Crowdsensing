@@ -13,6 +13,7 @@ import torch
 import torch.nn.functional as func
 from gym.spaces import Box, Dict, Discrete, MultiDiscrete
 from torch import nn
+from algs.models.network_utils import layer_init
 
 from warp_drive.utils.constants import Constants
 from warp_drive.utils.data_feed import DataFeed
@@ -87,9 +88,10 @@ class FullyConnected(nn.Module):
 
         self.fc = nn.ModuleDict()
         for fc_layer in range(num_fc_layers):
+            linear = nn.Linear(input_dims[fc_layer], output_dims[fc_layer])
             self.fc[str(fc_layer)] = nn.Sequential(
-                nn.Linear(input_dims[fc_layer], output_dims[fc_layer]),
-                nn.ReLU(),
+                layer_init(linear, std=np.sqrt(2), bias_const=0.0),
+                nn.Tanh(),
             )
 
         # policy network (list of heads)
@@ -97,11 +99,11 @@ class FullyConnected(nn.Module):
         self.output_dims = []  # Network output dimension(s)
         for idx, act_space in enumerate(action_space):
             self.output_dims += [act_space]
-            policy_heads[idx] = nn.Linear(fc_dims[-1], act_space)
+            policy_heads[idx] = layer_init(nn.Linear(fc_dims[-1], act_space))
         self.policy_head = nn.ModuleList(policy_heads)
 
         # value-function network head
-        self.vf_head = nn.Linear(fc_dims[-1], 1)
+        self.vf_head = layer_init(nn.Linear(fc_dims[-1], 1))
 
         # used for action masking
         self.action_mask = None

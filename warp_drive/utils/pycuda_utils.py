@@ -14,10 +14,8 @@ from warp_drive.utils.env_registrar import EnvironmentRegistrar
 
 def get_default_env_directory(env_name):
     envs = {
-        "TagGridWorld": f"{get_project_root()}"
-        f"/envs/tag_gridworld/tag_gridworld_step_pycuda.cu",
-        "TagContinuous": f"{get_project_root()}"
-        f"/envs/tag_continuous/tag_continuous_step_pycuda.cu",
+        "TagGridWorld": os.path.join(get_project_root(), "envs", "tag_gridworld", "tag_gridworld_step_pycuda.cu"),
+        "TagContinuous": os.path.join(get_project_root(), "envs", "tag_continuous", "tag_continuous_step_pycuda.cu"),
         "YOUR_ENVIRONMENT": "FULL_PATH_TO_YOUR_ENV_SRC",
     }
     return envs.get(env_name, None)
@@ -33,18 +31,20 @@ def update_env_header(
 
         return lookup
 
-    destination_header_path = f"{get_project_root()}/warp_drive/cuda_includes"
+    destination_header_path = os.path.join(get_project_root(), "warp_drive", "cuda_includes")
     if path is None:
         path = destination_header_path
 
     destination_header_file = "env_config.h"
-
-    if os.path.exists(f"{destination_header_path}/{destination_header_file}"):
+    header_path = os.path.join(path, destination_header_file)
+    if os.path.exists(header_path):
         logging.warning(
-            f"the destination header file {destination_header_path}/"
-            f"{destination_header_file} already exists; remove and rebuild."
+            f"the destination header file {header_path} already exists; remove and rebuild."
         )
-        os.remove(f"{destination_header_path}/{destination_header_file}")
+        try:
+            os.remove(header_path)
+        except FileNotFoundError:
+            logging.error(f"File not found: {header_path}")
 
     header_subs = {
         "N_ENVS": str(num_envs),
@@ -102,35 +102,29 @@ def update_env_runner(
 
         return lookup
 
-    destination_runner_path = f"{get_project_root()}/warp_drive/cuda_includes"
+    destination_runner_path = os.path.join(get_project_root(), "warp_drive", "cuda_includes")
     if path is None:
         path = destination_runner_path
 
     destination_runner_file = "env_runner.cu"
-
-    if os.path.exists(f"{destination_runner_path}/{destination_runner_file}"):
+    runner_path = os.path.join(path, destination_runner_file)
+    if os.path.exists(runner_path):
         logging.warning(
-            f"the destination runner file {destination_runner_path}/"
-            f"{destination_runner_file} already exists; remove and rebuild."
+            f"the destination runner file {runner_path} already exists; remove and rebuild."
         )
-        os.remove(f"{destination_runner_path}/{destination_runner_file}")
+        try:
+            os.remove(runner_path)
+        except FileNotFoundError:
+            logging.error(f"File not found: {runner_path}")
 
-    env_cuda = None
-    if (
-        customized_env_registrar is not None
-        and customized_env_registrar.get_cuda_env_src_path(env_name) is not None
-    ):
-        env_cuda = customized_env_registrar.get_cuda_env_src_path(env_name)
-        logging.info(
-            f"Finding the targeting environment source code "
-            f"from the customized environment directory: {env_cuda}"
-        )
-    elif get_default_env_directory(env_name) is not None:
-        env_cuda = get_default_env_directory(env_name)
-        logging.info(
-            f"Finding the targeting environment source code "
-            f"from the default environment directory: {env_cuda}"
-        )
+    env_src_path = customized_env_registrar.get_cuda_env_src_path(env_name) if customized_env_registrar else None
+    env_cuda = env_src_path or get_default_env_directory(env_name)
+
+    env_src_location = "customized" if env_src_path else "default"
+    logging.info(
+        f"Finding the targeting environment source code "
+        f"from the {env_src_location} environment directory: {env_cuda}"
+    )
 
     assert env_cuda is not None and isinstance(
         env_cuda, str
@@ -144,11 +138,11 @@ def update_env_runner(
         f"with source code at: {runner_subs['ENV_CUDA']}"
     )
 
-    with open(f"{path}/{template_runner_file}", "r", encoding="utf8") as reader:
+    with open(os.path.join(path, template_runner_file), "r", encoding="utf8") as reader:
         for line in reader.readlines():
             updated_line = re.sub("<<(.*?)>>", from_dict(runner_subs), line)
             runner_content += updated_line
     with open(
-        f"{destination_runner_path}/{destination_runner_file}", "w", encoding="utf8"
+            os.path.join(destination_runner_path, destination_runner_file), "w", encoding="utf8"
     ) as writer:
         writer.write(runner_content)

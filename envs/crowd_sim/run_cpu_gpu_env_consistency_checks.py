@@ -3,7 +3,7 @@ import numpy as np
 from warp_drive.utils.common import get_project_root
 from warp_drive.env_cpu_gpu_consistency_checker import EnvironmentCPUvsGPU
 from warp_drive.utils.env_registrar import EnvironmentRegistrar
-from envs.crowd_sim.env_wrapper import CrowdSimEnvWrapper
+from envs.crowd_sim.env_wrapper import CUDAEnvWrapper
 from envs.crowd_sim.crowd_sim import CrowdSim, CUDACrowdSim
 
 
@@ -54,7 +54,7 @@ testing_class = EnvironmentCPUvsGPU(
     env_configs=env_configs,
     num_envs=2,
     num_episodes=2,
-    env_wrapper=CrowdSimEnvWrapper,
+    env_wrapper=CUDAEnvWrapper,
     env_registrar=env_registrar,
 )
 

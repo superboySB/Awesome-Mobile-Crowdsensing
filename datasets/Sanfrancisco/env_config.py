@@ -1,4 +1,7 @@
 import numpy as np
+import os
+from warp_drive.utils.common import get_project_root
+from datasets.env_test import try_sensing_range
 
 class Config(object):
     def __init__(self):
@@ -7,14 +10,16 @@ class Config(object):
 
 class BaseEnvConfig(object):
     env = Config()
+    env.aoi_threshold = 30
     env.num_timestep = 120  # 120x15=1800s=30min
     env.step_time = 15  # second per step
-    env.max_uav_energy = 359640  # 359640 J <-- 359.64 kJ (4500mah, 22.2v) 大疆经纬
+    env.max_uav_energy = 359640  # 359640 J <-- 359.64 kJ (4500mAh, 22.2v) 大疆经纬
     env.rotation_limit = 360
     env.diameter_of_human_blockers = 0.5  # m
     env.h_rx = 1.3  # m, height of RX
     env.h_b = 1.7  # m, height of a human blocker
-    env.velocity = 18
+    env.car_velocity = 8
+    env.drone_velocity = 18
     env.frequence_band = 28  # GHz
     env.h_d = 120  # m, height of drone-BS
     env.alpha_nlos = 66.25
@@ -37,7 +42,7 @@ class BaseEnvConfig(object):
     env.nlon = 7910
     env.nlat = 6960
     env.human_num = 536
-    env.dataset_dir = 'datasets/Sanfrancisco/ground_trajs.csv'
+    env.dataset_dir = os.path.join(get_project_root(), 'datasets/Sanfrancisco/ground_trajs.csv')
     env.drone_action_space = np.array([[0, 0], [300, 0], [-300, 0], [0, 300], [0, -300], [210, 210], [210, -210], [-210, 210],
                                 [-210, -210]])
     env.drone_sensing_range = 200  # unit
@@ -80,21 +85,6 @@ class BaseEnvConfig(object):
 
 # r:meters, 2d distance
 # threshold: dB
-def try_sensing_range(r):
-    import math
-    config = BaseEnvConfig().env
-    p_los = math.exp(
-        -config.density_of_human_blockers * config.diameter_of_human_blockers * r * (config.h_b - config.h_rx) / (
-                config.h_d - config.h_rx))
-    p_nlos = 1 - p_los
-    PL_los = config.alpha_los + config.beta_los * 10 * math.log10(
-        math.sqrt(r * r + config.h_d * config.h_d)) + config.zeta_los
-    PL_nlos = config.alpha_nlos + config.beta_nlos * 10 * math.log10(
-        math.sqrt(r * r + config.h_d * config.h_d)) + config.zeta_nlos
-    PL = p_los * PL_los + p_nlos * PL_nlos
-    CL = PL - config.g_tx - config.g_rx
-    print(p_los, p_nlos)
-    print(CL)
 
 # Maximum Coupling Loss (110dB is recommended)
 # san:
@@ -106,4 +96,4 @@ def try_sensing_range(r):
 
 
 if __name__ == "__main__":
-    try_sensing_range(220)
+    try_sensing_range(220, BaseEnvConfig)

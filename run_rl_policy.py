@@ -1,139 +1,217 @@
 """
 Helper file for generating an environment rollout
 """
+from marllib import marl
 
+from warp_drive.trainer_lightning import WarpDriveModule
+from warp_drive.training.trainer import Metrics
+from envs.crowd_sim.crowd_sim import COVERAGE_METRIC_NAME, LARGE_DATASET_NAME, RLlibCUDACrowdSim
+from run_configs.mcs_configs_python import run_config, checkpoint_dir
+from tqdm import tqdm
 import matplotlib.pyplot as plt
-import numpy as np
-from matplotlib import animation
-from matplotlib.patches import Polygon
-from mpl_toolkits.mplot3d import art3d
+import os
+import re
+import subprocess
 
 
-def generate_tag_env_rollout_animation(
-    trainer,
-    fps=50,
-    tagger_color="#C843C3",
-    runner_color="#245EB6",
-    runner_not_in_game_color="#666666",
-    fig_width=6,
-    fig_height=6,
+def generate_crowd_sim_animations_rllib(
+        model,
+        env: RLlibCUDACrowdSim,
+):
+    terminated = truncated = False
+    episode_reward = 0
+    obs = env.reset()
+    while not terminated and not truncated:
+        action = model.compute_single_action(obs)
+        obs, reward, terminated, info = env.step(action)
+        episode_reward += reward
+    return episode_reward
+
+
+def generate_crowd_sim_animations_warp_drive(
+        trainer: WarpDriveModule,
+        animate: bool = False,
+        verbose: bool = False,
 ):
     assert trainer is not None
-
     episode_states = trainer.fetch_episode_states(
-        ["loc_x", "loc_y", "still_in_the_game"]
+        ["agent_x", "agent_y"]
     )
     assert isinstance(episode_states, dict)
-    env = trainer.cuda_envs.env
+    env: CUDACrowdSim = trainer.cuda_envs.env
+    # TODO: Hack at here, env is filled with the last timestep or something else, need to figure out why
+    env.agent_x_time_list = episode_states['agent_x']
+    env.agent_y_time_list = episode_states['agent_y']
+    metrics = env.collect_info()
+    if verbose:
+        printer = Metrics()
+        printer.pretty_print(metrics)
+    if animate:
+        env.render(args.output_dir, args.plot_loop, args.moving_line)
+    return metrics
 
-    fig, ax = plt.subplots(
-        1, 1, figsize=(fig_width, fig_height)
-    )  # , constrained_layout=True
-    ax.remove()
-    ax = fig.add_subplot(1, 1, 1, projection="3d")
 
-    # Bounds
-    ax.set_xlim(0, 1)
-    ax.set_ylim(0, 1)
-    ax.set_zlim(-0.01, 0.01)
-
-    # Surface
-    corner_points = [(0, 0), (0, 1), (1, 1), (1, 0)]
-
-    poly = Polygon(corner_points, color=(0.1, 0.2, 0.5, 0.15))
-    ax.add_patch(poly)
-    art3d.pathpatch_2d_to_3d(poly, z=0, zdir="z")
-
-    # "Hide" side panes
-    ax.xaxis.set_pane_color((1.0, 1.0, 1.0, 0.0))
-    ax.yaxis.set_pane_color((1.0, 1.0, 1.0, 0.0))
-    ax.zaxis.set_pane_color((1.0, 1.0, 1.0, 0.0))
-
-    # Hide grid lines
-    ax.grid(False)
-
-    # Hide axes ticks
-    ax.set_xticks([])
-    ax.set_yticks([])
-    ax.set_zticks([])
-
-    # Hide axes
-    ax.set_axis_off()
-
-    # Set camera
-    ax.elev = 40
-    ax.azim = -55
-    ax.dist = 10
-
-    # Try to reduce whitespace
-    fig.subplots_adjust(left=0, right=1, bottom=-0.2, top=1)
-
-    # Plot init data
-    lines = [None for _ in range(env.num_agents)]
-
-    for idx in range(env.num_agents):
-        if idx in env.taggers:
-            lines[idx] = ax.plot3D(
-                episode_states["loc_x"][:1, idx] / env.grid_length,
-                episode_states["loc_y"][:1, idx] / env.grid_length,
-                0,
-                color=tagger_color,
-                marker="o",
-                markersize=10,
-            )[0]
-        else:  # runners
-            lines[idx] = ax.plot3D(
-                episode_states["loc_x"][:1, idx] / env.grid_length,
-                episode_states["loc_y"][:1, idx] / env.grid_length,
-                [0],
-                color=runner_color,
-                marker="o",
-                markersize=5,
-            )[0]
-
-    init_num_runners = env.num_agents - env.num_taggers
-
-    def _get_label(timestep, n_runners_alive, init_n_runners):
-        line1 = "Continuous Tag\n"
-        line2 = "Time Step:".ljust(14) + f"{timestep:4.0f}\n"
-        frac_runners_alive = n_runners_alive / init_n_runners
-        pct_runners_alive = f"{n_runners_alive:4} ({frac_runners_alive * 100:.0f}%)"
-        line3 = "Runners Left:".ljust(14) + pct_runners_alive
-        return line1 + line2 + line3
-
-    label = ax.text(
-        0,
-        0,
-        0.02,
-        _get_label(0, init_num_runners, init_num_runners).lower(),
+def setup_cuda_crowd_sim_env(dynamic_zero_shot: bool = False, dataset: str = None):
+    """
+    common setup for cuda_crowd_sim_env
+    """
+    assert dataset is not None
+    import os
+    torch.set_float32_matmul_precision('medium')
+    env_registrar = EnvironmentRegistrar()
+    env_registrar.add_cuda_env_src_path(CUDACrowdSim.name,
+                                        os.path.join(get_project_root(), "envs", "crowd_sim", "crowd_sim_step.cu"))
+    if dataset == LARGE_DATASET_NAME:
+        from datasets.Sanfrancisco.env_config import BaseEnvConfig
+    elif dataset == "KAIST":
+        from datasets.KAIST.env_config import BaseEnvConfig
+    else:
+        raise NotImplementedError(f"dataset {dataset} not supported")
+    run_config["env_args"]['dynamic_zero_shot'] = dynamic_zero_shot
+    run_config["env_args"]['env_config'] = BaseEnvConfig
+    env_wrapper = CUDAEnvWrapper(
+        CUDACrowdSim(**run_config["env_args"]),
+        num_envs=run_config["trainer"]["num_envs"],
+        env_backend="pycuda",
+        env_registrar=env_registrar
     )
+    # Agents can share policy models: this dictionary maps policy model names to agent ids.
+    policy_tag_to_agent_id_map = {
+        "car": list(env_wrapper.env.cars),
+        "drone": list(env_wrapper.env.drones),
+    }
+    new_wd_module = WarpDriveModule(
+        env_wrapper=env_wrapper,
+        config=run_config,
+        policy_tag_to_agent_id_map=policy_tag_to_agent_id_map,
+        create_separate_placeholders_for_each_policy=False,  # TODO: True -> IPPO?
+        obs_dim_corresponding_to_num_agents="first",
+        verbose=True,
+    )
+    return new_wd_module
 
-    label.set_fontsize(14)
-    label.set_fontweight("normal")
-    label.set_color("#666666")
 
-    def animate(i):
-        for idx, line in enumerate(lines):
-            line.set_data_3d(
-                episode_states["loc_x"][i : i + 1, idx] / env.grid_length,
-                episode_states["loc_y"][i : i + 1, idx] / env.grid_length,
-                np.zeros(1),
-            )
+def extract_timestamps(directory):
+    timestamps = set()
+    pattern = re.compile(r'_(\d+).state_dict')
 
-            still_in_game = episode_states["still_in_the_game"][i, idx]
+    for filename in os.listdir(directory):
+        match = pattern.search(filename)
+        if match:
+            timestamps.add(int(match.group(1)))
 
-            if still_in_game:
-                pass
+    return sorted(list(timestamps))
+
+
+def benchmark_coverage(directory: str):
+    """
+    benchmark coverage for all checkpoints under a given directory
+    """
+    coverage_list = []
+    best_coverage = 0
+    best_timestep = -1
+    timestamps = extract_timestamps(directory)
+    if not timestamps:
+        print("No valid checkpoints found.")
+        return None
+    for checkpoint_timestep in tqdm(timestamps):
+        car_path = f"{directory}/car_{checkpoint_timestep}.state_dict"
+        drone_path = f"{directory}/drone_{checkpoint_timestep}.state_dict"
+
+        if os.path.exists(car_path) and os.path.exists(drone_path):
+            wd_module.load_model_checkpoint_separate({"car": car_path, "drone": drone_path})
+            metrics = generate_crowd_sim_animations_warp_drive(wd_module)
+            coverage_list.append(metrics[COVERAGE_METRIC_NAME])
+
+            if metrics[COVERAGE_METRIC_NAME] > best_coverage:
+                best_coverage = metrics[COVERAGE_METRIC_NAME]
+                best_timestep = checkpoint_timestep
+
+    print(f"best zero shot coverage: {best_coverage}, timestep: {best_timestep}")
+    # plot coverage and timestep
+    # x label: timestep
+    plt.xlabel('timestep')
+    # y label: target coverage
+    plt.ylabel('target coverage')
+    # title: change of target coverage vs timestep
+    plt.title('change of target coverage vs timestep')
+    # x ticks change scale to 10^6
+    plt.ticklabel_format(style='sci', axis='x', scilimits=(0, 0))
+    plt.plot(timestamps, coverage_list)
+    # get parent_path last dir name
+    expr_name = directory.split('/')[-1]
+    # save figure as image
+    plt.savefig(f'./{expr_name}_coverage.png')
+    return best_timestep
+
+
+if __name__ == "__main__":
+    import torch
+    import argparse
+    from envs.crowd_sim.crowd_sim import CUDACrowdSim
+    from envs.crowd_sim.env_wrapper import CUDAEnvWrapper
+    from warp_drive.utils.env_registrar import EnvironmentRegistrar
+    from warp_drive.utils.common import get_project_root
+
+    # register all scenario with env class
+    ENV_REGISTRY = {}
+    # add nvcc path to os environment
+    os.environ["PATH"] += os.pathsep + '/usr/local/cuda/bin'
+
+    parser = argparse.ArgumentParser()
+    default_output_dir = os.path.join('/workspace', 'saved_data', 'trajectories', 'logs.html')
+    parser.add_argument('--output_dir', type=str, default=default_output_dir)
+    parser.add_argument('--dataset', type=str, default=LARGE_DATASET_NAME)
+    parser.add_argument('--plot_loop', action='store_true')
+    parser.add_argument('--moving_line', action='store_true')
+    parser.add_argument("--dyn_zero_shot", action="store_true")
+    args = parser.parse_args()
+    # register new env
+    ENV_REGISTRY["crowdsim"] = RLlibCUDACrowdSim
+    # initialize env
+    if args.dataset == LARGE_DATASET_NAME:
+        from datasets.Sanfrancisco.env_config import BaseEnvConfig
+    else:
+        from datasets.KAIST.env_config import BaseEnvConfig
+
+    env_params = {'env_setup': BaseEnvConfig}
+    env = marl.make_env(environment_name="crowdsim", map_name=LARGE_DATASET_NAME,
+                        abs_path=os.path.join(get_project_root(), "run_configs", "crowdsim.yaml"),
+                        env_params=env_params)
+    # pick mappo algorithms
+    mappo = marl.algos.mappo(hyperparam_source="common")
+    # customize model
+    model = marl.build_model(env, mappo, {"core_arch": "mlp", "encode_layer": "512-512"})
+    generate_crowd_sim_animations_rllib()
+    wd_module = setup_cuda_crowd_sim_env(args.dyn_zero_shot, args.dataset)
+    # generalized from KAIST to San Francisco
+    parent_path = checkpoint_dir
+    # generalized from San Francisco to KAIST
+    # parent_path = "./saved_data/crowd_sim/kdd2024/1202-160001_car3_drone3_kdd2024"
+    # 1701321935 San Fran from scratch
+    # 1701264833 KAIST from scratch, the best generalization at 260000000
+    # best generalization for new points at
+    timestep = 241999
+    if timestep is not None:
+        car_path = os.path.join(parent_path, f"car_{timestep}.state_dict")
+        drone_path = os.path.join(parent_path, f"drone_{timestep}.state_dict")
+        if os.path.exists(car_path) and os.path.exists(drone_path):
+            print(f"loading {timestep} checkpoint")
+            wd_module.load_model_checkpoint_separate({"car": car_path, "drone": drone_path})
+        else:
+            # full_ckpt_name = os.path.join(parent_path, f"checkpoint_epoch={timestep}.ckpt")
+            full_ckpt_name = os.path.join(checkpoint_dir, f"checkpoint_epoch={timestep}.ckpt")
+            # check if full checkpoint exists
+            if os.path.exists(full_ckpt_name):
+                # extract car and drone checkpoints from full checkpoint
+                wd_module.load_model_checkpoint(full_ckpt_name)
             else:
-                line.set_color(runner_not_in_game_color)
-                line.set_marker("")
-
-        n_runners_alive = episode_states["still_in_the_game"][i].sum() - env.num_taggers
-        label.set_text(_get_label(i, n_runners_alive, init_num_runners).lower())
-
-    ani = animation.FuncAnimation(
-        fig, animate, np.arange(0, env.episode_length + 1), interval=1000.0 / fps
-    )
-    plt.close()
-
-    return ani
+                print("no valid checkpoint found")
+        generate_crowd_sim_animations_warp_drive(wd_module, animate=True, verbose=True)
+        # # send html to local
+        # result_file = args.output_dir
+        # destination = "Charlie@10.108.17.19:~/Downloads"
+        # rsync_command = f"rsync -avz {result_file} {destination}"
+        #
+        # # Execute the rsync command
+        # subprocess.run(rsync_command, shell=True)
