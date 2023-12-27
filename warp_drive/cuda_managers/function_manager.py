@@ -116,6 +116,7 @@ class CUDAFunctionFeed:
             data_pointers = []
             for arg in arguments:
                 if isinstance(arg, str):
+                    logging.debug("CUDAFunctionFeed: {}".format(arg))
                     data_pointers.append(self.data_manager.device_data(arg))
                 elif isinstance(arg, tuple):
                     key = arg[0]

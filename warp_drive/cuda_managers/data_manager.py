@@ -34,7 +34,7 @@ class CUDADataManager:
         :param episode_length: the length of one single episode, used for logging in
         general, but in many envs, it also sets the duration of a game.
 
-        self._meta_info: maintains meta information as the scalar integers or floats
+        self._meta_info: maintains meta-information as the scalar integers or floats
         self._device_data_pointer: maintains CUDA pointers
         to the data array in the device
         self._device_data_via_torch: maintains the torch tensor
@@ -91,7 +91,7 @@ class CUDADataManager:
 
     def _add_done_and_push_to_device(self):
         """
-        done flag for each env
+        done flags for each env
         """
 
         done = np.zeros(self._meta_info["n_envs"], dtype=np.int32)
@@ -106,7 +106,7 @@ class CUDADataManager:
 
     def add_meta_info(self, meta: Dict):
         """
-        Add meta information to the data manager, only accepts scalar integer or float
+        Add meta-information to the data manager, only accepts scalar integer or float
 
         :param meta: for example, {"episode_length": 100, "num_agents": 10}
         """
@@ -340,16 +340,17 @@ class CUDADataManager:
                     self._log_data_list.append(key)
 
             # for scalar int or float, no need to assign CUDA memory to it
-            elif isinstance(value, (int, np.integer, float, np.floating)):
+            elif isinstance(value, (int, np.integer, float, np.floating, bool, np.bool_)):
 
                 assert key not in self._scalar_data_list, (
                     f"the data with name: {key} has " f"already been pushed to device"
                 )
-
                 if isinstance(value, (int, np.integer)):
                     self._host_data[key] = np.int32(value)
                 elif isinstance(value, (float, np.floating)):
                     self._host_data[key] = np.float32(value)
+                else:
+                    self._host_data[key] = np.bool_(value)
                 self._shape[key] = ()
                 self._dtype[key] = self._host_data[key].dtype.name
                 self._shape_info_helper(
@@ -358,10 +359,11 @@ class CUDADataManager:
                     shape=self._shape[key],
                 )
                 self._scalar_data_list.append(key)
+                logging.debug(f"{key} is added to scalar_data_list")
             else:
                 raise ValueError(
                     f"the data '{key}' needs to be casted to a"
-                    f" float, int, list or array"
+                    f" float, int, bool, list or array"
                 )
 
     def pull_data_from_device(self, name: str):
@@ -380,8 +382,8 @@ class CUDADataManager:
         To fetch the tensor back to the host,
         call pull_data_from_device()
 
-        :param name: name of the device array
-        returns: the tensor itself at the device.
+        :param name: The name of the device array
+        returns: The tensor itself at the device.
         """
         assert name in self._device_data_via_torch
 

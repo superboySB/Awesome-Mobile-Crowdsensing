@@ -24,13 +24,11 @@ os.environ["PATH"] += os.pathsep + '/usr/local/cuda/bin'
 
 if __name__ == '__main__':
 
-    logging.getLogger().setLevel(logging.DEBUG)
+    logging.getLogger().setLevel(logging.WARN)
     parser = argparse.ArgumentParser()
     add_common_arguments(parser)
     parser.add_argument('--centralized', action='store_true', help='use centralized reward function')
     # select algorithm
-    parser.add_argument('--algo', type=str, default='mappo', help='select algorithm')
-    parser.add_argument('--env', type=str, default='crowdsim', help='select environment')
     parser.add_argument("--num_workers", type=int, default=0, help='number of workers to sample environment.')
     parser.add_argument("--render", action='store_true', help='render the environment')
     args = parser.parse_args()
@@ -58,8 +56,9 @@ if __name__ == '__main__':
             env_params['logging_config'] = logging_config
         else:
             logging_config = None
-        env_params['centralized'] = args.centralized
-        env_params['gpu_id'] = args.gpu_id
+        for item in ['centralized', 'gpu_id', 'dynamic_zero_shot']:
+            env_params[item] = getattr(args, item)
+        logging.debug(env_params)
         env = marl.make_env(environment_name=args.env, map_name=args.dataset, env_params=env_params)
     else:
         # this is a mocking env not used in actual run.

@@ -1,12 +1,11 @@
 import logging
 import os
-from typing import Optional, Tuple, Dict, List, Union, Any, Union
+from typing import Optional, Tuple, Dict, List, Any, Union
 
 import numpy as np
 import torch
 import folium
 import wandb
-from copy import deepcopy
 import time
 import pandas as pd
 from folium.plugins import TimestampedGeoJson, AntPath
@@ -134,34 +133,19 @@ class CrowdSim:
                                                                Point(self.upper_right[0], self.lower_left[1]))
         self.max_distance_y: float = measure_distance_geodesic(Point(self.lower_left[0], self.lower_left[1]),
                                                                Point(self.lower_left[0], self.upper_right[1]))
-        self.human_df = pd.read_csv(self.config.env.dataset_dir)
+        self.human_df: pd.DataFrame = pd.read_csv(self.config.env.dataset_dir)
         logging.info("Finished reading {} rows".format(len(self.human_df)))
         self.human_df['t'] = pd.to_datetime(self.human_df['timestamp'], unit='s')  # s表示时间戳转换
         self.human_df['aoi'] = -1  # 加入aoi记录aoi
         self.human_df['energy'] = -1  # 加入energy记录energy
         self.agent_speed = {'car': self.config.env.car_velocity, 'drone': self.config.env.drone_velocity}
-        points_x, points_y, num_centers, num_points, num_points_per_center = (None,) * 5
-        if dynamic_zero_shot:
-            num_centers = int(self.num_sensing_targets * 0.05)
-            num_points_per_center = 3
-            max_distance_from_center = 10
-            int_arrays = [
-                self.np_random.randint(0, int(self.max_distance_x), (num_centers, 1)).astype(np.int_),
-                self.np_random.randint(0, int(self.max_distance_y), (num_centers, 1)).astype(np.int_)
-            ]
-            centers = np.concatenate(int_arrays, axis=1)
-            points_x = np.zeros((num_centers * num_points_per_center,), dtype=int)
-            points_y = np.zeros((num_centers * num_points_per_center,), dtype=int)
-            for i, (cx, cy) in enumerate(centers):
-                for j in range(num_points_per_center):
-                    index = i * num_points_per_center + j
-                    points_x[index] = self.np_random.randint(max(cx - max_distance_from_center, 0),
-                                                             min(cx + max_distance_from_center + 1,
-                                                                 int(self.max_distance_x)))
-                    points_y[index] = self.np_random.randint(max(cy - max_distance_from_center, 0),
-                                                             min(cy + max_distance_from_center + 1,
-                                                                 int(self.max_distance_y)))
-            self.num_sensing_targets += (num_centers * num_points_per_center)
+        points_x, points_y, self.num_centers, self.num_points, self.num_points_per_center = (None,) * 5
+        self.dynamic_zero_shot = dynamic_zero_shot
+        if self.dynamic_zero_shot:
+            self.num_centers = int(self.num_sensing_targets * 0.05)
+            self.num_points_per_center = 3
+            points_x, points_y = self.generate_emergency(self.num_centers, self.num_points_per_center)
+            self.num_sensing_targets += (self.num_centers * self.num_points_per_center)
         # human infos
         unique_ids = np.arange(0, self.num_sensing_targets)  # id from 0 to 91
         unique_timestamps = np.arange(self.start_timestamp, self.end_timestamp + self.step_time, self.step_time)
@@ -182,8 +166,10 @@ class CrowdSim:
             else:
                 raise ValueError("Got invalid rows:", row)
         if dynamic_zero_shot:
-            self.target_x_time_list[:, self.num_sensing_targets - num_centers * num_points_per_center:] = points_x
-            self.target_y_time_list[:, self.num_sensing_targets - num_centers * num_points_per_center:] = points_y
+            self.target_x_time_list[:, self.num_sensing_targets -
+                                       self.num_centers * self.num_points_per_center:] = points_x
+            self.target_y_time_list[:, self.num_sensing_targets -
+                                       self.num_centers * self.num_points_per_center:] = points_y
             # rebuild DataFrame from longitude and latitude
 
         x1 = self.target_x_time_list[:-1, :]
@@ -267,6 +253,26 @@ class CrowdSim:
         # [may not necessary] Copy drones dict for applying at reset (with limited energy reserve)
         # self.drones_at_reset = copy.deepcopy(self.drones)
 
+    def generate_emergency(self, num_centers, num_points_per_center):
+        max_distance_from_center = 10
+        int_arrays = [
+            self.np_random.randint(0, int(self.max_distance_x), (num_centers, 1)).astype(np.int_),
+            self.np_random.randint(0, int(self.max_distance_y), (num_centers, 1)).astype(np.int_)
+        ]
+        centers = np.concatenate(int_arrays, axis=1)
+        points_x = np.zeros((num_centers * num_points_per_center,), dtype=int)
+        points_y = np.zeros((num_centers * num_points_per_center,), dtype=int)
+        for i, (cx, cy) in enumerate(centers):
+            for j in range(num_points_per_center):
+                index = i * num_points_per_center + j
+                points_x[index] = self.np_random.randint(max(cx - max_distance_from_center, 0),
+                                                         min(cx + max_distance_from_center + 1,
+                                                             int(self.max_distance_x)))
+                points_y[index] = self.np_random.randint(max(cy - max_distance_from_center, 0),
+                                                         min(cy + max_distance_from_center + 1,
+                                                             int(self.max_distance_y)))
+        return points_x, points_y
+
     def seed(self, seed=None):
         """
         Seeding the environment with a desired seed
@@ -299,6 +305,12 @@ class CrowdSim:
         Env reset().
         """
         self.history_reset()
+        if self.dynamic_zero_shot:
+            points_x, points_y = self.generate_emergency(self.num_centers, self.num_points_per_center)
+            self.target_x_time_list[:, self.num_sensing_targets -
+                                       self.num_centers * self.num_points_per_center:] = points_x
+            self.target_y_time_list[:, self.num_sensing_targets -
+                                       self.num_centers * self.num_points_per_center:] = points_y
         return self.generate_observation_and_update_state()
 
     def calculate_global_distance_matrix(self):
@@ -570,28 +582,39 @@ class CrowdSim:
 
     def collect_info(self) -> Dict[str, float]:
         if isinstance(self, CUDACrowdSim):
+            if not self.dynamic_zero_shot:
+                self.target_coveraged_timelist[self.timestep, :] = self.cuda_data_manager.pull_data_from_device(
+                    "target_coverage").mean(axis=0)
             self.target_aoi_timelist[self.timestep, :] = self.cuda_data_manager.pull_data_from_device(
                 "target_aoi").mean(axis=0)
             self.agent_energy_timelist[self.timestep, :] = self.cuda_data_manager.pull_data_from_device(
                 _AGENT_ENERGY).mean(axis=0)
-            self.target_coveraged_timelist[self.timestep, :] = self.cuda_data_manager.pull_data_from_device(
-                "target_coverage").mean(axis=0)
-        self.data_collection += np.sum(
-            self.target_aoi_timelist[self.timestep] - self.target_aoi_timelist[self.timestep - 1])
-        coverage = np.sum(self.target_coveraged_timelist) / (self.episode_length * self.num_sensing_targets)
-        mean_aoi = np.mean(self.target_aoi_timelist[self.timestep])
         freshness_factor = 1 - np.mean(np.clip(self.float_dtype(self.target_aoi_timelist[self.timestep]) /
                                                self.aoi_threshold, a_min=0, a_max=1) ** 2)
-        logging.debug(f"freshness_factor: {freshness_factor}, mean_aoi: {mean_aoi}")
-        mean_energy = np.mean(self.agent_energy_timelist[self.timestep])
-        energy_consumption_ratio = mean_energy / self.max_uav_energy
-        info = {AOI_METRIC_NAME: mean_aoi,
-                ENERGY_METRIC_NAME: energy_consumption_ratio,
+        logging.debug(f"freshness_factor: {freshness_factor}")
+        # mean_energy = np.mean(self.agent_energy_timelist[self.timestep])
+        # energy_remaining_ratio = mean_energy / self.max_uav_energy
+        info = {
+            ENERGY_METRIC_NAME: 1 - np.mean(self.agent_energy_timelist[self.timestep]) / self.max_uav_energy,
                 "freshness_factor": freshness_factor,
+        }
+        if self.dynamic_zero_shot:
+            info["surveillance_aoi"] = np.mean(self.target_aoi_timelist[self.timestep,
+                                               :-self.num_centers * self.num_points_per_center])
+            info["response_delay"] = np.mean(self.target_aoi_timelist[self.timestep,
+                                             -self.num_centers * self.num_points_per_center:])
+            info["overall_aoi"] = (info["surveillance_aoi"] + info["response_delay"]) / 2
+        else:
+            mean_aoi = np.mean(self.target_aoi_timelist[self.timestep])
+            self.data_collection += np.sum(
+                self.target_aoi_timelist[self.timestep] - self.target_aoi_timelist[self.timestep - 1])
+            coverage = np.sum(self.target_coveraged_timelist) / (self.episode_length * self.num_sensing_targets)
+            info.update({
                 DATA_METRIC_NAME: self.data_collection / (self.episode_length * self.num_sensing_targets),
+                AOI_METRIC_NAME: mean_aoi,
                 COVERAGE_METRIC_NAME: coverage,
                 MAIN_METRIC_NAME: freshness_factor * coverage
-                }
+            })
         return info
 
 
@@ -768,7 +791,12 @@ class CUDACrowdSim(CrowdSim, CUDAEnvironmentContext):
                                  ("max_distance_y", self.float_dtype(self.max_distance_y)),
                                  ("slot_time", self.float_dtype(self.step_time)),
                                  ("agent_speed", self.int_dtype(list(self.agent_speed.values()))),
+                                 ("dynamic_zero_shot", self.int_dtype(self.dynamic_zero_shot)),
+                                 ("zero_shot_start", self.int_dtype(self.num_sensing_targets
+                                                                    - self.num_centers * self.num_points_per_center)
+                                 if self.dynamic_zero_shot else -1,)
                                  ])
+        # WARNING: single bool value seems to fail pycuda.
         return data_dict
 
     def step(self, actions=None) -> Tuple[Dict, Dict]:
@@ -812,6 +840,8 @@ class CUDACrowdSim(CrowdSim, CUDAEnvironmentContext):
             "max_distance_y",
             "slot_time",
             "agent_speed",
+            "dynamic_zero_shot",
+            "zero_shot_start",
         ]
         if self.env_backend == "pycuda":
             self.cuda_step(
@@ -846,6 +876,7 @@ class RLlibCUDACrowdSim(MultiAgentEnv):
         logging.debug("additional_params: " + str(additional_params))
         os.environ["CUDA_VISIBLE_DEVICES"] = str(additional_params.get("gpu_id", 0))
         run_config['env_config'] = additional_params['env_setup']
+        run_config['dynamic_zero_shot'] = additional_params['dynamic_zero_shot']
         self.logging_config = additional_params.get('logging_config', None)
         self.trainer_params = run_config["trainer"]
         self.env_registrar = EnvironmentRegistrar()
@@ -869,6 +900,7 @@ class RLlibCUDACrowdSim(MultiAgentEnv):
 
         # Using dictionary comprehension to exclude specific keys
         new_dict = {k: v for k, v in run_config.items() if k not in excluded_keys}
+        logging.debug(new_dict)
         self.env = CUDACrowdSim(**new_dict)
         self.env_backend = self.env.env_backend = "pycuda"
         self.action_space: spaces.Space = next(iter(self.env.action_space.values()))
@@ -1022,9 +1054,7 @@ class RLlibCUDACrowdSimWrapper(VectorEnv):
         else:
             actual_env = env
             self.group_wrapper = None
-        self.observation_space = actual_env.observation_space
-        self.action_space = actual_env.action_space
-        self.num_envs = actual_env.num_envs
+        super().__init__(actual_env.observation_space, actual_env.action_space, actual_env.num_envs)
         self.num_agents = actual_env.num_agents
         self.agents = actual_env.agents
         self.env_wrapper = actual_env.env_wrapper
@@ -1076,6 +1106,7 @@ class RLlibCUDACrowdSimWrapper(VectorEnv):
     def try_render_at(self, index: Optional[int] = None) -> \
             Optional[np.ndarray]:
         self.env.render()
+        return np.zeros(1)
 
     def stop(self):
         pass
@@ -1158,7 +1189,7 @@ class RLlibCrowdSim(MultiAgentEnv):
         run_config['env_config'] = additional_params['env_setup']
         self.logging_config = additional_params.get('logging_config', None)
         new_dict = {k: v for k, v in run_config.items() if k not in excluded_keys}
-        self.env = CrowdSim(**run_config)
+        self.env = CrowdSim(**new_dict)
         self.action_space: spaces.Space = next(iter(self.env.action_space.values()))
         # manually setting observation space
         self.obs_ref = self.env.reset()[0]

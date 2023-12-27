@@ -290,7 +290,9 @@ __device__ void CUDACrowdSimGenerateAoIGrid(
     const int max_distance_x,
     const int max_distance_y,
     const float slot_time,
-    const int* agent_speed_arr
+    const int* agent_speed_arr,
+    int dynamic_zero_shot,
+    int zero_shot_start
   ) {
     const int kEnvId = getEnvID(blockIdx.x);
     const int kThisAgentId = getAgentID(threadIdx.x, blockIdx.x, blockDim.x);
@@ -414,6 +416,9 @@ __device__ void CUDACrowdSimGenerateAoIGrid(
 
         int target_aoi = target_aoi_arr[kThisTargetAgeArrayIdxOffset + target_idx];
         int reward_increment = (target_aoi - 1);
+        if (dynamic_zero_shot && target_idx >= zero_shot_start){
+          reward_increment *= 1.5;
+        }
         if (min_dist <= kDroneSensingRange && nearest_agent_id != -1) {
             bool is_drone = agent_types_arr[nearest_agent_id];
             rewards_arr[kThisEnvAgentsOffset + nearest_agent_id] += reward_increment;

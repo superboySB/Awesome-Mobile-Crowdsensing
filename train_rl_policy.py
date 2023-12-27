@@ -87,6 +87,7 @@ def run_experiment():
         env_registrar = EnvironmentRegistrar()
         env_registrar.add_cuda_env_src_path(CUDACrowdSim.name,
                                             os.path.join(my_root, "envs", ENV_NAME, "crowd_sim_step.cu"))
+        actual_config["env_args"]['dynamic_zero_shot'] = new_args.dynamic_zero_shot
         env_wrapper = CUDAEnvWrapper(
             CUDACrowdSim(**actual_config["env_args"]),
             num_envs=num_envs,
@@ -122,7 +123,7 @@ def run_experiment():
             log_freq=print_freq,
         )
         checkpoint_callback = ModelCheckpoint(
-            dirpath=os.path.join(checkpoint_dir, ENV_NAME, RUN_NAME, expr_name),
+            dirpath=str(os.path.join(checkpoint_dir, ENV_NAME, RUN_NAME, expr_name)),
             # Specify the path to save the checkpoints
             filename='checkpoint_{epoch}',  # Naming convention for checkpoint files
             every_n_epochs=actual_config['saving']['model_params_save_freq'],

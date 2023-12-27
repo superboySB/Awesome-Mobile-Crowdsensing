@@ -38,6 +38,18 @@ def add_common_arguments(parser: ArgumentParser):
                         help="gpu id to use, will be setted to CUDA_VISIBLE_DEVICES")
     # add argument for resume
     parser.add_argument('--resume', action='store_true', help='resume training')
+    parser.add_argument(
+        '--algo',
+        type=str,
+        default='ippo',
+        help='algorithm to choose (warpdrive does not support algorithms other than ippo)',
+    )
+    parser.add_argument(
+        '--dynamic_zero_shot',
+        action='store_true',
+        help='enable dynamic zero shot'
+    )
+    parser.add_argument('--env', type=str, default='crowdsim', help='select environment')
 
 
 logging_dir = os.path.join("/workspace", "saved_data")
