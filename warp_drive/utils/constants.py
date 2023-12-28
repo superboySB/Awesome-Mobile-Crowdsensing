@@ -27,3 +27,5 @@ class Constants:
     AOI_METRIC_NAME = "mean_aoi"
     MAIN_METRIC_NAME = "fresh_equivalent_coverage"
     STATE = "state"
+    VECTOR_STATE = "agents_state"
+    IMAGE_STATE = "grid"

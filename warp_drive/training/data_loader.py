@@ -366,28 +366,61 @@ def _create_observation_placeholders_helper(
             save_copy_and_apply_at_reset=True,
         )
     elif isinstance(obs[first_env_id][first_agent_id], dict):
-        for obs_key in obs[first_env_id][first_agent_id]:
-            agent_obs_for_all_envs = [
-                get_obs(
-                    obs[env_id], agent_ids, obs_dim_corresponding_to_num_agents, obs_key=obs_key
-                )
-                for env_id in range(num_envs)
-            ]
-            stacked_obs = np.stack(agent_obs_for_all_envs, axis=0)
+        shapes = [len(value.shape) for value in obs[first_env_id][first_agent_id].values()]
+        if all(shape == shapes[0] for shape in shapes[1:]):
+            for obs_key in obs[first_env_id][first_agent_id]:
+                agent_obs_for_all_envs = [
+                    get_obs(
+                        obs[env_id], agent_ids, obs_dim_corresponding_to_num_agents, obs_key=obs_key
+                    )
+                    for env_id in range(num_envs)
+                ]
+                stacked_obs = np.stack(agent_obs_for_all_envs, axis=0)
 
+                tensor_feed.add_data(
+                    name=f"{_OBSERVATIONS}" + policy_suffix + f"_{obs_key}",
+                    data=stacked_obs,
+                    save_copy_and_apply_at_reset=True,
+                )
+        else:
+            # mixed input, flatten to 1D
+            agent_obs_for_all_envs = [[np.concatenate([array.ravel() for array in item.values()])
+                                       for item in obs[env_id].values()]
+                                      for env_id in range(num_envs)]
+            stacked_obs = np.stack(agent_obs_for_all_envs, axis=0)
             tensor_feed.add_data(
-                name=f"{_OBSERVATIONS}" + policy_suffix + f"_{obs_key}",
+                name=f"{_OBSERVATIONS}" + policy_suffix,
                 data=stacked_obs,
                 save_copy_and_apply_at_reset=True,
             )
+
+
     else:
         raise NotImplementedError("Only array or dict type observations are supported!")
     try:
         # not considering dim first or last
         state = env_wrapper.env.global_state
-        tensor_feed.add_data(
-            name=_STATE, data=np.tile(state, reps=num_envs).reshape(num_envs, -1), save_copy_and_apply_at_reset=True
-        )
+        if isinstance(state, dict):
+            shapes = [len(value.shape) for value in state.values()]
+            if all(shape == shapes[0] for shape in shapes[1:]):
+                for key in state:
+                    tensor_feed.add_data(
+                        name=f"{_STATE}_{key}",
+                        data=np.tile(state[key], reps=num_envs).reshape(num_envs, -1),
+                        save_copy_and_apply_at_reset=True
+                    )
+            else:
+                # mixed input, flatten to 1D
+                tensor_feed.add_data(
+                    name=_STATE,
+                    data=np.tile(np.concatenate([array.ravel() for array in state.values()]),
+                                 reps=num_envs).reshape(num_envs, -1),
+                    save_copy_and_apply_at_reset=True
+                )
+        else:
+            tensor_feed.add_data(
+                name=_STATE, data=np.tile(state, reps=num_envs).reshape(num_envs, -1), save_copy_and_apply_at_reset=True
+            )
     except AttributeError:
         print("No Global State Exists for this Environment")
     env_wrapper.cuda_data_manager.push_data_to_device(

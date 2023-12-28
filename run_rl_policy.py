@@ -174,7 +174,7 @@ if __name__ == "__main__":
     else:
         from datasets.KAIST.env_config import BaseEnvConfig
 
-    env_params = {'env_setup': BaseEnvConfig}
+    env_params = {'env_config': BaseEnvConfig}
     env = marl.make_env(environment_name="crowdsim", map_name=LARGE_DATASET_NAME,
                         abs_path=os.path.join(get_project_root(), "run_configs", "crowdsim.yaml"),
                         env_params=env_params)

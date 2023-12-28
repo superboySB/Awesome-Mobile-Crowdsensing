@@ -1,6 +1,9 @@
+import os
 
 import numpy as np
 from datasets.env_test import try_sensing_range
+from warp_drive.utils.common import get_project_root
+
 
 class Config(object):
     def __init__(self):
@@ -39,7 +42,7 @@ class BaseEnvConfig(object):
     env.nlon = 2340
     env.nlat = 1960
     env.human_num = 92
-    env.dataset_dir = 'datasets/KAIST/ground_trajs.csv'
+    env.dataset_dir = os.path.join(get_project_root(), 'datasets', 'KAIST', 'ground_trajs.csv')
     
     env.drone_action_space = np.array([[0, 0], [300, 0], [-300, 0], [0, 300], [0, -300], [210, 210], [210, -210], [-210, 210],
                                 [-210, -210]])

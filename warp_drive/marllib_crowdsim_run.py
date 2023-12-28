@@ -24,15 +24,21 @@ os.environ["PATH"] += os.pathsep + '/usr/local/cuda/bin'
 
 if __name__ == '__main__':
 
-    logging.getLogger().setLevel(logging.WARN)
     parser = argparse.ArgumentParser()
     add_common_arguments(parser)
     parser.add_argument('--centralized', action='store_true', help='use centralized reward function')
     # select algorithm
     parser.add_argument("--num_workers", type=int, default=0, help='number of workers to sample environment.')
     parser.add_argument("--render", action='store_true', help='render the environment')
+    parser.add_argument("--render_file_name", type=str, default='trajectory.html',
+                        help='file name for resulting render html file')
+    parser.add_argument("--use_2d_state", action='store_true', help='use 2d state representation')
     args = parser.parse_args()
     expr_name = customize_experiment(args)
+    if args.render:
+        logging.getLogger().setLevel(logging.INFO)
+    else:
+        logging.getLogger().setLevel(logging.WARN)
     setproctitle.setproctitle(expr_name)
     # register new env
     if args.env == 'crowdsim':
@@ -45,7 +51,7 @@ if __name__ == '__main__':
             from datasets.Sanfrancisco.env_config import BaseEnvConfig
         else:
             from datasets.KAIST.env_config import BaseEnvConfig
-        env_params = {'env_setup': BaseEnvConfig}
+        env_params = {'env_config': BaseEnvConfig}
         # env_params['env_registrar'] = env_registrar
         if args.track:
             # link logging config with tag
@@ -56,7 +62,7 @@ if __name__ == '__main__':
             env_params['logging_config'] = logging_config
         else:
             logging_config = None
-        for item in ['centralized', 'gpu_id', 'dynamic_zero_shot']:
+        for item in ['centralized', 'gpu_id', 'dynamic_zero_shot', 'render_file_name', 'use_2d_state']:
             env_params[item] = getattr(args, item)
         logging.debug(env_params)
         env = marl.make_env(environment_name=args.env, map_name=args.dataset, env_params=env_params)
@@ -81,7 +87,7 @@ if __name__ == '__main__':
     # customize model
     model = marl.build_model(env, algorithm_object, {"core_arch": "mlp", "encode_layer": "512-512"})
     # start learning
-    # passing loggign_config to fit is for trainer Initialization
+    # passing logging_config to fit is for trainer Initialization
     # (in remote mode, env and learner are on different processes)
     # 'share_policy': share_policy
     if args.render:
