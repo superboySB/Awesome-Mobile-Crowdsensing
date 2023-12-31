@@ -87,35 +87,34 @@ def traj_to_timestamped_geojson(index, trajectory, car_num, drone_num, color):
     features = []
 
     # for Point in GeoJSON type
-    for _, row in point_gdf.iterrows():
-        corrent_point_coordinates = [
-            row["geometry"].xy[0][0],
-            row["geometry"].xy[1][0]
-        ]
-        current_time = [row["time"].isoformat()]
+    for row in point_gdf.itertuples(index=False):
+        corrent_point_coordinates = [row.geometry.xy[0][0], row.geometry.xy[1][0]]
+        current_time = [row.time.isoformat()]
 
-
-        if point_gdf['id'].iloc[0] < 0 and point_gdf['id'].iloc[0] >= (-car_num):
-            radius = 4  # 125(5 units)
-            opacity = 0.05
-            popup_html = f'<h4> (Car) Agent {car_num+drone_num-index-1}</h4>' + f'<p>raw coord: {corrent_point_coordinates}</p>' \
-                         + f'<p>grid coord: ({row["x"]},{row["y"]})</p>' \
-                         + f'<p>dist coord: ({row["x_distance"]}m, {row["y_distance"]}m)</p>' \
-                         + f'<p>energy: {row["energy"]}J </p>'
-        elif point_gdf['id'].iloc[0]<(-car_num):
+        if 0 > row.id >= (-car_num):
             radius = 8  # 125(5 units)
             opacity = 0.05
-            popup_html = f'<h4> (Drone) Agent {car_num+drone_num-index-1}</h4>' + f'<p>raw coord: {corrent_point_coordinates}</p>' \
-                         + f'<p>grid coord: ({row["x"]},{row["y"]})</p>' \
-                         + f'<p>dist coord: ({row["x_distance"]}m, {row["y_distance"]}m)</p>' \
-                         + f'<p>energy: {row["energy"]}J </p>'
+            popup_html = f'<h4> (Car) Agent {car_num + drone_num - index - 1}</h4>' + \
+                         f'<p>raw coord: {corrent_point_coordinates}</p>' + \
+                         f'<p>grid coord: ({row.x},{row.y})</p>' + \
+                         f'<p>dist coord: ({row.x_distance}m, {row.y_distance}m)</p>' + \
+                         f'<p>energy: {row.energy}J </p>'
+        elif row.id < (-car_num):
+            radius = 6  # 125(5 units)
+            opacity = 0.05
+            popup_html = f'<h4> (Drone) Agent {car_num + drone_num - index - 1}</h4>' + \
+                         f'<p>raw coord: {corrent_point_coordinates}</p>' + \
+                         f'<p>grid coord: ({row.x},{row.y})</p>' + \
+                         f'<p>dist coord: ({row.x_distance}m, {row.y_distance}m)</p>' + \
+                         f'<p>energy: {row.energy}J </p>'
         else:
-            radius = 2
+            radius = 4
             opacity = 1
-            popup_html = f'<h4> Human {int(row["id"])}</h4>' + f'<p>raw coord: {corrent_point_coordinates}</p>' \
-                         + f'<p>grid coord: ({row["x"]},{row["y"]})</p>' \
-                         + f'<p>dist coord: ({row["x_distance"]}m, {row["y_distance"]}m)</p>' \
-                         + f'<p>aoi: {int(row["aoi"])} </p>'
+            popup_html = f'<h4> Human {int(row.id)}</h4>' + \
+                         f'<p>raw coord: {corrent_point_coordinates}</p>' + \
+                         f'<p>grid coord: ({row.x},{row.y})</p>' + \
+                         f'<p>dist coord: ({row.x_distance}m, {row.y_distance}m)</p>' + \
+                         f'<p>aoi: {int(row.aoi)} </p>'
 
         # for Point in GeoJSON type  (Temporally Deprecated)
         features.append(
@@ -141,7 +140,6 @@ def traj_to_timestamped_geojson(index, trajectory, car_num, drone_num, color):
                         "color": color,
                     },
                     "code": 11,
-
                 },
             }
         )

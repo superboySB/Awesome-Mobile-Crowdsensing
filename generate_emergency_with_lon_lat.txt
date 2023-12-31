@@ -1,0 +1,15 @@
+    def generate_emergency(self, num_centers, num_points_per_center):
+        min_lat, max_lat = self.config.env.lower_left[1], self.config.env.upper_right[1]
+        min_lon, max_lon = self.config.env.lower_left[0], self.config.env.upper_right[0]
+        max_lat_change, max_lon_change = convert_to_lat_lon_units(10, min_lat)
+        centers = np.column_stack([
+            np.random.uniform(min_lon, max_lon, num_centers),
+            np.random.uniform(min_lat, max_lat, num_centers)
+        ])
+        # Generate random latitude and longitude changes for all points at once
+        lat_changes = np.random.uniform(-max_lat_change, max_lat_change, (num_centers * num_points_per_center,))
+        lon_changes = np.random.uniform(-max_lon_change, max_lon_change, (num_centers * num_points_per_center,))
+        # Calculate point coordinates
+        points_lat = np.repeat(centers[:, 1], num_points_per_center) + lat_changes
+        points_lon = np.repeat(centers[:, 0], num_points_per_center) + lon_changes
+        return points_lat, points_lon

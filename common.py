@@ -1,4 +1,5 @@
 import os
+import re
 from argparse import ArgumentParser
 from typing import Union
 
@@ -6,6 +7,8 @@ import yaml
 from datetime import datetime
 import argparse
 from envs.crowd_sim.crowd_sim import LARGE_DATASET_NAME
+
+display_tags = {'encoder_layer', 'core_arch'}
 
 
 def add_common_arguments(parser: ArgumentParser):
@@ -67,9 +70,11 @@ def customize_experiment(args: argparse.Namespace, run_config: dict = None, yaml
     tags = args.tag if args.tag is not None else []
     # Process argparse arguments
     for arg in set(vars(args)) - {'track'}:
-        if getattr(args, arg) is True:
+        attr_val = getattr(args, arg)
+        if attr_val is True:
             tags.append(arg)
-
+        elif attr_val is not False and arg in display_tags:
+            expr_name += f"_{arg}_{attr_val}"
     # Process YAML configuration if provided
     if yaml_config_path:
         with open(yaml_config_path, 'r') as file:
@@ -151,3 +156,14 @@ def closest_multiple(a, b):
         return b
     multiple = round(b / a) * a
     return multiple
+
+
+def is_valid_format(input_str):
+    # Define a regular expression pattern to match "X-X," "X-X-X," and "X-X-X-X" formats
+    pattern = r'^(\d+-)+\d+$'
+
+    # Use re.match to check if the input matches the pattern
+    if re.match(pattern, input_str):
+        return True
+    else:
+        return False

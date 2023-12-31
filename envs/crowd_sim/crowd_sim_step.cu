@@ -66,7 +66,9 @@ __device__ void CUDACrowdSimGenerateAoIGrid(
   const float max_distance_x,
   const float max_distance_y,
   const float kAgentXRange,
-  const float kAgentYRange
+  const float kAgentYRange,
+  const int dynamic_zero_shot,
+  const int zero_shot_start
 ) {
       // ------------------------------------
       // [Part 3] aoi grid (10 * 10)
@@ -84,11 +86,11 @@ __device__ void CUDACrowdSimGenerateAoIGrid(
       for (int i = 0; i < kNumTargets; ++i) {
         int x = floorf((target_x_time_list[kThisTargetPositionTimeListIdxOffset+i] - grid_min_x) / (grid_max_x - grid_min_x) * 10);
         int y = floorf((target_y_time_list[kThisTargetPositionTimeListIdxOffset+i] - grid_min_y) / (grid_max_y - grid_min_y) * 10);
-
         if (0 <= x && x < 10 && 0 <= y && y < 10) {
             int idx = x * 10 + y;
             grid_point_count[idx]++;
-            temp_aoi_grid[idx] += target_aoi_arr[kThisTargetAgeArrayIdxOffset+i];
+            int aoi_increment = target_aoi_arr[kThisTargetAgeArrayIdxOffset+i];
+            temp_aoi_grid[idx] += i > zero_shot_start && dynamic_zero_shot ? aoi_increment * 5 : aoi_increment;
         }
       }
       int kThisAgentAoIGridIdxOffset;
@@ -132,7 +134,9 @@ __device__ void CUDACrowdSimGenerateAoIGrid(
       const int kThisAgentArrayIdx,
       const int kThisEnvAgentsOffset,
       const float max_distance_x,
-      const float max_distance_y
+      const float max_distance_y,
+      const int dynamic_zero_shot,
+      const int zero_shot_start
   ) {
     // observation: agent type, agent energy, Heterogeneous and homogeneous visible agents
     // displacements, 100 dim AoI Maps.
@@ -246,7 +250,9 @@ __device__ void CUDACrowdSimGenerateAoIGrid(
         max_distance_x,
         max_distance_y,
         kAgentXRange,
-        kAgentYRange
+        kAgentYRange,
+        dynamic_zero_shot,
+        zero_shot_start
       );
   }
 }
@@ -417,7 +423,7 @@ __device__ void CUDACrowdSimGenerateAoIGrid(
         int target_aoi = target_aoi_arr[kThisTargetAgeArrayIdxOffset + target_idx];
         int reward_increment = (target_aoi - 1);
         if (dynamic_zero_shot && target_idx >= zero_shot_start){
-          reward_increment *= 1.5;
+          reward_increment *= 5;
         }
         if (min_dist <= kDroneSensingRange && nearest_agent_id != -1) {
             bool is_drone = agent_types_arr[nearest_agent_id];
@@ -476,7 +482,9 @@ __device__ void CUDACrowdSimGenerateAoIGrid(
       kThisAgentArrayIdx,
       kThisEnvAgentsOffset,
       max_distance_x,
-      max_distance_y
+      max_distance_y,
+      dynamic_zero_shot,
+      zero_shot_start
       );
 
     __sync_env_threads();  // Wait here to update observation before determining done_arr
@@ -502,7 +510,9 @@ __device__ void CUDACrowdSimGenerateAoIGrid(
         max_distance_x,
         max_distance_y,
         kAgentXRange,
-        kAgentYRange
+        kAgentYRange,
+        dynamic_zero_shot,
+        zero_shot_start
       );
     __sync_env_threads();
     // -------------------------------

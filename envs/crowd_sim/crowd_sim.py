@@ -1,3 +1,6 @@
+"""
+The Mobile Crowdsensing Environment
+"""
 import logging
 import os
 from typing import Optional, Tuple, Dict, List, Any, Union
@@ -63,6 +66,26 @@ excluded_keys = {"trainer", "env_params", "map_name"}
 logging.getLogger().setLevel(logging.WARN)
 
 
+def convert_to_lat_lon_units(distance, latitude):
+    # Earth's radius in kilometers
+    earth_radius_km = 6371
+
+    # Convert distance to kilometers (if it's in a different unit)
+    distance_km = distance  # Replace this with the actual conversion if needed
+
+    # Calculate the conversion factor for latitude (degrees to kilometers)
+    lat_to_km_conversion_factor = (2 * np.pi * earth_radius_km) / 360
+
+    # Calculate the maximum latitude change equivalent to the desired distance
+    max_lat_change = distance_km / lat_to_km_conversion_factor
+
+    # Calculate the equivalent longitude change at the given latitude
+    lon_to_lat_conversion_factor = (2 * np.pi * earth_radius_km * np.cos(np.deg2rad(latitude))) / 360
+    max_lon_change = distance_km / lon_to_lat_conversion_factor
+
+    return max_lat_change, max_lon_change
+
+
 class Pair:
     """
     A simple class to store a pair of values, used for index and distance
@@ -76,6 +99,9 @@ class Pair:
 
 
 def get_theta(x1, y1, x2, y2):
+    """
+    Calculate the angle between two points
+    """
     dx = x2 - x1
     dy = y2 - y1
     # 使用 arctan2 计算角度
@@ -148,10 +174,14 @@ class CrowdSim:
         points_x, points_y, self.num_centers, self.num_points, self.num_points_per_center = (None,) * 5
         self.dynamic_zero_shot = dynamic_zero_shot
         if self.dynamic_zero_shot:
-            self.num_centers = int(self.num_sensing_targets * 0.05)
+            self.num_centers = int(self.num_sensing_targets * 0.2)
             self.num_points_per_center = 3
             points_x, points_y = self.generate_emergency(self.num_centers, self.num_points_per_center)
             self.num_sensing_targets += (self.num_centers * self.num_points_per_center)
+            self.zero_shot_start = self.num_sensing_targets - self.num_centers * self.num_points_per_center
+            # add visualization parts of dynamic generated points.
+        else:
+            self.zero_shot_start = self.num_sensing_targets
         # human infos
         unique_ids = np.arange(0, self.num_sensing_targets)  # id from 0 to 91
         unique_timestamps = np.arange(self.start_timestamp, self.end_timestamp + self.step_time, self.step_time)
@@ -163,14 +193,25 @@ class CrowdSim:
         self.target_coveraged_timelist = np.zeros([self.episode_length + 1, self.num_sensing_targets], dtype=np.bool_)
 
         # Fill the new array with data from the full DataFrame
-        for _, row in self.human_df.iterrows():
-            id_index = id_to_index.get(row['id'], None)
-            timestamp_index = timestamp_to_index.get(row['timestamp'], None)
+        fix_target = True
+        last_id = -1
+        first_row_of_last_id = None
+        for row in self.human_df.itertuples():
+            id_index = id_to_index.get(row.id, None)
+            if last_id != id_index:
+                first_row_of_last_id = row
+                last_id = id_index
+            timestamp_index = timestamp_to_index.get(row.timestamp, None)
             if not (id_index is None or timestamp_index is None):
-                self.target_x_time_list[timestamp_index, id_index] = row['x']
-                self.target_y_time_list[timestamp_index, id_index] = row['y']
+                if fix_target:
+                    self.target_x_time_list[timestamp_index, id_index] = first_row_of_last_id.x
+                    self.target_y_time_list[timestamp_index, id_index] = first_row_of_last_id.y
+                else:
+                    self.target_x_time_list[timestamp_index, id_index] = row.x
+                    self.target_y_time_list[timestamp_index, id_index] = row.y
             else:
                 raise ValueError("Got invalid rows:", row)
+
         if dynamic_zero_shot:
             self.target_x_time_list[:, self.num_sensing_targets -
                                        self.num_centers * self.num_points_per_center:] = points_x
@@ -261,22 +302,23 @@ class CrowdSim:
 
     def generate_emergency(self, num_centers, num_points_per_center):
         max_distance_from_center = 10
-        int_arrays = [
-            self.np_random.randint(0, int(self.max_distance_x), (num_centers, 1)).astype(np.int_),
-            self.np_random.randint(0, int(self.max_distance_y), (num_centers, 1)).astype(np.int_)
-        ]
-        centers = np.concatenate(int_arrays, axis=1)
-        points_x = np.zeros((num_centers * num_points_per_center,), dtype=int)
-        points_y = np.zeros((num_centers * num_points_per_center,), dtype=int)
-        for i, (cx, cy) in enumerate(centers):
-            for j in range(num_points_per_center):
-                index = i * num_points_per_center + j
-                points_x[index] = self.np_random.randint(max(cx - max_distance_from_center, 0),
-                                                         min(cx + max_distance_from_center + 1,
-                                                             int(self.max_distance_x)))
-                points_y[index] = self.np_random.randint(max(cy - max_distance_from_center, 0),
-                                                         min(cy + max_distance_from_center + 1,
-                                                             int(self.max_distance_y)))
+        max_distance_x = self.max_distance_x
+        max_distance_y = self.max_distance_y
+
+        # Generate random center coordinates
+        centers_x = self.np_random.randint(0, int(max_distance_x), (num_centers,))
+        centers_y = self.np_random.randint(0, int(max_distance_y), (num_centers,))
+
+        # Generate random relative offsets for all points
+        offsets_x = self.np_random.randint(-max_distance_from_center, max_distance_from_center + 1,
+                                           (num_centers, num_points_per_center))
+        offsets_y = self.np_random.randint(-max_distance_from_center, max_distance_from_center + 1,
+                                           (num_centers, num_points_per_center))
+
+        # Calculate point coordinates for all points
+        points_x = np.clip(centers_x[:, np.newaxis] + offsets_x, 0, int(max_distance_x) - 1).reshape(-1)
+        points_y = np.clip(centers_y[:, np.newaxis] + offsets_y, 0, int(max_distance_y) - 1).reshape(-1)
+
         return points_x, points_y
 
     def seed(self, seed=None):
@@ -289,6 +331,10 @@ class CrowdSim:
         return [seed]
 
     def history_reset(self):
+        """
+        Reset the history of the environment, including the global state, the global distance matrix,
+        the target coverage / aoi, and agent x,y,energy.
+        """
         # Reset time to the beginning
         self.timestep = 0
         # Re-initialize the global state
@@ -462,18 +508,21 @@ class CrowdSim:
         discrete_points_xy = self.generate_discrete_points(grid_centers_x, grid_centers_y, grid_size, point_xy,
                                                            sensing_range_x, sensing_range_y)
         # Initialize AoI grid parts
-        num_agents = grid_centers_x.shape[0] if isinstance(grid_centers_x, np.ndarray) else 1
-        aoi_grid_parts = np.zeros((num_agents, grid_size, grid_size), dtype=self.float_dtype)
-        grid_point_count = np.zeros((num_agents, grid_size, grid_size), dtype=int)
+        num_entries = grid_centers_x.shape[0] if isinstance(grid_centers_x, np.ndarray) else 1
+        aoi_grid_parts = np.zeros((num_entries, grid_size, grid_size), dtype=self.float_dtype)
+        grid_point_count = np.zeros((num_entries, grid_size, grid_size), dtype=self.int_dtype)
 
         # Iterate over each agent
-        for agent_id in range(num_agents):
+        for agent_id in range(num_entries):
             # Create a boolean mask for valid points for this agent
             valid_mask = (discrete_points_xy[agent_id, :, 0] >= 0) & (discrete_points_xy[agent_id, :, 0] < grid_size) & \
                          (discrete_points_xy[agent_id, :, 1] >= 0) & (discrete_points_xy[agent_id, :, 1] < grid_size)
             # Filter the points and AoI values using the mask
             filtered_points = discrete_points_xy[agent_id, valid_mask]
+            # is_zero_shot = np.arange(self.num_sensing_targets) > self.zero_shot_start
             filtered_aoi_values = self.target_aoi_timelist[self.timestep, valid_mask]
+            # filtered_aoi_values[is_zero_shot] *= 1.5
+            # TODO: strong aoi for emgergency is not added.
             # Accumulate counts and AoI values for this agent
             np.add.at(aoi_grid_parts[agent_id], (filtered_points[:, 0], filtered_points[:, 1]), filtered_aoi_values)
             np.add.at(grid_point_count[agent_id], (filtered_points[:, 0], filtered_points[:, 1]), 1)
@@ -593,7 +642,7 @@ class CrowdSim:
         increase_aoi_flags = ~np.any(np.vstack([car_condition, drone_condition]), axis=0)
         self.target_aoi_timelist[self.timestep] = np.where(increase_aoi_flags,
                                                            self.target_aoi_timelist[self.timestep - 1] + 1, 1)
-
+        # TODO: CPU version does not have extra reward for emergency targets.
         # Initialize rewards
         if self.centralized:
             # Calculate Global reward where each target AoI is recorded.
@@ -660,6 +709,14 @@ class CrowdSim:
         return info
 
     def render(self, output_file=None, plot_loop=False, moving_line=False):
+
+        def custom_style_function(feature):
+            return {
+                "color": feature["properties"]["style"]["color"],  # Use the color from the properties
+                "weight": 2,
+                "radius": 10,  # Adjust the marker size as needed
+            }
+
         import geopandas as gpd
         import movingpandas as mpd
         mixed_df = self.human_df.copy()
@@ -669,36 +726,37 @@ class CrowdSim:
         if self.timestep == self.config.env.num_timestep:
             # output final trajectory
             # 可将机器人traj，可以载入到human的dataframe中，id从-1开始递减
+            aoi_list = np.full(self.episode_length + 1, -1, dtype=np.int_)
+            timestamp_list = [self.start_timestamp + t * self.step_time for t in range(self.episode_length + 1)]
+            max_longitude = abs(self.lower_left[0] - self.upper_right[0])
+            max_latitude = abs(self.lower_left[1] - self.upper_right[1])
             for i in range(self.num_agents):
                 x_list = self.agent_x_time_list[:, i]
                 y_list = self.agent_y_time_list[:, i]
                 id_list = np.full_like(x_list, -i - 1)
-                aoi_list = np.full_like(x_list, -1)
                 energy_list = self.agent_energy_timelist[:, i]
-                timestamp_list = [self.start_timestamp + i * self.step_time for i in range(self.episode_length + 1)]
-                x_distance_list = x_list * self.max_distance_x / self.nlon + self.max_distance_x / self.nlon / 2
-                y_distance_list = y_list * self.max_distance_y / self.nlat + self.max_distance_y / self.nlat / 2
-                max_longitude = abs(self.lower_left[0] - self.upper_right[0])
-                max_latitude = abs(self.lower_left[1] - self.upper_right[1])
-                longitude_list = x_list * max_longitude / self.nlon + max_longitude / self.nlon / 2 + self.lower_left[0]
-                latitude_list = y_list * max_latitude / self.nlat + max_latitude / self.nlat / 2 + self.lower_left[1]
-
-                data = {"id": id_list, "longitude": longitude_list, "latitude": latitude_list,
-                        "x": x_list, "y": y_list, "x_distance": x_distance_list, "y_distance": y_distance_list,
-                        "timestamp": timestamp_list, "aoi": aoi_list, "energy": energy_list}
-                robot_df = pd.DataFrame(data)
-                robot_df['t'] = pd.to_datetime(robot_df['timestamp'], unit='s')  # s表示时间戳转换
+                robot_df = self.xy_to_dataframe(aoi_list, energy_list, id_list, max_latitude,
+                                                max_longitude, timestamp_list, x_list, y_list)
                 mixed_df = pd.concat([mixed_df, robot_df])
-
+            # add emergency targets.
+            for i in range(self.num_sensing_targets - self.num_centers * self.num_points_per_center,
+                           self.num_sensing_targets):
+                x_list = self.target_x_time_list[:, i]
+                y_list = self.target_y_time_list[:, i]
+                id_list = np.full_like(x_list, i)
+                energy_list = np.zeros_like(x_list)
+                robot_df = self.xy_to_dataframe(aoi_list, energy_list, id_list, max_latitude,
+                                                max_longitude, timestamp_list, x_list, y_list)
+                mixed_df = pd.concat([mixed_df, robot_df])
             # ------------------------------------------------------------------------------------
             # 建立moving pandas轨迹，也可以选择调用高级API继续清洗轨迹。
             mixed_gdf = gpd.GeoDataFrame(mixed_df, geometry=gpd.points_from_xy(mixed_df.longitude, mixed_df.latitude),
                                          crs=4326)
             mixed_gdf = mixed_gdf.set_index('t').tz_localize(None)  # tz=time zone, 以本地时间为准
             mixed_gdf = mixed_gdf.sort_values(by=["id", "t"], ascending=[True, True])
-            trajs = mpd.TrajectoryCollection(mixed_gdf, 'id')
+            trajectories = mpd.TrajectoryCollection(mixed_gdf, 'id')
 
-            start_point = trajs.trajectories[0].get_start_location()
+            start_point = trajectories.trajectories[0].get_start_location()
 
             # 经纬度反向
             m = folium.Map(location=[start_point.y, start_point.x], tiles="cartodbpositron", zoom_start=14, max_zoom=24)
@@ -707,15 +765,16 @@ class CrowdSim:
             minimap = folium.plugins.MiniMap()
             m.add_child(minimap)
             folium.TileLayer('Stamen Terrain',
-                             attr='Map tiles by Stamen Design, under CC BY 3.0. Data by OpenStreetMap, under ODbL').add_to(
-                m)
+                             attr='Map tiles by Stamen Design, under CC BY 3.0. Data by OpenStreetMap, under ODbL'
+                             ).add_to(m)
 
             folium.TileLayer('Stamen Toner',
-                             attr='Map tiles by Stamen Design, under CC BY 3.0. Data by OpenStreetMap, under ODbL').add_to(
-                m)
+                             attr='Map tiles by Stamen Design, under CC BY 3.0. Data by OpenStreetMap, under ODbL'
+                             ).add_to(m)
 
             folium.TileLayer('cartodbpositron',
-                             attr='Map tiles by Carto, under CC BY 3.0. Data by OpenStreetMap, under ODbL').add_to(m)
+                             attr='Map tiles by Carto, under CC BY 3.0. Data by OpenStreetMap, under ODbL'
+                             ).add_to(m)
 
             folium.TileLayer('OpenStreetMap', attr='© OpenStreetMap contributors').add_to(m)
 
@@ -724,15 +783,15 @@ class CrowdSim:
             color = "red"
             border = folium.GeoJson(grid_geo_json,
                                     style_function=lambda feature, clr=color: {
-                                        'fillColor': color,
+                                        # 'fillColor': color,
                                         'color': "black",
                                         'weight': 2,
                                         'dashArray': '5,5',
                                         'fillOpacity': 0,
                                     })
             m.add_child(border)
-
-            for index, traj in enumerate(trajs.trajectories):
+            all_features = []
+            for index, traj in enumerate(trajectories):
                 if 0 > traj.df['id'].iloc[0] >= (-self.num_cars):
                     name = f"Agent {self.num_agents - index - 1} (Car)"
                 elif traj.df['id'].iloc[0] < (-self.num_cars):
@@ -740,27 +799,19 @@ class CrowdSim:
                 else:
                     name = f"Human {traj.df['id'].iloc[0]}"
 
-                def rand_byte():
-                    """
-                    return a random integer between 0 and 255 ( a byte)
-                    """
-                    return np.random.randint(0, 255)
+                # Define your color logic here
+                if index < self.num_agents:
+                    color = "blue"
 
-                color = '#%02X%02X%02X' % (rand_byte(), rand_byte(), rand_byte())  # black
+                elif (self.num_agents < index < self.num_agents +
+                      self.num_sensing_targets - self.num_centers * self.num_points_per_center):
+                    color = "orange"
+                else:
+                    # emergency targets
+                    color = "red"
 
-                # point
+                # Create features for the current trajectory
                 features = traj_to_timestamped_geojson(index, traj, self.num_cars, self.num_drones, color)
-                TimestampedGeoJson(
-                    {
-                        "type": "FeatureCollection",
-                        "features": features,
-                    },
-                    period="PT15S",
-                    add_last_point=True,
-                    transition_time=5,
-                    loop=plot_loop,
-                ).add_to(m)  # sub_map
-
                 # line
                 if index < self.num_agents:
                     geo_col = traj.to_point_gdf().geometry
@@ -772,12 +823,46 @@ class CrowdSim:
                     else:
                         folium.PolyLine(locations=xy, color=color, weight=4, opacity=0.7).add_to(f1)
                     f1.add_to(m)
+                all_features.extend(features)
+
+            # Create a single TimestampedGeoJson with all features
+            TimestampedGeoJson(
+                {
+                    "type": "FeatureCollection",
+                    "features": all_features,
+                },
+                period="PT15S",  # Adjust the time interval as needed
+                add_last_point=True,
+                transition_time=5,
+                loop=plot_loop  # Apply the custom GeoJSON options
+            ).add_to(m)
 
             folium.LayerControl().add_to(m)
 
             m.get_root().render()
             m.get_root().save(output_file)
             logging.info(f"{output_file} saved!")
+
+    def xy_to_dataframe(self, aoi_list, energy_list, id_list, max_latitude, max_longitude, timestamp_list, x_list,
+                        y_list):
+        """
+        Convert x, y to dataframe, which contains longitude, latitude, x, y, x_distance, y_distance, timestamp, aoi
+        For later use in folium.
+        """
+        x_distance_list = x_list * self.max_distance_x / self.nlon + self.max_distance_x / self.nlon / 2
+        y_distance_list = y_list * self.max_distance_y / self.nlat + self.max_distance_y / self.nlat / 2
+        longitude_list = x_list * max_longitude / self.nlon + max_longitude / self.nlon / 2 + self.lower_left[0]
+        latitude_list = y_list * max_latitude / self.nlat + max_latitude / self.nlat / 2 + self.lower_left[1]
+        data = {"id": id_list, "longitude": longitude_list, "latitude": latitude_list,
+                "x": x_list, "y": y_list, "x_distance": x_distance_list, "y_distance": y_distance_list,
+                "timestamp": timestamp_list, "aoi": aoi_list}
+        if energy_list is not None:
+            data["energy"] = energy_list
+        else:
+            data['energy'] = -1
+        robot_df = pd.DataFrame(data)
+        robot_df['t'] = pd.to_datetime(robot_df['timestamp'], unit='s')  # s表示时间戳转换
+        return robot_df
 
 
 class CUDACrowdSim(CrowdSim, CUDAEnvironmentContext):
@@ -788,6 +873,9 @@ class CUDACrowdSim(CrowdSim, CUDAEnvironmentContext):
     """
 
     def history_reset(self):
+        """
+        Empty the history of the environment, inlcuding those related with metric tracking.
+        """
         super().history_reset()
 
     def get_data_dictionary(self):
@@ -833,9 +921,7 @@ class CUDACrowdSim(CrowdSim, CUDAEnvironmentContext):
                                  ("slot_time", self.float_dtype(self.step_time)),
                                  ("agent_speed", self.int_dtype(list(self.agent_speed.values()))),
                                  ("dynamic_zero_shot", self.int_dtype(self.dynamic_zero_shot)),
-                                 ("zero_shot_start", self.int_dtype(self.num_sensing_targets
-                                                                    - self.num_centers * self.num_points_per_center)
-                                 if self.dynamic_zero_shot else -1,)
+                                 ("zero_shot_start", self.int_dtype(self.zero_shot_start)),
                                  ])
         # WARNING: single bool value seems to fail pycuda.
         return data_dict
@@ -1182,8 +1268,8 @@ class RLlibCUDACrowdSimWrapper(VectorEnv):
             return reset_obs_list
 
     def reset_at(self, index: Optional[int] = None) -> EnvObsType:
-        # logging.debug(f"resetting environment {index} called")
-        if index == 0:
+        logging.debug(f"resetting environment {index} called")
+        if index == 0 or self.obs_at_reset is None:
             self.obs_at_reset = self.vector_reset()
         return self.obs_at_reset[index]
 

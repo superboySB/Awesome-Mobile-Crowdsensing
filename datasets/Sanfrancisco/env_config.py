@@ -1,7 +1,10 @@
-import numpy as np
 import os
-from warp_drive.utils.common import get_project_root
+
+import numpy as np
+
 from datasets.env_test import try_sensing_range
+from warp_drive.utils.common import get_project_root
+
 
 class Config(object):
     def __init__(self):
@@ -11,7 +14,7 @@ class Config(object):
 class BaseEnvConfig(object):
     env = Config()
     env.aoi_threshold = 30
-    env.num_timestep = 120  # 120x15=1800s=30min
+    env.num_timestep = 120  # num_timestep x step_time = 1800s = 30min
     env.step_time = 15  # second per step
     env.max_uav_energy = 359640  # 359640 J <-- 359.64 kJ (4500mAh, 22.2v) 大疆经纬
     env.rotation_limit = 360
@@ -30,8 +33,6 @@ class BaseEnvConfig(object):
     env.zeta_los = 2.47
     env.g_tx = 10  # dB
     env.g_rx = 5  # dB
-    env.tallest_locs = None  # obstacle
-    env.no_fly_zone = None  # obstacle
     env.start_timestamp = 1519894800
     env.end_timestamp = 1519896600
     env.energy_factor = 3  # TODO: energy factor in reward function
@@ -45,11 +46,18 @@ class BaseEnvConfig(object):
     env.dataset_dir = os.path.join(get_project_root(), 'datasets', 'Sanfrancisco', 'ground_trajs.csv')
     env.drone_action_space = np.array([[0, 0], [300, 0], [-300, 0], [0, 300], [0, -300], [210, 210], [210, -210], [-210, 210],
                                 [-210, -210]])
+    # env.drone_action_space = np.array([[0, 0],
+    #                                    [300, 0], [-300, 0],
+    #                                    [0, 300], [0, -300],
+    #                                    [210, 210], [210, -210], [-210, 210], [-210, -210],
+    #                                    [150, 0], [-150, 0],
+    #                                    [0, 150], [0, -150],
+    #                                    [60, 60], [60, -60], [-60, 60], [-60, -60]])
     env.drone_sensing_range = 200  # unit
     env.car_action_space = env.drone_action_space / 3
     env.car_sensing_range = env.drone_sensing_range
     env.drone_car_comm_range = 500
-    
+
     env.max_x_distance = 6951  # m
     env.max_y_distance = 7734  # m
     env.density_of_human_blockers = 1057 / env.max_x_distance / env.max_y_distance  # block/m2
@@ -77,7 +85,6 @@ class BaseEnvConfig(object):
                        [(6880.0, 5200.0), (6880.0, 4350.0), (6060.0, 4350.0), (6060.0, 5200.0)],
                        [(6130.0, 4960.0), (6130.0, 4360.0), (5540.0, 4360.0), (5540.0, 4960.0)],
                        [(6010.0, 5190.0), (6010.0, 5020.0), (5830.0, 5020.0), (5830.0, 5190.0)]]
-
 
     def __init__(self, debug=False):
         pass
