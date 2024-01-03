@@ -1,7 +1,7 @@
 import argparse
 import logging
 import os
-
+import pprint
 from marllib import marl
 from marllib.marl.common import algo_type_dict
 from marllib.envs.base_env import ENV_REGISTRY
@@ -10,12 +10,6 @@ from marllib.marl import _Algo
 import setproctitle
 from common import add_common_arguments, logging_dir, customize_experiment, is_valid_format
 from envs.crowd_sim.crowd_sim import (RLlibCUDACrowdSim, LARGE_DATASET_NAME, RLlibCUDACrowdSimWrapper)
-
-# import warnings
-
-# Suppress UserWarning
-# Get rid of this as soon as you can!!!
-# warnings.filterwarnings('ignore', category=UserWarning)
 
 # register all scenario with env class
 REGISTRY = {}
@@ -38,10 +32,15 @@ if __name__ == '__main__':
     parser.add_argument("--core_arch", type=str, help='core architecture, mlp, gru or lstm',
                         choices=['mlp', 'gru', 'lstm'], default='mlp')
     parser.add_argument('--local_mode', action='store_true', help='run in local mode')
+    parser.add_argument('--all_random', action='store_true', help='PoIs in the environment '
+                                                                  'are completely random')
     args = parser.parse_args()
     assert args.encoder_layer is not None and is_valid_format(args.encoder_layer), \
         f"encoder_layer should be in format X-X-X, got {args.encoder_layer}"
     expr_name = customize_experiment(args)
+    logging.debug("experiment name: %s", expr_name)
+    if args.dynamic_zero_shot and args.all_random:
+        raise ValueError("dynamic_zero_shot and all_random cannot be both true")
     if args.render:
         logging.getLogger().setLevel(logging.INFO)
     else:
@@ -72,7 +71,8 @@ if __name__ == '__main__':
             env_params['logging_config'] = logging_config
         else:
             logging_config = None
-        for item in ['centralized', 'gpu_id', 'dynamic_zero_shot', 'render_file_name', 'use_2d_state']:
+        for item in ['centralized', 'gpu_id', 'dynamic_zero_shot', 'render_file_name',
+                     'use_2d_state', 'all_random', 'num_drones', 'num_cars']:
             env_params[item] = getattr(args, item)
         logging.debug(env_params)
         env = marl.make_env(environment_name=args.env, map_name=args.dataset, env_params=env_params)
@@ -88,6 +88,7 @@ if __name__ == '__main__':
     # filter all string in tags not in format "key=value"
     custom_algo_params = dict(filter(lambda x: "=" in x, args.tag if args.tag is not None else []))
     if args.render:
+        # figure out how to let evaluation program call "render", set lr=0
         custom_algo_params['lr'] = 0
     algorithm_list = dir(marl.algos)
     # filter all strings in the list with prefix "_"
@@ -105,28 +106,28 @@ if __name__ == '__main__':
         # adjust to latest update!
         restore_dict = {
             'model_path': "/workspace/saved_data/marllib_results/ippo_mlp_SanFrancisco/"
-                          "IPPOTrainer_crowdsim_SanFrancisco_1eaa4_00000_0_2023-12-30_16-47-53/"
-                          "checkpoint_010000/checkpoint-10000",
+                          "IPPOTrainer_crowdsim_SanFrancisco_a4bb8_00000_0_2023-12-31_21-43-56/"
+                          "checkpoint_040000/checkpoint-40000",
             'params_path': "/workspace/saved_data/marllib_results/ippo_mlp_SanFrancisco/"
-                           "experiment_state-2023-12-30_16-47-53.json",
+                           "experiment_state-2023-12-31_21-43-56.json",
             'render': True
         }
         kwargs = {
             'restore_path': restore_dict, 'local_mode': True, 'share_policy': "all", 'checkpoint_end': False,
-            'num_workers': 0, 'rollout_fragment_length': BaseEnvConfig.env.num_timestep
+            'num_workers': 0, 'rollout_fragment_length': BaseEnvConfig.env.num_timestep,
+            'algo_args': {'resume': False}
         }
         if args.env == 'crowdsim':
             kwargs['custom_vector_env'] = RLlibCUDACrowdSimWrapper
             kwargs['env_args'] = dict(trainer=dict(num_envs=1))
         algorithm_object.render(env, model, **kwargs)
-        # figure out how to let evaluation program call "render", set lr=0
     else:
         restore_dict = {
-            'model_path': "/workspace/saved_data/marllib_results/ippo_mlp_SanFrancisco/"
-                          "IPPOTrainer_crowdsim_SanFrancisco_058d1_00000_0_2023-12-30_22-02-09/"
-                          "checkpoint_033000/checkpoint-33000",
-            'params_path': "/workspace/saved_data/marllib_results/ippo_mlp_SanFrancisco/"
-                           "experiment_state-2023-12-30_22-02-08.json",
+            # 'model_path': "/workspace/saved_data/marllib_results/ippo_mlp_SanFrancisco/"
+            #               "IPPOTrainer_crowdsim_SanFrancisco_058d1_00000_0_2023-12-30_22-02-09/"
+            #               "checkpoint_033000/checkpoint-33000",
+            # 'params_path': "/workspace/saved_data/marllib_results/ippo_mlp_SanFrancisco/"
+            #                "experiment_state-2023-12-30_22-02-08.json",
         }
         kwargs = {'local_mode': args.local_mode, 'num_gpus': 1, 'num_workers': args.num_workers,
                   'share_policy': share_policy,
