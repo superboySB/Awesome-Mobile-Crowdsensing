@@ -188,6 +188,10 @@ if __name__ == '__main__':
         default=None,
         help="sweep config for wandb"
     )
+    parser.add_argument(
+        '--ckpt', nargs=2, type=str, default=None, help="checkpoint to load, the first is the experiment name,"
+                                                        " the second is the timestamp."
+    )
     args = parser.parse_args()
     expr_name = customize_experiment(args, run_config=run_config)
     if args.ckpt is not None:

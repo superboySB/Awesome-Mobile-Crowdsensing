@@ -12,6 +12,7 @@ import folium
 import wandb
 import time
 import pandas as pd
+from folium import DivIcon
 from folium.plugins import TimestampedGeoJson, AntPath
 from gym import spaces
 from ray.rllib.env import GroupAgentsWrapper
@@ -36,6 +37,9 @@ from warp_drive.utils.recursive_obs_dict_to_spaces_dict import (
 from envs.crowd_sim.env_wrapper import CUDAEnvWrapper
 from warp_drive.training.data_loader import create_and_push_data_placeholders
 from .utils import *
+
+user_override_params = ['env_config', 'dynamic_zero_shot', 'use_2d_state', 'all_random',
+                        'num_drones', 'num_cars', 'cut_points']
 
 grid_size = 10
 
@@ -132,6 +136,7 @@ class CrowdSim:
             env_config=None,
             centralized=True,
             all_random=False,
+            cut_points=-1,
     ):
         self.float_dtype = np.float32
         self.int_dtype = np.int32
@@ -149,8 +154,9 @@ class CrowdSim:
         self.num_drones = num_drones
         self.num_cars = num_cars
         self.num_agents = self.num_drones + self.num_cars
-        # cut_off_point = 200
         self.num_sensing_targets = self.config.env.human_num
+        if cut_points != -1:
+            self.num_sensing_targets = min(self.num_sensing_targets, cut_points)
         self.aoi_threshold = self.config.env.aoi_threshold
         self.num_agents_observed = self.num_agents - 1
         self.all_random = all_random
@@ -171,7 +177,8 @@ class CrowdSim:
         self.human_df: pd.DataFrame = pd.read_csv(self.config.env.dataset_dir)
         logging.debug("Finished reading {} rows".format(len(self.human_df)))
         # Hack, reduce points for better effect.
-        # self.human_df = self.human_df[self.human_df['id'] < cut_off_point]
+        if cut_points != -1:
+            self.human_df = self.human_df[self.human_df['id'] < cut_points]
         self.human_df['t'] = pd.to_datetime(self.human_df['timestamp'], unit='s')  # s表示时间戳转换
         self.human_df['aoi'] = -1  # 加入aoi记录aoi
         self.human_df['energy'] = -1  # 加入energy记录energy
@@ -338,7 +345,7 @@ class CrowdSim:
         # Calculate point coordinates for all points
         points_x = np.clip(centers_x[:, np.newaxis] + offsets_x, 0, int(max_distance_x) - 1).reshape(-1)
         points_y = np.clip(centers_y[:, np.newaxis] + offsets_y, 0, int(max_distance_y) - 1).reshape(-1)
-
+        logging.debug(f"new x,y examples {points_x[:5]}, {points_y[:5]}")
         return points_x, points_y
 
     def seed(self, seed=None):
@@ -767,7 +774,11 @@ class CrowdSim:
                 "radius": 10,  # Adjust the marker size as needed
             }
 
-        print(f"Current Render {self.timestep} / {self.episode_length} timestep")
+        # add html suffix if output_file does not have one
+        if output_file is not None and not output_file.endswith(".html"):
+            output_file += ".html"
+
+        logging.debug(f"Current Render {self.timestep} / {self.episode_length} timestep")
         if isinstance(self, CUDACrowdSim):
             self.agent_x_time_list[self.timestep, :] = self.cuda_data_manager.pull_data_from_device("agent_x")[0]
             self.agent_y_time_list[self.timestep, :] = self.cuda_data_manager.pull_data_from_device("agent_y")[0]
@@ -790,15 +801,16 @@ class CrowdSim:
                                                 max_longitude, timestamp_list, x_list, y_list)
                 mixed_df = pd.concat([mixed_df, robot_df])
             # add emergency targets.
-            for i in range(self.num_sensing_targets - self.num_centers * self.num_points_per_center,
-                           self.num_sensing_targets):
-                x_list = self.target_x_time_list[:, i]
-                y_list = self.target_y_time_list[:, i]
-                id_list = np.full_like(x_list, i)
-                energy_list = np.zeros_like(x_list)
-                robot_df = self.xy_to_dataframe(aoi_list, energy_list, id_list, max_latitude,
-                                                max_longitude, timestamp_list, x_list, y_list)
-                mixed_df = pd.concat([mixed_df, robot_df])
+            if self.dynamic_zero_shot:
+                for i in range(self.num_sensing_targets - self.num_centers * self.num_points_per_center,
+                               self.num_sensing_targets):
+                    x_list = self.target_x_time_list[:, i]
+                    y_list = self.target_y_time_list[:, i]
+                    id_list = np.full_like(x_list, i)
+                    energy_list = np.zeros_like(x_list)
+                    robot_df = self.xy_to_dataframe(aoi_list, energy_list, id_list, max_latitude,
+                                                    max_longitude, timestamp_list, x_list, y_list)
+                    mixed_df = pd.concat([mixed_df, robot_df])
             # ------------------------------------------------------------------------------------
             # 建立moving pandas轨迹，也可以选择调用高级API继续清洗轨迹。
             mixed_gdf = gpd.GeoDataFrame(mixed_df, geometry=gpd.points_from_xy(mixed_df.longitude, mixed_df.latitude),
@@ -851,15 +863,20 @@ class CrowdSim:
                     name = f"Human {traj.df['id'].iloc[0]}"
 
                 # Define your color logic here
-                if index < self.num_agents:
-                    color = "blue"
-
-                elif (self.num_agents < index < self.num_agents +
-                      self.num_sensing_targets - self.num_centers * self.num_points_per_center):
-                    color = "orange"
+                if self.dynamic_zero_shot:
+                    if index < self.num_agents:
+                        color = "blue"
+                    elif (self.dynamic_zero_shot and self.num_agents < index < self.num_agents +
+                          self.num_sensing_targets - self.num_centers * self.num_points_per_center):
+                        color = "orange"
+                    else:
+                        # emergency targets
+                        color = "red"
                 else:
-                    # emergency targets
-                    color = "red"
+                    if index < self.num_agents:
+                        color = "blue"
+                    else:
+                        color = "orange"
 
                 # Create features for the current trajectory
                 features = traj_to_timestamped_geojson(index, traj, self.num_cars, self.num_drones, color)
@@ -889,7 +906,30 @@ class CrowdSim:
             ).add_to(m)
 
             folium.LayerControl().add_to(m)
-
+            # collect environment metric info and add it to folium
+            info = self.collect_info()
+            if self.dynamic_zero_shot:
+                # the metric should include surveillance_aoi, response_delay, overall_aoi, not mean_aoi
+                info_str = f"Energy: {info[ENERGY_METRIC_NAME]:.2f},<br>" \
+                           f"Freshness: {info['freshness_factor']:.2f},<br>" \
+                           f"Surveillance: {info['surveillance_aoi']:.2f},<br>" \
+                           f"Response Delay: {info['response_delay']:.2f},<br>" \
+                           f"Overall AoI: {info['overall_aoi']:.2f}"
+            else:
+                info_str = f"Energy Ratio: {info[ENERGY_METRIC_NAME]:.2f}, " \
+                           f"Freshness: {info['freshness_factor']:.4f}, " \
+                           f"Coverage: {info[COVERAGE_METRIC_NAME]:.4f},<br>" \
+                           f"Data Collect: {info[DATA_METRIC_NAME]:.4f}, " \
+                           f"Mean AoI: {info[AOI_METRIC_NAME]:.2f},<br>" \
+                           f"Fresh Coverage: {info[MAIN_METRIC_NAME]:.2f}"
+            folium.map.Marker(
+                [self.upper_right[1], self.upper_right[0]],
+                icon=DivIcon(
+                    icon_size=(180, 36),
+                    icon_anchor=(0, 0),
+                    html=f'<div style="font-size: 12pt">{info_str}</div>',
+                )
+            ).add_to(m)
             m.get_root().render()
             m.get_root().save(output_file)
             logging.info(f"{output_file} saved!")
@@ -981,7 +1021,6 @@ class CUDACrowdSim(CrowdSim, CUDAEnvironmentContext):
         return data_dict
 
     def step(self, actions=None) -> Tuple[Dict, Dict]:
-        # logging.debug(f"Timestep in CUDACrowdSim {self.timestep}")
         args = [
             _STATE,
             _OBSERVATIONS,
@@ -1036,8 +1075,10 @@ class CUDACrowdSim(CrowdSim, CUDAEnvironmentContext):
         # dones = self.cuda_data_manager.pull_data_from_device("_done_")
         # Update environment state (note self.global_state is vectorized for RLlib)
         dones = self.bool_dtype(self.cuda_data_manager.pull_data_from_device("_done_"))
-        self.global_state = self.float_dtype(self.cuda_data_manager.pull_data_from_device(_STATE))
+        # self.global_state = self.float_dtype(self.cuda_data_manager.pull_data_from_device(_STATE))
         self.timestep = int(self.cuda_data_manager.pull_data_from_device("_timestep_").mean())
+        logging.debug(f"Timestep in CUDACrowdSim {self.timestep}")
+        # logging.debug(f"Dones in CUDACrowdSim {dones}")
         return dones, self.collect_info()
 
 
@@ -1073,7 +1114,7 @@ class RLlibCUDACrowdSim(MultiAgentEnv):
         additional_params = run_config["env_params"]
         logging.debug("additional_params: " + pprint.pformat(additional_params))
         os.environ["CUDA_VISIBLE_DEVICES"] = str(additional_params.get("gpu_id", 0))
-        for item in ['env_config', 'dynamic_zero_shot', 'use_2d_state', 'all_random', 'num_drones', 'num_cars']:
+        for item in user_override_params:
             run_config[item] = additional_params[item]
         self.trainer_params = run_config["trainer"]
         self.render_file_name = additional_params.get("render_file_name", None)
@@ -1113,15 +1154,15 @@ class RLlibCUDACrowdSim(MultiAgentEnv):
                 env_backend=self.env_backend,
                 env_registrar=self.env_registrar
             )
-            self.global_state = self.env_wrapper.env.global_state
 
         else:
             self.env_wrapper = None
-            self.global_state = None
         for name in teams_name:
             self.agents += [f"{name}{i}" for i in range(getattr(self.env, "num_" + name.strip("_")))]
         self.num_agents = len(self.agents)
+        logging.debug("Total Number of Agents: {}".format(self.num_agents))
         self.obs_ref = self.env.reset()[0]
+        self.global_state = self.env.global_state
         self.observation_space = spaces.Dict()
         get_space(self.observation_space, self.obs_ref, "obs")
         try:
@@ -1210,7 +1251,7 @@ class RLlibCUDACrowdSim(MultiAgentEnv):
                 shape = (self.num_envs, self.num_agents, -1, grid_size, grid_size)
             all_images = my_vector[..., split_dim:].reshape(*shape)
             my_vector = [{_VECTOR_STATE: all_vector[i], _IMAGE_STATE: all_images[i]}
-                                   for i in range(self.num_envs)]
+                         for i in range(self.num_envs)]
         return my_vector
 
     def reset(self) -> MultiAgentDict:
@@ -1238,8 +1279,8 @@ class RLlibCUDACrowdSim(MultiAgentEnv):
         next_obs = self.pull_vec_from_device_to_list(_OBSERVATIONS, self.obs_vec_dim)
         state_list = self.pull_vec_from_device_to_list(_STATE, self.env.vector_state_dim)
         if self.centralized:
-            reward = np.tile(self.env_wrapper.cuda_data_manager.pull_data_from_device(_GLOBAL_REWARD),
-                             reps=self.num_agents).reshape(-1, self.num_agents)
+            reward = np.repeat(self.env_wrapper.cuda_data_manager.pull_data_from_device(_GLOBAL_REWARD),
+                               repeats=self.num_agents).reshape(-1, self.num_agents)
         else:
             reward = self.env_wrapper.cuda_data_manager.pull_data_from_device(_REWARDS)
         # convert observation to dict {EnvID: {AgentID: Action}...}
@@ -1264,7 +1305,7 @@ class RLlibCUDACrowdSim(MultiAgentEnv):
 
     def render(self, mode=None):
         logging.debug("render called")
-        self.env.render(os.path.join("/workspace", "saved_data", self.render_file_name), False, False)
+        self.env.render(os.path.join("/workspace", "saved_data", "trajectories", self.render_file_name), False, False)
 
 
 def get_rllib_multi_agent_obs(current_observation, state, agents: list[Any]) -> MultiAgentDict:
@@ -1371,7 +1412,7 @@ def setup_wandb(logging_config: dict):
 
 def get_rllib_obs_and_reward(agents: list[Any], state: Union[np.ndarray, dict],
                              obs: Union[np.ndarray, dict[int, np.ndarray]],
-                             reward: dict[int, int]) -> Tuple[Dict, Dict]:
+                             reward: Union[dict[int, int], list[int]]) -> Tuple[Dict, Dict]:
     """
     :param agents: list of agent names
     :param state: global state

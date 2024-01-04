@@ -22,6 +22,7 @@ class CudaTensorHolder(pycuda_driver.PointerHolderBase):
         super().__init__()
         self.gpudata = t.data_ptr()
 
+
 class PyCUDADataManager(CUDADataManager):
     """"""
     """

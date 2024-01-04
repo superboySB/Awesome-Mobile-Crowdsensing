@@ -8,8 +8,9 @@ from marllib.envs.base_env import ENV_REGISTRY
 from marllib.envs.global_reward_env import COOP_ENV_REGISTRY
 from marllib.marl import _Algo
 import setproctitle
-from common import add_common_arguments, logging_dir, customize_experiment, is_valid_format
-from envs.crowd_sim.crowd_sim import (RLlibCUDACrowdSim, LARGE_DATASET_NAME, RLlibCUDACrowdSimWrapper)
+from common import add_common_arguments, logging_dir, customize_experiment, is_valid_format, get_restore_dict
+from envs.crowd_sim.crowd_sim import (RLlibCUDACrowdSim, LARGE_DATASET_NAME,
+                                      RLlibCUDACrowdSimWrapper, user_override_params)
 
 # register all scenario with env class
 REGISTRY = {}
@@ -34,7 +35,11 @@ if __name__ == '__main__':
     parser.add_argument('--local_mode', action='store_true', help='run in local mode')
     parser.add_argument('--all_random', action='store_true', help='PoIs in the environment '
                                                                   'are completely random')
+    parser.add_argument("--cut_points", type=int, default=-1, help='number of points allowed')
+    parser.add_argument("--ckpt", action='store_true', help='load checkpoint')
+    # parser.add_argument("--ckpt", nargs=3, type=str, help='uuid, time_str, checkpoint_num to restore')
     args = parser.parse_args()
+
     assert args.encoder_layer is not None and is_valid_format(args.encoder_layer), \
         f"encoder_layer should be in format X-X-X, got {args.encoder_layer}"
     expr_name = customize_experiment(args)
@@ -71,9 +76,9 @@ if __name__ == '__main__':
             env_params['logging_config'] = logging_config
         else:
             logging_config = None
-        for item in ['centralized', 'gpu_id', 'dynamic_zero_shot', 'render_file_name',
-                     'use_2d_state', 'all_random', 'num_drones', 'num_cars']:
-            env_params[item] = getattr(args, item)
+        for item in ['centralized', 'gpu_id', 'render_file_name'] + user_override_params:
+            if item != 'env_config':
+                env_params[item] = getattr(args, item)
         logging.debug(env_params)
         env = marl.make_env(environment_name=args.env, map_name=args.dataset, env_params=env_params)
     else:
@@ -102,16 +107,15 @@ if __name__ == '__main__':
     # passing logging_config to fit is for trainer Initialization
     # (in remote mode, env and learner are on different processes)
     # 'share_policy': share_policy
+    if args.render or args.ckpt:
+        uuid = "e38ae"
+        time_str = "2024-01-03_17-24-26"
+        checkpoint_num = 50000
+        restore_dict = get_restore_dict(args, uuid, time_str, checkpoint_num)
+    else:
+        restore_dict = {}
     if args.render:
         # adjust to latest update!
-        restore_dict = {
-            'model_path': "/workspace/saved_data/marllib_results/ippo_mlp_SanFrancisco/"
-                          "IPPOTrainer_crowdsim_SanFrancisco_a4bb8_00000_0_2023-12-31_21-43-56/"
-                          "checkpoint_040000/checkpoint-40000",
-            'params_path': "/workspace/saved_data/marllib_results/ippo_mlp_SanFrancisco/"
-                           "experiment_state-2023-12-31_21-43-56.json",
-            'render': True
-        }
         kwargs = {
             'restore_path': restore_dict, 'local_mode': True, 'share_policy': "all", 'checkpoint_end': False,
             'num_workers': 0, 'rollout_fragment_length': BaseEnvConfig.env.num_timestep,
@@ -119,20 +123,14 @@ if __name__ == '__main__':
         }
         if args.env == 'crowdsim':
             kwargs['custom_vector_env'] = RLlibCUDACrowdSimWrapper
-            kwargs['env_args'] = dict(trainer=dict(num_envs=1))
+            # TODO: num_envs not effective.
+            # kwargs['env_args'] = dict(trainer=dict(num_envs=1))
         algorithm_object.render(env, model, **kwargs)
     else:
-        restore_dict = {
-            # 'model_path': "/workspace/saved_data/marllib_results/ippo_mlp_SanFrancisco/"
-            #               "IPPOTrainer_crowdsim_SanFrancisco_058d1_00000_0_2023-12-30_22-02-09/"
-            #               "checkpoint_033000/checkpoint-33000",
-            # 'params_path': "/workspace/saved_data/marllib_results/ippo_mlp_SanFrancisco/"
-            #                "experiment_state-2023-12-30_22-02-08.json",
-        }
         kwargs = {'local_mode': args.local_mode, 'num_gpus': 1, 'num_workers': args.num_workers,
                   'share_policy': share_policy,
                   'checkpoint_end': False, 'algo_args': {'resume': args.resume}, 'checkpoint_freq': 500,
-                  'stop': {"timesteps_total": 80000000}, 'restore_path': restore_dict,
+                  'stop': {"timesteps_total": 60001200}, 'restore_path': restore_dict,
                   'ckpt_path': os.path.join("/workspace", "checkpoints", "marllib"), 'evaluation_interval': False,
                   'logging_config': logging_config if args.track else None, 'remote_worker_envs': False}
         if args.env == 'crowdsim':
