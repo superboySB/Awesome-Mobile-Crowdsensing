@@ -298,10 +298,11 @@ class CUDADataManager:
                         dtype=array.dtype.name,
                         shape=self._host_data[key].shape,
                     )
+                    # Hack for Emergency Points Generation
                     self._to_device(
                         key,
                         name_on_device=key_at_reset,
-                        torch_accessible=False,
+                        torch_accessible=True,
                     )
                     self._reset_data_list.append(key)
 

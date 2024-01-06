@@ -1,5 +1,5 @@
 import numpy as np
-
+import movingpandas
 np.seterr(invalid='ignore')
 
 # from datasets.KAIST.env_config import BaseEnvConfig
@@ -78,24 +78,28 @@ def get_border(ur, lf):
     return geo_json
 
 
-def traj_to_timestamped_geojson(index, trajectory, car_num, drone_num, color):
+def traj_to_timestamped_geojson(index, trajectory: movingpandas.Trajectory, car_num, drone_num, color,
+                                connect_line=False, fix_target=False):
     point_gdf = trajectory.df.copy()
     point_gdf["previous_geometry"] = point_gdf["geometry"].shift()
     point_gdf["time"] = point_gdf.index
     point_gdf["previous_time"] = point_gdf["time"].shift()
-
+    point_gdf.loc[point_gdf["time"].iloc[0], "previous_geometry"] = point_gdf['geometry'].iloc[0]
+    point_gdf.loc[point_gdf["time"].iloc[0], "previous_time"] = point_gdf['time'].iloc[0]
     features = []
 
     # for Point in GeoJSON type
     for row in point_gdf.itertuples(index=False):
-        corrent_point_coordinates = [row.geometry.xy[0][0], row.geometry.xy[1][0]]
+        current_point_coordinates = [row.geometry.xy[0][0], row.geometry.xy[1][0]]
+        previous_point_coordinates = [row.previous_geometry.xy[0][0], row.previous_geometry.xy[1][0]]
         current_time = [row.time.isoformat()]
+        previous_time = [row.previous_time.isoformat()]
 
         if 0 > row.id >= (-car_num):
             radius = 8  # 125(5 units)
             opacity = 0.05
             popup_html = f'<h4> (Car) Agent {car_num + drone_num - index - 1}</h4>' + \
-                         f'<p>raw coord: {corrent_point_coordinates}</p>' + \
+                         f'<p>raw coord: {current_point_coordinates}</p>' + \
                          f'<p>grid coord: ({row.x},{row.y})</p>' + \
                          f'<p>dist coord: ({row.x_distance}m, {row.y_distance}m)</p>' + \
                          f'<p>energy: {row.energy}J </p>'
@@ -103,7 +107,7 @@ def traj_to_timestamped_geojson(index, trajectory, car_num, drone_num, color):
             radius = 6  # 125(5 units)
             opacity = 0.05
             popup_html = f'<h4> (Drone) Agent {car_num + drone_num - index - 1}</h4>' + \
-                         f'<p>raw coord: {corrent_point_coordinates}</p>' + \
+                         f'<p>raw coord: {current_point_coordinates}</p>' + \
                          f'<p>grid coord: ({row.x},{row.y})</p>' + \
                          f'<p>dist coord: ({row.x_distance}m, {row.y_distance}m)</p>' + \
                          f'<p>energy: {row.energy}J </p>'
@@ -111,20 +115,30 @@ def traj_to_timestamped_geojson(index, trajectory, car_num, drone_num, color):
             radius = 4
             opacity = 1
             popup_html = f'<h4> Human {int(row.id)}</h4>' + \
-                         f'<p>raw coord: {corrent_point_coordinates}</p>' + \
+                         f'<p>raw coord: {current_point_coordinates}</p>' + \
                          f'<p>grid coord: ({row.x},{row.y})</p>' + \
                          f'<p>dist coord: ({row.x_distance}m, {row.y_distance}m)</p>' + \
                          f'<p>aoi: {int(row.aoi)} </p>'
+        if connect_line:
+            feature_dict = create_linestring_feature([previous_point_coordinates, current_point_coordinates],
+                                                     [previous_time, current_time], color=color)
+        else:
+            feature_dict = create_point_feature(color, current_point_coordinates, current_time, opacity,
+                                                popup_html, radius)
+        features.append(feature_dict)
+        if fix_target and not connect_line:
+            break
+    return features
 
-        # for Point in GeoJSON type  (Temporally Deprecated)
-        features.append(
-            {
-                "type": "Feature",
-                "geometry": {
-                    "type": "Point",
-                    "coordinates": corrent_point_coordinates,
-                },
-                "properties": {
+
+def create_point_feature(color, current_point_coordinates, current_time, opacity, popup_html, radius):
+    feature_dict = {
+        "type": "Feature",
+        "geometry": {
+            "type": "Point",
+            "coordinates": current_point_coordinates,
+        },
+        "properties": {
                     "times": current_time,
                     'popup': popup_html,
                     "icon": 'circle',  # point
@@ -141,10 +155,34 @@ def traj_to_timestamped_geojson(index, trajectory, car_num, drone_num, color):
                     },
                     "code": 11,
                 },
-            }
-        )
-    return features
+    }
+    return feature_dict
 
+
+def create_linestring_feature(coordinates, dates, color):
+    return {
+        "type": "Feature",
+        "geometry": {
+            "type": "LineString",
+            "coordinates": coordinates,
+        },
+        "properties": {
+            "times": dates,
+            "icon": 'circle',  # point
+            "iconstyle": {
+                'fillColor': color,
+                'fillOpacity': 1,  # 透明度
+                'stroke': 'true',
+                'radius': 3,
+                'weight': 1,
+            },
+
+            "style": {  # line
+                "color": color,
+            },
+            "code": 11,
+        },
+    }
 
 # if __name__ == "__main__":
 #     print(judge_collision(new_robot_px=6505, new_robot_py=5130,

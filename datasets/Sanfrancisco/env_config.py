@@ -22,7 +22,7 @@ class BaseEnvConfig(object):
     env.h_rx = 1.3  # m, height of RX
     env.h_b = 1.7  # m, height of a human blocker
     env.car_velocity = 8
-    env.drone_velocity = 18
+    env.drone_velocity = 18  # https://www.dji.com/hk/matrice600
     env.frequence_band = 28  # GHz
     env.h_d = 120  # m, height of drone-BS
     env.alpha_nlos = 66.25
@@ -53,9 +53,9 @@ class BaseEnvConfig(object):
     #                                    [150, 0], [-150, 0],
     #                                    [0, 150], [0, -150],
     #                                    [60, 60], [60, -60], [-60, 60], [-60, -60]])
-    env.drone_sensing_range = 200  # unit
+    env.drone_sensing_range = 500  # unit
     env.car_action_space = env.drone_action_space / 3
-    env.car_sensing_range = env.drone_sensing_range
+    env.car_sensing_range = 250
     env.drone_car_comm_range = 500
 
     env.max_x_distance = 6951  # m

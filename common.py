@@ -8,7 +8,8 @@ from datetime import datetime
 import argparse
 from envs.crowd_sim.crowd_sim import LARGE_DATASET_NAME
 
-display_tags = {'encoder_layer', 'core_arch', 'num_drones', 'num_cars'}
+# 'encoder_layer', 'core_arch', 'num_drones', 'num_cars'
+display_tags = {'cut_points', 'fix_target', 'num_drones', 'num_cars'}
 logging_dir = os.path.join("/workspace", "saved_data")
 
 def add_common_arguments(parser: ArgumentParser):
@@ -52,7 +53,7 @@ def add_common_arguments(parser: ArgumentParser):
     parser.add_argument('--num_drones', type=int, default=2, help='number of drones')
     parser.add_argument('--num_cars', type=int, default=2, help='number of cars')
     parser.add_argument("--num_envs", type=int, default=500, help='number of environments to sample')
-
+    parser.add_argument('--fix_target', action='store_true', help='fix target')
 
 
 def customize_experiment(args: argparse.Namespace, run_config: dict = None, yaml_config_path: str = None, ):
@@ -66,12 +67,13 @@ def customize_experiment(args: argparse.Namespace, run_config: dict = None, yaml
     expr_name = f"{datetime_string}_{args.algo}"
     tags = args.tag if args.tag is not None else []
     # Process argparse arguments
-    for arg in set(vars(args)) - {'track'}:
-        attr_val = getattr(args, arg)
-        if attr_val is True:
-            tags.append(arg)
-        elif attr_val is not False and arg in display_tags:
-            expr_name += f"_{arg}_{attr_val}"
+    for arg in list(vars(args)):
+        if arg != "track":
+            attr_val = getattr(args, arg)
+            if attr_val is True:
+                tags.append(arg)
+            elif attr_val is not False and arg in display_tags:
+                expr_name += f"_{arg}_{attr_val}"
     # Process YAML configuration if provided
     if yaml_config_path:
         with open(yaml_config_path, 'r') as file:

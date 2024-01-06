@@ -55,4 +55,16 @@ restore_dict = {
 # 200 points + regular reward + dynamic zero shot
 # IPPOTrainer_crowdsim_SanFrancisco_52966_00000_0_2024-01-04_10-24-01
 
-# it seems all experiments are delayed by 3 seconds.
+# IPPO + CNN, brute force mean:
+#         uuid = "882c5"
+#         time_str = "2024-01-03_23-26-57"
+#         checkpoint_num = 15000
+# IPPO + CNN, flatten input to FC:
+#         uuid = "a4592"
+#         time_str = "2024-01-04_16-24-13"
+#         checkpoint_num = 15000
+# IPPO fix_target FC
+# IPPOTrainer_crowdsim_SanFrancisco_c8dc7_00000_0_2024-01-04_22-51-47
+# IPPO fix_target CNN
+#         uuid = "3a0b0"
+#         time_str = "2024-01-04_22-54-57"

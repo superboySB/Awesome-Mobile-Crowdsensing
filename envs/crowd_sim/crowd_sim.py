@@ -4,6 +4,8 @@ The Mobile Crowdsensing Environment
 import logging
 import os
 import pprint
+import warnings
+import random
 from typing import Optional, Tuple, Dict, List, Any, Union
 
 import numpy as np
@@ -39,7 +41,7 @@ from warp_drive.training.data_loader import create_and_push_data_placeholders
 from .utils import *
 
 user_override_params = ['env_config', 'dynamic_zero_shot', 'use_2d_state', 'all_random',
-                        'num_drones', 'num_cars', 'cut_points']
+                        'num_drones', 'num_cars', 'cut_points', 'fix_target']
 
 grid_size = 10
 
@@ -133,6 +135,7 @@ class CrowdSim:
             env_backend="cpu",
             dynamic_zero_shot=False,
             use_2d_state=False,
+            fix_target=False,
             env_config=None,
             centralized=True,
             all_random=False,
@@ -143,6 +146,7 @@ class CrowdSim:
         self.bool_dtype = np.bool_
         # small number to prevent indeterminate cases
         self.eps = self.float_dtype(1e-10)
+        self.fix_target = fix_target
         self.config = env_config()
         # Seeding
         self.np_random: np.random = np.random
@@ -209,9 +213,9 @@ class CrowdSim:
         self.target_coveraged_timelist = np.zeros([self.episode_length + 1, self.num_sensing_targets], dtype=np.bool_)
         if not self.all_random:
             # Fill the new array with data from the full DataFrame
-            fix_target = False
             last_id = -1
             first_row_of_last_id = None
+            logging.debug(f"target fix status: {fix_target}")
             for row in self.human_df.itertuples():
                 id_index = id_to_index.get(row.id, None)
                 if last_id != id_index:
@@ -309,9 +313,6 @@ class CrowdSim:
         # its k-nearest agents (k = num_other_agents_observed)
         self.init_obs = None  # Will be set later in generate_observation()
 
-        # Distance margin between agents for non-zero rewards
-        # If a tagger is closer than this to a runner, the tagger
-        # gets a positive reward, and the runner a negative reward
         self.drone_sensing_range = self.float_dtype(self.config.env.drone_sensing_range)
         self.car_sensing_range = self.float_dtype(self.config.env.car_sensing_range)
         self.drone_car_comm_range = self.float_dtype(self.config.env.drone_car_comm_range)
@@ -326,6 +327,25 @@ class CrowdSim:
 
         # [may not necessary] Copy drones dict for applying at reset (with limited energy reserve)
         # self.drones_at_reset = copy.deepcopy(self.drones)
+        # List of available colors excluding orange and red
+        self.available_colors = ["blue", "green", "yellow", "purple", "cyan", "magenta", "teal", "lime", "brown"]
+
+        # Shuffle the list of available colors
+        random.shuffle(self.available_colors)
+        # Initialize an index to keep track of the selected color
+        self.selected_color_index = 0
+
+        # Function to get the next color
+
+    def get_next_color(self):
+        # Check if we have used all colors, shuffle again if needed
+        if self.selected_color_index >= len(self.available_colors):
+            random.shuffle(self.available_colors)
+            self.selected_color_index = 0
+        # Get the next color
+        next_color = self.available_colors[self.selected_color_index]
+        self.selected_color_index += 1
+        return next_color
 
     def generate_emergency(self, num_centers, num_points_per_center):
         max_distance_from_center = 10
@@ -383,8 +403,14 @@ class CrowdSim:
         """
         Env reset().
         """
+        logging.debug("CrowdSim reset() is called")
         self.history_reset()
+        self.targets_regen()
+        return self.generate_observation_and_update_state()
+
+    def targets_regen(self):
         if self.dynamic_zero_shot and not self.all_random:
+            logging.debug("Emergency points resetted!")
             points_x, points_y = self.generate_emergency(self.num_centers, self.num_points_per_center)
             self.target_x_time_list[:, self.num_sensing_targets -
                                        self.num_centers * self.num_points_per_center:] = points_x
@@ -394,7 +420,6 @@ class CrowdSim:
             points_x, points_y = self.generate_emergency(self.num_centers, self.num_points_per_center)
             self.target_x_time_list[:, :] = points_x
             self.target_y_time_list[:, :] = points_y
-        return self.generate_observation_and_update_state()
 
     def calculate_global_distance_matrix(self):
         """
@@ -489,8 +514,8 @@ class CrowdSim:
                                                          self.target_aoi_timelist[self.timestep, self.zero_shot_start:],
                                                          int(self.max_distance_x // 2),
                                                          int(self.max_distance_y // 2),
-                                                         self.drone_car_comm_range * 4,
-                                                         self.drone_car_comm_range * 4,
+                                                         self.max_distance_x,
+                                                         self.max_distance_y,
                                                          grid_size)
         else:
             emergency_aoi_parts = np.zeros((1, grid_size, grid_size), dtype=self.float_dtype)
@@ -501,8 +526,8 @@ class CrowdSim:
                                                 self.target_aoi_timelist[self.timestep, :self.zero_shot_start],
                                                 int(self.max_distance_x // 2),
                                                 int(self.max_distance_y // 2),
-                                                self.drone_car_comm_range * 4,
-                                                self.drone_car_comm_range * 4,
+                                                self.max_distance_x,
+                                                self.max_distance_y,
                                                 grid_size)
 
         # Global state
@@ -624,11 +649,12 @@ class CrowdSim:
             s0 = 0.05  # the rotor solidity
             A = 0.503  # the area of the rotor disk, m^2
             vt = self.config.env.drone_velocity  # velocity of the UAV, m/s
-
+            # 158J at vt=18m/s
             flying_energy = P0 * (1 + 3 * vt ** 2 / U_tips ** 2) + \
                             P1 * np.sqrt((np.sqrt(1 + vt ** 4 / (4 * v0 ** 4)) - vt ** 2 / (2 * v0 ** 2))) + \
                             0.5 * d0 * rho * s0 * A * vt ** 3
 
+            # 168.48J at vt=0m/s
             hovering_energy = P0 + P1
             return move_time * flying_energy + stop_time * hovering_energy
         else:
@@ -729,14 +755,6 @@ class CrowdSim:
         return obs, rew_dict, done, self.collect_info()
 
     def collect_info(self) -> Dict[str, float]:
-        if isinstance(self, CUDACrowdSim):
-            if not self.dynamic_zero_shot:
-                self.target_coveraged_timelist[self.timestep, :] = self.cuda_data_manager.pull_data_from_device(
-                    "target_coverage").mean(axis=0)
-            self.target_aoi_timelist[self.timestep, :] = self.cuda_data_manager.pull_data_from_device(
-                "target_aoi").mean(axis=0)
-            self.agent_energy_timelist[self.timestep, :] = self.cuda_data_manager.pull_data_from_device(
-                _AGENT_ENERGY).mean(axis=0)
         freshness_factor = 1 - np.mean(np.clip(self.float_dtype(self.target_aoi_timelist[self.timestep]) /
                                                self.aoi_threshold, a_min=0, a_max=1) ** 2)
         logging.debug(f"freshness_factor: {freshness_factor}")
@@ -827,13 +845,13 @@ class CrowdSim:
             m.add_child(folium.LatLngPopup())
             minimap = folium.plugins.MiniMap()
             m.add_child(minimap)
-            folium.TileLayer('Stamen Terrain',
-                             attr='Map tiles by Stamen Design, under CC BY 3.0. Data by OpenStreetMap, under ODbL'
-                             ).add_to(m)
-
-            folium.TileLayer('Stamen Toner',
-                             attr='Map tiles by Stamen Design, under CC BY 3.0. Data by OpenStreetMap, under ODbL'
-                             ).add_to(m)
+            # folium.TileLayer('Stamen Terrain',
+            #                  attr='Map tiles by Stamen Design, under CC BY 3.0. Data by OpenStreetMap, under ODbL'
+            #                  ).add_to(m)
+            #
+            # folium.TileLayer('Stamen Toner',
+            #                  attr='Map tiles by Stamen Design, under CC BY 3.0. Data by OpenStreetMap, under ODbL'
+            #                  ).add_to(m)
 
             folium.TileLayer('cartodbpositron',
                              attr='Map tiles by Carto, under CC BY 3.0. Data by OpenStreetMap, under ODbL'
@@ -855,6 +873,7 @@ class CrowdSim:
             m.add_child(border)
             all_features = []
             for index, traj in enumerate(trajectories):
+                logging.debug("Render Index %d", index)
                 if 0 > traj.df['id'].iloc[0] >= (-self.num_cars):
                     name = f"Agent {self.num_agents - index - 1} (Car)"
                 elif traj.df['id'].iloc[0] < (-self.num_cars):
@@ -865,7 +884,7 @@ class CrowdSim:
                 # Define your color logic here
                 if self.dynamic_zero_shot:
                     if index < self.num_agents:
-                        color = "blue"
+                        color = self.get_next_color()
                     elif (self.dynamic_zero_shot and self.num_agents < index < self.num_agents +
                           self.num_sensing_targets - self.num_centers * self.num_points_per_center):
                         color = "orange"
@@ -874,24 +893,29 @@ class CrowdSim:
                         color = "red"
                 else:
                     if index < self.num_agents:
-                        color = "blue"
+                        color = self.get_next_color()
                     else:
                         color = "orange"
 
                 # Create features for the current trajectory
-                features = traj_to_timestamped_geojson(index, traj, self.num_cars, self.num_drones, color)
-                # line
-                if index < self.num_agents:
-                    geo_col = traj.to_point_gdf().geometry
-                    xy = [[y, x] for x, y in zip(geo_col.x, geo_col.y)]
-                    f1 = folium.FeatureGroup(name)
-                    if moving_line:
-                        AntPath(locations=xy, color=color, weight=4, opacity=0.7, dash_array=[100, 20],
-                                delay=1000).add_to(f1)
-                    else:
-                        folium.PolyLine(locations=xy, color=color, weight=4, opacity=0.7).add_to(f1)
-                    f1.add_to(m)
+                features = traj_to_timestamped_geojson(index, traj, self.num_cars,
+                                                       self.num_drones, color, index < self.num_agents, self.fix_target)
+                # link the name with trajectories
                 all_features.extend(features)
+
+            # Point Set Mapping:
+            # point_set = folium.FeatureGroup(name="My Point Set")
+            #
+            # # Define the coordinates of your points
+            # point_coordinates = [(latitude1, longitude1), (latitude2, longitude2), (latitude3, longitude3)]
+            #
+            # # Add points to the FeatureGroup
+            # for coord in point_coordinates:
+            #     folium.CircleMarker(location=coord, radius=6, color='blue', fill=True, fill_color='blue').add_to(
+            #         point_set)
+            #
+            # # Add the FeatureGroup to the map
+            # point_set.add_to(m)
 
             # Create a single TimestampedGeoJson with all features
             TimestampedGeoJson(
@@ -1079,7 +1103,15 @@ class CUDACrowdSim(CrowdSim, CUDAEnvironmentContext):
         self.timestep = int(self.cuda_data_manager.pull_data_from_device("_timestep_").mean())
         logging.debug(f"Timestep in CUDACrowdSim {self.timestep}")
         # logging.debug(f"Dones in CUDACrowdSim {dones}")
-        return dones, self.collect_info()
+        if not self.dynamic_zero_shot:
+            self.target_coveraged_timelist[self.timestep, :] = self.cuda_data_manager.pull_data_from_device(
+                "target_coverage")[0]
+        self.target_aoi_timelist[self.timestep, :] = self.cuda_data_manager.pull_data_from_device(
+            "target_aoi")[0]
+        self.agent_energy_timelist[self.timestep, :] = self.cuda_data_manager.pull_data_from_device(
+            _AGENT_ENERGY)[0]
+        info = self.collect_info() if all(dones) else {}
+        return dones, info
 
 
 def get_space(new_space: spaces.Dict, obs_example: Union[dict, np.ndarray], update_key: str):
@@ -1120,6 +1152,7 @@ class RLlibCUDACrowdSim(MultiAgentEnv):
         self.render_file_name = additional_params.get("render_file_name", None)
         self.logging_config = additional_params.get("logging_config", None)
         self.centralized = additional_params.get("centralized", False)
+        self.is_render = additional_params.get("render", False)
         self.env_registrar = EnvironmentRegistrar()
         if "mock" not in additional_params:
             self.env_registrar.add_cuda_env_src_path(CUDACrowdSim.name,
@@ -1136,7 +1169,6 @@ class RLlibCUDACrowdSim(MultiAgentEnv):
         if (train_batch_size // self.num_envs) < num_mini_batches:
             logging.error("Batch per env must be larger than num_mini_batches, Exiting...")
             return
-
         # Using dictionary comprehension to exclude specific keys
         new_dict = {k: v for k, v in run_config.items() if k not in excluded_keys}
         logging.debug(new_dict)
@@ -1148,13 +1180,15 @@ class RLlibCUDACrowdSim(MultiAgentEnv):
         # manually setting observation space
         self.agents = []
         if "mock" not in additional_params:
+            if self.is_render:
+                self.num_envs = 10
+                warnings.warn("render=True, num_envs is always equal to 10, and user input is ignored.")
             self.env_wrapper: CUDAEnvWrapper = CUDAEnvWrapper(
                 self.env,
                 num_envs=self.num_envs,
                 env_backend=self.env_backend,
                 env_registrar=self.env_registrar
             )
-
         else:
             self.env_wrapper = None
         for name in teams_name:
@@ -1227,6 +1261,21 @@ class RLlibCUDACrowdSim(MultiAgentEnv):
         Reset all environments.
         """
         self.env_wrapper.reset()
+        if self.env.dynamic_zero_shot:
+            # all newly generated points are delayed by one episode, that is, these points are prepared
+            # for next episodes. But it should be fine.
+            self.env.targets_regen()
+            new_obs = np.stack(list(self.env.generate_observation_and_update_state().values()))
+            zero_shot_start = self.env.zero_shot_start
+            logging.debug("Modifying Emergency Points on CUDA!")
+            points_x, points_y = (torch.tensor(self.env.target_x_time_list[:, zero_shot_start:]).cuda(),
+                                  torch.tensor(self.env.target_y_time_list[:, zero_shot_start:]).cuda())
+            self.env_wrapper.cuda_data_manager.data_on_device_via_torch("target_x_at_reset")[:, :,
+            zero_shot_start:] = points_x
+            self.env_wrapper.cuda_data_manager.data_on_device_via_torch("target_y_at_reset")[:, :,
+            zero_shot_start:] = points_y
+            self.env_wrapper.cuda_data_manager.data_on_device_via_torch(_OBSERVATIONS + "_at_reset")[:] = torch.tensor(
+                new_obs).cuda()
         # current_observation shape [n_agent, dim_obs]
         current_observation = self.pull_vec_from_device_to_list(_OBSERVATIONS, self.obs_vec_dim)
         state_list = self.pull_vec_from_device_to_list(_STATE, self.env.vector_state_dim)
@@ -1235,6 +1284,8 @@ class RLlibCUDACrowdSim(MultiAgentEnv):
         for env_index in range(self.num_envs):
             obs_list.append(get_rllib_multi_agent_obs(current_observation[env_index],
                                                       state_list[env_index], self.agents))
+        # WARN：The ordering is wrong, debug only. Reset Emergency Points
+
         return obs_list
 
     def pull_vec_from_device_to_list(self, name: str, split_dim) -> list[np.ndarray]:

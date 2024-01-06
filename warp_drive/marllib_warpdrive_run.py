@@ -54,12 +54,11 @@ if __name__ == '__main__':
         else:
             logging.getLogger().setLevel(logging.WARN)
     setproctitle.setproctitle(expr_name)
-    # register new env
-    if args.env == 'crowdsim':
-        ENV_REGISTRY[args.env] = RLlibCUDACrowdSim
-        COOP_ENV_REGISTRY[args.env] = RLlibCUDACrowdSim
     # initialize crowdsim configuration
     if args.env == 'crowdsim':
+        # register new env
+        ENV_REGISTRY[args.env] = RLlibCUDACrowdSim
+        COOP_ENV_REGISTRY[args.env] = RLlibCUDACrowdSim
         share_policy = 'all'
         if args.dataset == LARGE_DATASET_NAME:
             from datasets.Sanfrancisco.env_config import BaseEnvConfig
@@ -76,9 +75,16 @@ if __name__ == '__main__':
             env_params['logging_config'] = logging_config
         else:
             logging_config = None
-        for item in ['centralized', 'gpu_id', 'render_file_name'] + user_override_params:
+        for item in ['centralized', 'gpu_id', 'render_file_name', 'render'] + user_override_params:
             if item != 'env_config':
-                env_params[item] = getattr(args, item)
+                if item == 'render_file_name':
+                    original = getattr(args, item)
+                    for key_feature in [args.algo, args.core_arch, args.dataset]:
+                        if key_feature not in original:
+                            original += f"_{key_feature}"
+                    env_params[item] = original
+                else:
+                    env_params[item] = getattr(args, item)
         logging.debug(env_params)
         env = marl.make_env(environment_name=args.env, map_name=args.dataset, env_params=env_params)
     else:
@@ -92,9 +98,6 @@ if __name__ == '__main__':
 
     # filter all string in tags not in format "key=value"
     custom_algo_params = dict(filter(lambda x: "=" in x, args.tag if args.tag is not None else []))
-    if args.render:
-        # figure out how to let evaluation program call "render", set lr=0
-        custom_algo_params['lr'] = 0
     algorithm_list = dir(marl.algos)
     # filter all strings in the list with prefix "_"
     algorithm_list = list(filter(lambda x: not x.startswith("_"), algorithm_list))
@@ -108,9 +111,9 @@ if __name__ == '__main__':
     # (in remote mode, env and learner are on different processes)
     # 'share_policy': share_policy
     if args.render or args.ckpt:
-        uuid = "e38ae"
-        time_str = "2024-01-03_17-24-26"
-        checkpoint_num = 50000
+        uuid = "c2f94"
+        time_str = "2024-01-05_22-43-16"
+        checkpoint_num = 42000
         restore_dict = get_restore_dict(args, uuid, time_str, checkpoint_num)
     else:
         restore_dict = {}
@@ -123,8 +126,7 @@ if __name__ == '__main__':
         }
         if args.env == 'crowdsim':
             kwargs['custom_vector_env'] = RLlibCUDACrowdSimWrapper
-            # TODO: num_envs not effective.
-            # kwargs['env_args'] = dict(trainer=dict(num_envs=1))
+        # figure out how to let evaluation program call "render", set lr=0
         algorithm_object.render(env, model, **kwargs)
     else:
         kwargs = {'local_mode': args.local_mode, 'num_gpus': 1, 'num_workers': args.num_workers,

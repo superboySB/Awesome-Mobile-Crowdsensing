@@ -357,17 +357,16 @@ __device__ void CUDACrowdSimGenerateAoIGrid(
       valid_status_arr[kThisAgentArrayIdx] = 1;
       float min_dist = kMaxDistance;
       bool is_drone = agent_types_arr[kThisAgentId];
-
+      float my_x = agent_x_arr[kThisAgentArrayIdx + kThisAgentId];
+      float my_y = agent_y_arr[kThisAgentArrayIdx + kThisAgentId];
       if (is_drone){  // drone
         int nearest_car_id = -1;
         neighbor_agent_ids_arr[kThisAgentArrayIdx] = -1;
         for (int other_agent_id = 0; other_agent_id < kNumAgents; other_agent_id++) {
           bool is_car = !agent_types_arr[other_agent_id];
           if (is_car) {
-            float temp_x = agent_x_arr[kThisEnvAgentsOffset + kThisAgentId] - \
-            agent_x_arr[kThisEnvAgentsOffset + other_agent_id];
-            float temp_y = agent_y_arr[kThisEnvAgentsOffset + kThisAgentId] - \
-            agent_y_arr[kThisEnvAgentsOffset + other_agent_id];
+            float temp_x = my_x - agent_x_arr[kThisEnvAgentsOffset + other_agent_id];
+            float temp_y = my_y - agent_y_arr[kThisEnvAgentsOffset + other_agent_id];
             float dist = sqrt(temp_x * temp_x + temp_y * temp_y);
             if (dist < min_dist) {
               min_dist = dist;
@@ -395,13 +394,26 @@ __device__ void CUDACrowdSimGenerateAoIGrid(
     const int kThisTargetPositionTimeListIdxOffset = env_timestep_arr[kEnvId] * kNumTargets;
     const float invEpisodeLength = 1.0f / kEpisodeLength;
     if (kThisAgentId == 0){
-    global_rewards_arr[kEnvId] = 0.0;
+//     printf("TargetTimeListOffset: %d\n", kThisTargetPositionTimeListIdxOffset);
+    float global_reward = 0.0;
     for (int target_idx = 0; target_idx < kNumTargets; target_idx++) {
-        target_coverage_arr[kThisTargetAgeArrayIdxOffset + target_idx] = false;
+        int is_dyn_point = dynamic_zero_shot && target_idx >= zero_shot_start;
+        int target_coverage;
+        if (!is_dyn_point){
+          target_coverage = false;
+        }
+        else{
+          target_coverage = target_coverage_arr[kThisTargetAgeArrayIdxOffset + target_idx];
+        }
         float min_dist = kMaxDistance;
         int nearest_agent_id = -1;
         float target_x = target_x_time_list[kThisTargetPositionTimeListIdxOffset + target_idx];
         float target_y = target_y_time_list[kThisTargetPositionTimeListIdxOffset + target_idx];
+        int target_aoi = target_aoi_arr[kThisTargetAgeArrayIdxOffset + target_idx];
+//         if (target_idx < 5){
+//           printf("Env %d Timestep %d Target %d target pos: %f %f\n", kEnvId, env_timestep_arr[kEnvId],
+//           target_idx, target_x, target_y);
+//         }
 //         printf("%d %d global_rewards_arr val %f\n", kEnvId, target_idx, global_rewards_arr[kEnvId]);
         for (int agent_idx = 0; agent_idx < kNumAgents; agent_idx++) {
             bool is_valid = valid_status_arr[kThisEnvAgentsOffset + agent_idx];
@@ -415,45 +427,46 @@ __device__ void CUDACrowdSimGenerateAoIGrid(
                 }
             }
         }
-
-        int target_aoi = target_aoi_arr[kThisTargetAgeArrayIdxOffset + target_idx];
         int reward_increment = (target_aoi - 1);
-        if (dynamic_zero_shot && target_idx >= zero_shot_start){
+        if (is_dyn_point){
           reward_increment *= 5;
         }
         float reward_update = reward_increment * invEpisodeLength;
         if (min_dist <= kDroneSensingRange && nearest_agent_id != -1) {
             bool is_drone = agent_types_arr[nearest_agent_id];
-            rewards_arr[kThisEnvAgentsOffset + nearest_agent_id] += reward_update;
-            if (is_drone) {
-                int drone_nearest_car_id = neighbor_agent_ids_arr[kThisEnvAgentsOffset + nearest_agent_id];
-                rewards_arr[kThisEnvAgentsOffset + drone_nearest_car_id] += reward_update;
-            }
             if(target_idx < zero_shot_start){
-              target_aoi_arr[kThisTargetAgeArrayIdxOffset + target_idx] = 1;
+              target_aoi = 1;
             }
             else{
-              target_aoi_arr[kThisTargetAgeArrayIdxOffset + target_idx] = 0;
+              if (target_coverage)
+              {
+                // Emergency is one-time, skip reward if it is already covered.
+                continue;
+              }
+//               else{
+//                 printf("emergency at (%f,%f) in env %d handled\n", target_x, target_y, kEnvId);
+//               }
             }
-            target_coverage_arr[kThisTargetAgeArrayIdxOffset + target_idx] = true;
+          target_coverage = true;
+          rewards_arr[kThisEnvAgentsOffset + nearest_agent_id] += reward_update;
+          if (is_drone) {
+              int drone_nearest_car_id = neighbor_agent_ids_arr[kThisEnvAgentsOffset + nearest_agent_id];
+              rewards_arr[kThisEnvAgentsOffset + drone_nearest_car_id] += reward_update;
+          }
 //             count++;
-            global_rewards_arr[kEnvId] += reward_update;
+          global_reward += reward_update;
 //             printf("target %d covered, coverage arr %d\n", target_idx, target_coverage_arr[kThisTargetAgeArrayIdxOffset + target_idx]);
         } else {
-            if(target_aoi_arr[kThisTargetAgeArrayIdxOffset + target_idx] > 0){
-              target_aoi_arr[kThisTargetAgeArrayIdxOffset + target_idx]++;
+            if(!(is_dyn_point && target_coverage)){
+              target_aoi++;
             }
-            global_rewards_arr[kEnvId] -= dynamic_zero_shot && target_idx >= zero_shot_start ? 5 * invEpisodeLength : invEpisodeLength;
+            global_reward -= is_dyn_point ? 5 * invEpisodeLength : invEpisodeLength;
 //             printf("target %d not covered, coverage arr %d\n", target_idx, target_coverage_arr[kThisTargetAgeArrayIdxOffset + target_idx]);
         }
+        target_aoi_arr[kThisTargetAgeArrayIdxOffset + target_idx] = target_aoi;
+        target_coverage_arr[kThisTargetAgeArrayIdxOffset + target_idx] = target_coverage;
     }
-    // Normalize rewards (this part seems faulty)
-//     for(int i = 0;i < kNumAgents;i++){
-//       rewards_arr[kThisEnvAgentsOffset + i] /= kEpisodeLength;
-//       printf("agent %d reward: %f\n", i, rewards_arr[kThisEnvAgentsOffset + i]);
-//     }
-//     global_rewards_arr[kEnvId] /= kEpisodeLength;
-//     printf("centralized reward: %f\n", global_rewards_arr[kEnvId]);
+    global_rewards_arr[kEnvId] = global_reward;
   }
   __sync_env_threads(); // Make sure all agents have calculated the reward
   // Generate State (only the first agent can generate state AoI)
