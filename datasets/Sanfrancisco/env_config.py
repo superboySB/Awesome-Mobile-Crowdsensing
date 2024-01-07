@@ -1,5 +1,6 @@
 import os
 
+import math
 import numpy as np
 
 from datasets.env_test import try_sensing_range
@@ -44,8 +45,12 @@ class BaseEnvConfig(object):
     env.nlat = 6960
     env.human_num = 536
     env.dataset_dir = os.path.join(get_project_root(), 'datasets', 'Sanfrancisco', 'ground_trajs.csv')
-    env.drone_action_space = np.array([[0, 0], [300, 0], [-300, 0], [0, 300], [0, -300], [210, 210], [210, -210], [-210, 210],
-                                [-210, -210]])
+    hypo = 300
+    leg = hypo / math.sqrt(2)
+
+    env.drone_action_space = np.array([[0, 0], [hypo, 0], [-hypo, 0],
+                                       [0, hypo], [0, -hypo], [leg, leg],
+                                       [leg, -leg], [-leg, leg], [-leg, -leg]])
     # env.drone_action_space = np.array([[0, 0],
     #                                    [300, 0], [-300, 0],
     #                                    [0, 300], [0, -300],

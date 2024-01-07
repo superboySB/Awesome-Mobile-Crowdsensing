@@ -35,7 +35,7 @@ if __name__ == '__main__':
     parser.add_argument('--local_mode', action='store_true', help='run in local mode')
     parser.add_argument('--all_random', action='store_true', help='PoIs in the environment '
                                                                   'are completely random')
-    parser.add_argument("--cut_points", type=int, default=-1, help='number of points allowed')
+    parser.add_argument("--cut_points", type=int, default=200, help='number of points allowed')
     parser.add_argument("--ckpt", action='store_true', help='load checkpoint')
     # parser.add_argument("--ckpt", nargs=3, type=str, help='uuid, time_str, checkpoint_num to restore')
     args = parser.parse_args()
@@ -111,9 +111,9 @@ if __name__ == '__main__':
     # (in remote mode, env and learner are on different processes)
     # 'share_policy': share_policy
     if args.render or args.ckpt:
-        uuid = "c2f94"
-        time_str = "2024-01-05_22-43-16"
-        checkpoint_num = 42000
+        uuid = "4c149"
+        time_str = "2024-01-07_16-11-02"
+        checkpoint_num = 1500
         restore_dict = get_restore_dict(args, uuid, time_str, checkpoint_num)
     else:
         restore_dict = {}

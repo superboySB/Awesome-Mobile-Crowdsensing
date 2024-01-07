@@ -8,8 +8,8 @@ from datetime import datetime
 import argparse
 from envs.crowd_sim.crowd_sim import LARGE_DATASET_NAME
 
-# 'encoder_layer', 'core_arch', 'num_drones', 'num_cars'
-display_tags = {'cut_points', 'fix_target', 'num_drones', 'num_cars'}
+# 'encoder_layer', 'core_arch', 'cut_points', 'fix_target'
+display_tags = {'num_drones', 'num_cars'}
 logging_dir = os.path.join("/workspace", "saved_data")
 
 def add_common_arguments(parser: ArgumentParser):
@@ -53,7 +53,7 @@ def add_common_arguments(parser: ArgumentParser):
     parser.add_argument('--num_drones', type=int, default=2, help='number of drones')
     parser.add_argument('--num_cars', type=int, default=2, help='number of cars')
     parser.add_argument("--num_envs", type=int, default=500, help='number of environments to sample')
-    parser.add_argument('--fix_target', action='store_true', help='fix target')
+    parser.add_argument('--fix_target', action='store_true', default=True, help='fix target')
 
 
 def customize_experiment(args: argparse.Namespace, run_config: dict = None, yaml_config_path: str = None, ):

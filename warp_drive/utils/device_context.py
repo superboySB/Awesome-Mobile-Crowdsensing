@@ -1,7 +1,26 @@
+import os
+import subprocess
+
 import torch
 import pycuda.driver as cuda_driver
 
 def make_current_context(device_id=None):
+    # Note, 77 configuration, change when deployed to other machines
+    # command = "nvidia-smi --list-gpus"
+    # # Run the command and capture the output
+    # try:
+    #     output = subprocess.check_output(command, shell=True, stderr=subprocess.STDOUT, universal_newlines=True)
+    #     # Split the output into lines
+    #     lines = output.strip().split('\n')
+    #     # Count the number of CUDA devices
+    #     num_cuda_devices = len(lines)
+    #     print(f"Number of CUDA devices: {num_cuda_devices}")
+    # except subprocess.CalledProcessError as e:
+    #     print(f"Error running command, please check CUDA devices availability: {e}")
+    #     raise e
+    #
+    # visible_str = ','.join([str(i) for i in range(num_cuda_devices)])
+    # os.environ["CUDA_VISIBLE_DEVICES"] = visible_str
     torch.cuda.init()
     cuda_driver.init()
     if device_id is None:
