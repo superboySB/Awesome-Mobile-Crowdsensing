@@ -112,13 +112,14 @@ def traj_to_timestamped_geojson(index, trajectory: movingpandas.Trajectory, car_
                          f'<p>dist coord: ({row.x_distance}m, {row.y_distance}m)</p>' + \
                          f'<p>energy: {row.energy}J </p>'
         else:
-            radius = 4
+            radius = 8
             opacity = 1
-            popup_html = f'<h4> Human {int(row.id)}</h4>' + \
-                         f'<p>raw coord: {current_point_coordinates}</p>' + \
+            popup_html = f'<h4> PoI {int(row.id)}</h4>' + \
+                         f"<p >raw coord: {current_point_coordinates}</p>" + \
                          f'<p>grid coord: ({row.x},{row.y})</p>' + \
                          f'<p>dist coord: ({row.x_distance}m, {row.y_distance}m)</p>' + \
-                         f'<p>aoi: {int(row.aoi)} </p>'
+                         f"<p style='font-size:16px;'>AoI(Response Delay): {int(row.aoi)} </p>" + \
+                         f"<p style='font-size:16px;'>Creation Time: {row.creation_time} </p>"
         if connect_line:
             feature_dict = create_linestring_feature([previous_point_coordinates, current_point_coordinates],
                                                      [previous_time, current_time], color=color)

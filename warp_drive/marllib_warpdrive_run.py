@@ -75,7 +75,7 @@ if __name__ == '__main__':
             env_params['logging_config'] = logging_config
         else:
             logging_config = None
-        for item in ['centralized', 'gpu_id', 'render_file_name', 'render'] + user_override_params:
+        for item in ['centralized', 'gpu_id', 'render_file_name', 'render', 'local_mode'] + user_override_params:
             if item != 'env_config':
                 if item == 'render_file_name':
                     original = getattr(args, item)
@@ -111,8 +111,8 @@ if __name__ == '__main__':
     # (in remote mode, env and learner are on different processes)
     # 'share_policy': share_policy
     if args.render or args.ckpt:
-        uuid = "4c149"
-        time_str = "2024-01-07_16-11-02"
+        uuid = "72dcd"
+        time_str = "2024-01-07_21-27-05"
         checkpoint_num = 1500
         restore_dict = get_restore_dict(args, uuid, time_str, checkpoint_num)
     else:

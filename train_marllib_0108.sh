@@ -3,7 +3,7 @@
 dataset_name='SanFrancisco'
 exp_name='WARP'_$dataset_name
 session_name=$exp_name
-cards=(0 1 2 3)
+cards=(1 2 3 1 2 3)
 card_num=${#cards[@]}
 dry_run=false
 # Process command-line arguments
@@ -22,16 +22,10 @@ done
 trains=(
     "--algo mappo"
     "--algo mappo --centralized"
-    "--algo mappo --dynamic_zero_shot"
-    "--algo mappo --dynamic_zero_shot --centralized"
     "--algo ippo"
     "--algo ippo --use_2d_state"
     "--algo ippo --centralized"
     "--algo ippo --use_2d_state --centralized"
-    "--algo ippo --dynamic_zero_shot"
-    "--algo ippo --use_2d_state --dynamic_zero_shot"
-    "--algo ippo --centralized --dynamic_zero_shot"
-    "--algo ippo --use_2d_state --centralized --dynamic_zero_shot"
 )
 
 
@@ -66,14 +60,15 @@ for ((i = 0; i < train_num; i++)); do
   card_id=$((i % card_num))
   # shellcheck disable=SC2004
   # if want to add $PATH, remember to add / before $
-  command="python warp_drive/marllib_warpdrive_run.py --track --num_drones 4 --num_cars 0 --dataset '$dataset_name'\
+  command="python warp_drive/marllib_warpdrive_run.py --track\
+  --num_drones 4 --num_cars 0 --group baseline --dataset '$dataset_name'\
   --gpu_id ${cards[card_id]} ${trains[i]}"
   echo "$command"
   if [ "$dry_run" = "false" ] && [ "$choice" != "n" ]
   then
       tmux send-keys -t $session_name:0."$i" "$command" Enter;
       echo "exp ${i} runs successfully"
-      sleep 1
+      sleep 3
   fi
 done
 if [ "$dry_run" = "false" ] && [ "$choice" != "n" ]

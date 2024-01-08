@@ -40,8 +40,16 @@ from envs.crowd_sim.env_wrapper import CUDAEnvWrapper
 from warp_drive.training.data_loader import create_and_push_data_placeholders
 from .utils import *
 
+FRESHNESS_FACTOR = "freshness_factor"
+
+OVERALL_AOI = "overall_aoi"
+
+EMERGENCY_METRIC = "response_delay"
+
+SURVEILLANCE_METRIC = "surveillance_aoi"
+
 user_override_params = ['env_config', 'dynamic_zero_shot', 'use_2d_state', 'all_random',
-                        'num_drones', 'num_cars', 'cut_points', 'fix_target']
+                        'num_drones', 'num_cars', 'cut_points', 'fix_target', 'gen_interval']
 
 grid_size = 10
 
@@ -778,26 +786,26 @@ class CrowdSim:
     def collect_info(self) -> Dict[str, float]:
         freshness_factor = 1 - np.mean(np.clip(self.float_dtype(self.target_aoi_timelist[self.timestep]) /
                                                self.aoi_threshold, a_min=0, a_max=1) ** 2)
-        logging.debug(f"freshness_factor: {freshness_factor}")
+        logging.debug(f"{FRESHNESS_FACTOR}: {freshness_factor}")
         # mean_energy = np.mean(self.agent_energy_timelist[self.timestep])
         # energy_remaining_ratio = mean_energy / self.max_uav_energy
         info = {
             ENERGY_METRIC_NAME: 1 - np.mean(self.agent_energy_timelist[self.timestep]) / self.max_uav_energy,
-            "freshness_factor": freshness_factor,
+            FRESHNESS_FACTOR: freshness_factor,
         }
         if self.dynamic_zero_shot and not self.all_random:
-            info["surveillance_aoi"] = np.mean(self.target_aoi_timelist[self.timestep,
+            info[SURVEILLANCE_METRIC] = np.mean(self.target_aoi_timelist[self.timestep,
                                                :-self.num_centers * self.num_points_per_center])
-            info["response_delay"] = np.mean(self.target_aoi_timelist[self.timestep,
+            info[EMERGENCY_METRIC] = np.mean(self.target_aoi_timelist[self.timestep,
                                              -self.num_centers * self.num_points_per_center:])
-            info["overall_aoi"] = (info["surveillance_aoi"] + info["response_delay"]) / 2
+            info[OVERALL_AOI] = (info[SURVEILLANCE_METRIC] + info[EMERGENCY_METRIC]) / 2
         else:
             mean_aoi = np.mean(self.target_aoi_timelist[self.timestep])
-            self.data_collection += np.sum(
-                self.target_aoi_timelist[self.timestep] - self.target_aoi_timelist[self.timestep - 1])
+            # self.data_collection += np.sum(
+            #     self.target_aoi_timelist[self.timestep] - self.target_aoi_timelist[self.timestep - 1])
             coverage = np.sum(self.target_coveraged_timelist) / (self.episode_length * self.num_sensing_targets)
             info.update({
-                DATA_METRIC_NAME: self.data_collection / (self.episode_length * self.num_sensing_targets),
+                # DATA_METRIC_NAME: self.data_collection / (self.episode_length * self.num_sensing_targets),
                 AOI_METRIC_NAME: mean_aoi,
                 COVERAGE_METRIC_NAME: coverage,
                 MAIN_METRIC_NAME: freshness_factor * coverage
@@ -843,12 +851,16 @@ class CrowdSim:
             if self.dynamic_zero_shot:
                 for i in range(self.num_sensing_targets - self.num_centers * self.num_points_per_center,
                                self.num_sensing_targets):
+                    logging.debug(f"Creation Time: {self.aoi_schedule[i - self.zero_shot_start]}")
+                    logging.debug(self.target_aoi_timelist[:, i - self.zero_shot_start])
+                    delay_list = np.full_like(self.target_aoi_timelist[:, i], self.target_aoi_timelist[:, i][-1])
                     x_list = self.target_x_time_list[:, i]
                     y_list = self.target_y_time_list[:, i]
                     id_list = np.full_like(x_list, i)
                     energy_list = np.zeros_like(x_list)
-                    robot_df = self.xy_to_dataframe(aoi_list, energy_list, id_list, max_latitude,
+                    robot_df = self.xy_to_dataframe(delay_list, energy_list, id_list, max_latitude,
                                                     max_longitude, timestamp_list, x_list, y_list)
+                    robot_df['creation_time'] = self.aoi_schedule[i - self.zero_shot_start]
                     mixed_df = pd.concat([mixed_df, robot_df])
             # ------------------------------------------------------------------------------------
             # 建立moving pandas轨迹，也可以选择调用高级API继续清洗轨迹。
@@ -956,17 +968,17 @@ class CrowdSim:
             if self.dynamic_zero_shot:
                 # the metric should include surveillance_aoi, response_delay, overall_aoi, not mean_aoi
                 info_str = f"Energy: {info[ENERGY_METRIC_NAME]:.2f},<br>" \
-                           f"Freshness: {info['freshness_factor']:.2f},<br>" \
-                           f"Surveillance: {info['surveillance_aoi']:.2f},<br>" \
-                           f"Response Delay: {info['response_delay']:.2f},<br>" \
-                           f"Overall AoI: {info['overall_aoi']:.2f}"
+                           f"Freshness: {info[FRESHNESS_FACTOR]:.2f},<br>" \
+                           f"Surveillance: {info[SURVEILLANCE_METRIC]:.2f},<br>" \
+                           f"Response Delay: {info[EMERGENCY_METRIC]:.2f},<br>" \
+                           f"Overall AoI: {info[OVERALL_AOI]:.2f}"
             else:
                 info_str = f"Energy Ratio: {info[ENERGY_METRIC_NAME]:.2f}, " \
-                           f"Freshness: {info['freshness_factor']:.4f}, " \
+                           f"Freshness: {info[FRESHNESS_FACTOR]:.4f}, " \
                            f"Coverage: {info[COVERAGE_METRIC_NAME]:.4f},<br>" \
-                           f"Data Collect: {info[DATA_METRIC_NAME]:.4f}, " \
                            f"Mean AoI: {info[AOI_METRIC_NAME]:.2f},<br>" \
                            f"Fresh Coverage: {info[MAIN_METRIC_NAME]:.2f}"
+                # f"Data Collect: {info[DATA_METRIC_NAME]:.4f}, " \
             folium.map.Marker(
                 [self.upper_right[1], self.upper_right[0]],
                 icon=DivIcon(
@@ -1056,8 +1068,8 @@ class CUDACrowdSim(CrowdSim, CUDAEnvironmentContext):
                                   self.float_dtype(np.zeros([self.num_agents, self.num_agents - 1])), True),
                                  ("neighbor_agent_ids_sorted",
                                   self.int_dtype(np.zeros([self.num_agents, self.num_agents - 1])), True),
-                                 ("max_distance_x", self.float_dtype(self.max_distance_x)),
-                                 ("max_distance_y", self.float_dtype(self.max_distance_y)),
+                                 ("max_distance_x", self.int_dtype(self.max_distance_x)),
+                                 ("max_distance_y", self.int_dtype(self.max_distance_y)),
                                  ("slot_time", self.float_dtype(self.step_time)),
                                  ("agent_speed", self.int_dtype(list(self.agent_speed.values()))),
                                  ("dynamic_zero_shot", self.int_dtype(self.dynamic_zero_shot)),
@@ -1182,6 +1194,7 @@ class RLlibCUDACrowdSim(MultiAgentEnv):
         self.logging_config = additional_params.get("logging_config", None)
         self.centralized = additional_params.get("centralized", False)
         self.is_render = additional_params.get("render", False)
+        self.is_local = additional_params.get("local_mode", False)
         self.env_registrar = EnvironmentRegistrar()
         if "mock" not in additional_params:
             self.env_registrar.add_cuda_env_src_path(CUDACrowdSim.name,
@@ -1212,6 +1225,9 @@ class RLlibCUDACrowdSim(MultiAgentEnv):
             if self.is_render:
                 self.num_envs = 10
                 warnings.warn("render=True, num_envs is always equal to 10, and user input is ignored.")
+            elif self.is_local:
+                self.num_envs = 3
+                warnings.warn("local_mode=True, num_envs is always equal to 3, and user input is ignored.")
             self.env_wrapper: CUDAEnvWrapper = CUDAEnvWrapper(
                 self.env,
                 num_envs=self.num_envs,
@@ -1267,6 +1283,7 @@ class RLlibCUDACrowdSim(MultiAgentEnv):
                 self.obs_vec_dim = self.env.observation_space[0][_VECTOR_STATE].shape[-1]
             else:
                 self.obs_vec_dim = self.env.observation_space[0].shape[-1]
+            self.state_vec_dim = self.env.vector_state_dim
 
     def get_env_info(self):
         """
@@ -1361,6 +1378,8 @@ class RLlibCUDACrowdSim(MultiAgentEnv):
         # current_observation shape [n_envs, n_agent, dim_obs]
         next_obs = self.pull_vec_from_device_to_list(_OBSERVATIONS, self.obs_vec_dim)
         state_list = self.pull_vec_from_device_to_list(_STATE, self.env.vector_state_dim)
+        # assert np.array_equal(next_obs[0][0][20 + grid_size * grid_size:],state_list[0][self.state_vec_dim + grid_size * grid_size:])
+        # assert np.array_equal(next_obs[0][0][20 + grid_size * grid_size:],next_obs[0][-1][20 + grid_size * grid_size:])
         if self.centralized:
             reward = np.repeat(self.env_wrapper.cuda_data_manager.pull_data_from_device(_GLOBAL_REWARD),
                                repeats=self.num_agents).reshape(-1, self.num_agents)
@@ -1486,11 +1505,11 @@ def setup_wandb(logging_config: dict):
                if logging_config['tag'] is not None else [], dir=logging_config['logging_dir'],
                resume=logging_config['resume'])
     # prefix = 'env/'
-    wandb.define_metric(COVERAGE_METRIC_NAME, summary="max")
-    wandb.define_metric(ENERGY_METRIC_NAME, summary="min")
-    wandb.define_metric(DATA_METRIC_NAME, summary="max")
-    wandb.define_metric(MAIN_METRIC_NAME, summary="max")
-    wandb.define_metric(AOI_METRIC_NAME, summary="min")
+    for item in [COVERAGE_METRIC_NAME, DATA_METRIC_NAME, MAIN_METRIC_NAME, FRESHNESS_FACTOR]:
+        wandb.define_metric(item, summary="max")
+    for item in [AOI_METRIC_NAME, ENERGY_METRIC_NAME, SURVEILLANCE_METRIC, EMERGENCY_METRIC, OVERALL_AOI]:
+        wandb.define_metric(item, summary="min")
+
 
 
 def get_rllib_obs_and_reward(agents: list[Any], state: Union[np.ndarray, dict],
