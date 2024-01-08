@@ -6,6 +6,7 @@ import os
 import pprint
 import warnings
 import random
+from tqdm import tqdm
 from typing import Optional, Tuple, Dict, List, Any, Union
 
 import numpy as np
@@ -799,6 +800,7 @@ class CrowdSim:
             info[EMERGENCY_METRIC] = np.mean(self.target_aoi_timelist[self.timestep,
                                              -self.num_centers * self.num_points_per_center:])
             info[OVERALL_AOI] = (info[SURVEILLANCE_METRIC] + info[EMERGENCY_METRIC]) / 2
+            logging.debug(f"Emergency: {info[EMERGENCY_METRIC]}")
         else:
             mean_aoi = np.mean(self.target_aoi_timelist[self.timestep])
             # self.data_collection += np.sum(
@@ -852,7 +854,7 @@ class CrowdSim:
                 for i in range(self.num_sensing_targets - self.num_centers * self.num_points_per_center,
                                self.num_sensing_targets):
                     logging.debug(f"Creation Time: {self.aoi_schedule[i - self.zero_shot_start]}")
-                    logging.debug(self.target_aoi_timelist[:, i - self.zero_shot_start])
+                    logging.debug(self.target_aoi_timelist[:, i])
                     delay_list = np.full_like(self.target_aoi_timelist[:, i], self.target_aoi_timelist[:, i][-1])
                     x_list = self.target_x_time_list[:, i]
                     y_list = self.target_y_time_list[:, i]
@@ -905,8 +907,7 @@ class CrowdSim:
                                     })
             m.add_child(border)
             all_features = []
-            for index, traj in enumerate(trajectories):
-                logging.debug("Render Index %d", index)
+            for index, traj in tqdm(enumerate(trajectories)):
                 if 0 > traj.df['id'].iloc[0] >= (-self.num_cars):
                     name = f"Agent {self.num_agents - index - 1} (Car)"
                 elif traj.df['id'].iloc[0] < (-self.num_cars):
@@ -918,7 +919,7 @@ class CrowdSim:
                 if self.dynamic_zero_shot:
                     if index < self.num_agents:
                         color = self.get_next_color()
-                    elif (self.dynamic_zero_shot and self.num_agents < index < self.num_agents +
+                    elif (self.dynamic_zero_shot and self.num_agents <= index < self.num_agents +
                           self.num_sensing_targets - self.num_centers * self.num_points_per_center):
                         color = "orange"
                     else:
@@ -1500,16 +1501,21 @@ def binary_search_bound(array: np.ndarray) -> spaces.Box:
 
 
 def setup_wandb(logging_config: dict):
+    if not logging_config:
+        return
     wandb.init(project=PROJECT_NAME, name=logging_config['expr_name'], group=logging_config['group'],
                tags=[logging_config['dataset']] + logging_config['tag']
                if logging_config['tag'] is not None else [], dir=logging_config['logging_dir'],
-               resume=logging_config['resume'])
+               config=logging_config, resume=logging_config['resume'])
     # prefix = 'env/'
+    define_metrics_crowdsim()
+
+
+def define_metrics_crowdsim():
     for item in [COVERAGE_METRIC_NAME, DATA_METRIC_NAME, MAIN_METRIC_NAME, FRESHNESS_FACTOR]:
         wandb.define_metric(item, summary="max")
     for item in [AOI_METRIC_NAME, ENERGY_METRIC_NAME, SURVEILLANCE_METRIC, EMERGENCY_METRIC, OVERALL_AOI]:
         wandb.define_metric(item, summary="min")
-
 
 
 def get_rllib_obs_and_reward(agents: list[Any], state: Union[np.ndarray, dict],

@@ -512,9 +512,9 @@ __device__ void CUDACrowdSimGenerateAoIGrid(
 //             printf("target %d not cover ed, coverage arr %d\n", target_idx, target_coverage_arr[kThisTargetAgeArrayIdxOffset + target_idx]);
         }
         target_aoi_arr[kThisTargetAgeArrayIdxOffset + target_idx] = target_aoi;
-        if(is_dyn_point){
-          printf("Emergency %d AoI: %d\n", target_idx, target_aoi);
-        }
+//         if(is_dyn_point){
+//           printf("Emergency %d AoI: %d\n", target_idx, target_aoi);
+//         }
         target_coverage_arr[kThisTargetAgeArrayIdxOffset + target_idx] = target_coverage;
     }
     global_rewards_arr[kEnvId] = global_reward;

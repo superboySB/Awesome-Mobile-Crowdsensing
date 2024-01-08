@@ -47,7 +47,7 @@ if __name__ == '__main__':
     if args.dynamic_zero_shot and args.all_random:
         raise ValueError("dynamic_zero_shot and all_random cannot be both true")
     if args.render:
-        logging.getLogger().setLevel(logging.INFO)
+        logging.getLogger().setLevel(logging.DEBUG)
     else:
         if args.local_mode:
             logging.getLogger().setLevel(logging.DEBUG)
@@ -111,9 +111,9 @@ if __name__ == '__main__':
     # (in remote mode, env and learner are on different processes)
     # 'share_policy': share_policy
     if args.render or args.ckpt:
-        uuid = "72dcd"
-        time_str = "2024-01-07_21-27-05"
-        checkpoint_num = 1500
+        uuid = "c4a4a"
+        time_str = "2024-01-08_22-03-58"
+        checkpoint_num = 1000
         restore_dict = get_restore_dict(args, uuid, time_str, checkpoint_num)
     else:
         restore_dict = {}
