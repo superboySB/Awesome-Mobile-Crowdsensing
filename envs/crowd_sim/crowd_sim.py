@@ -41,6 +41,12 @@ from envs.crowd_sim.env_wrapper import CUDAEnvWrapper
 from warp_drive.training.data_loader import create_and_push_data_placeholders
 from .utils import *
 
+state_aoi_caption = "State AoI"
+
+emergency_caption = "Emergency Grid Example"
+
+aoi_caption = "AoI Grid Example"
+
 FRESHNESS_FACTOR = "freshness_factor"
 
 OVERALL_AOI = "overall_aoi"
@@ -503,8 +509,6 @@ class CrowdSim:
                                   self.agent_energy_timelist[self.timestep] / self.max_uav_energy,
                                   self.agent_x_time_list[self.timestep] / self.max_distance_x,
                                   self.agent_y_time_list[self.timestep] / self.max_distance_y]).T
-        # agents_state = np.hstack([self_parts, self.agent_x_time_list[self.timestep, :].reshape(-1, 1) / self.max_distance_x,
-        #                           self.agent_y_time_list[self.timestep, :].reshape(-1, 1) / self.max_distance_y])
 
         # Generate agent nearest targets IDs
         agent_nearest_targets_ids = np.argsort(self.global_distance_matrix[:, :self.num_agents], axis=-1, kind='stable')
@@ -531,16 +535,28 @@ class CrowdSim:
                                                 self.drone_car_comm_range * 2,
                                                 self.drone_car_comm_range * 2,
                                                 grid_size)
+
+        full_queue = np.zeros((10 * 4,), dtype=self.float_dtype)
         if self.dynamic_zero_shot:
-            emergency_aoi_parts = self.generate_aoi_grid(self.target_x_time_list[self.timestep, self.zero_shot_start:],
-                                                         self.target_y_time_list[self.timestep, self.zero_shot_start:],
-                                                         self.aoi_schedule,
-                                                         self.target_aoi_timelist[self.timestep, self.zero_shot_start:],
-                                                         int(self.max_distance_x // 2),
-                                                         int(self.max_distance_y // 2),
-                                                         self.max_distance_x,
-                                                         self.max_distance_y,
-                                                         grid_size)
+            emergency_aoi_parts = np.zeros((1, grid_size, grid_size), dtype=self.float_dtype)
+            # emergency_aoi_parts = self.generate_aoi_grid(self.target_x_time_list[self.timestep, self.zero_shot_start:],
+            #                                              self.target_y_time_list[self.timestep, self.zero_shot_start:],
+            #                                              self.aoi_schedule,
+            #                                              self.target_aoi_timelist[self.timestep, self.zero_shot_start:],
+            #                                              int(self.max_distance_x // 2),
+            #                                              int(self.max_distance_y // 2),
+            #                                              int(self.max_distance_x),
+            #                                              int(self.max_distance_y),
+            #                                              grid_size)
+            # current_aoi = self.target_aoi_timelist[self.timestep]
+            # valid_zero_shots_mask = (current_aoi > 1) & (np.arange(len(current_aoi)) > self.zero_shot_start)
+            # # find valid emergencies only
+            # zero_shot_aois, zero_shot_x, zero_shot_y = (current_aoi[valid_zero_shots_mask],
+            # self.target_x_time_list[self.timestep, valid_zero_shots_mask],
+            # self.target_y_time_list[self.timestep, valid_zero_shots_mask])
+            # aoi_priorities = np.argsort(zero_shot_aois)[:10]
+            # emergency_coordinates = np.vstack([zero_shot_x[aoi_priorities], zero_shot_y[aoi_priorities]]).T
+            # full_queue[:emergency_coordinates.shape[0] * 2] = emergency_coordinates.reshape(-1)
         else:
             emergency_aoi_parts = np.zeros((1, grid_size, grid_size), dtype=self.float_dtype)
 
@@ -551,8 +567,8 @@ class CrowdSim:
                                                 self.target_aoi_timelist[self.timestep, :self.zero_shot_start],
                                                 int(self.max_distance_x // 2),
                                                 int(self.max_distance_y // 2),
-                                                self.max_distance_x,
-                                                self.max_distance_y,
+                                                int(self.max_distance_x),
+                                                int(self.max_distance_y),
                                                 grid_size)
 
         # Global state
@@ -584,6 +600,7 @@ class CrowdSim:
                  aoi_grids.reshape(self.num_agents, -1)))
             )
             self.global_state = self.float_dtype(np.concatenate([agents_state.ravel(),
+                                                                 # full_queue,
                                                                  state_aoi_grid.ravel(),
                                                                  emergency_aoi_parts.ravel()]))
             observations = {agent_id: observations[agent_id] for agent_id in range(self.num_agents)}
@@ -816,6 +833,31 @@ class CrowdSim:
 
     def render(self, output_file=None, plot_loop=False, moving_line=False):
 
+        javascript = """
+        <script>
+        var animationPaused = false;
+
+        function toggleAnimation() {
+            var layers = document.getElementsByClassName('leaflet-bar leaflet-bar-horizontal leaflet-bar-timecontrol leaflet-control');
+            for (var i = 0; i < layers.length; i++) {
+                var layer = layers[i];
+                if (animationPaused) {
+                    layer._pause();
+                } else {
+                    layer._start();
+                }
+            }
+            animationPaused = !animationPaused;
+        }
+
+        document.addEventListener('keydown', function(event) {
+            if (event.keyCode === 32) { // Spacebar key code
+                toggleAnimation();
+            }
+        });
+        </script>
+        """
+
         def custom_style_function(feature):
             return {
                 "color": feature["properties"]["style"]["color"],  # Use the color from the properties
@@ -875,24 +917,25 @@ class CrowdSim:
             start_point = trajectories.trajectories[0].get_start_location()
 
             # 经纬度反向
-            m = folium.Map(location=[start_point.y, start_point.x], tiles="cartodbpositron", zoom_start=14, max_zoom=24)
+            my_render_map: folium.Map = folium.Map(location=[start_point.y, start_point.x], tiles="cartodbpositron",
+                                                   zoom_start=14, max_zoom=24, control_scale=True)
 
-            m.add_child(folium.LatLngPopup())
+            my_render_map.add_child(folium.LatLngPopup())
             minimap = folium.plugins.MiniMap()
-            m.add_child(minimap)
+            my_render_map.add_child(minimap)
             # folium.TileLayer('Stamen Terrain',
             #                  attr='Map tiles by Stamen Design, under CC BY 3.0. Data by OpenStreetMap, under ODbL'
-            #                  ).add_to(m)
+            #                  ).add_to(my_render_map)
             #
             # folium.TileLayer('Stamen Toner',
             #                  attr='Map tiles by Stamen Design, under CC BY 3.0. Data by OpenStreetMap, under ODbL'
-            #                  ).add_to(m)
+            #                  ).add_to(my_render_map)
 
             folium.TileLayer('cartodbpositron',
                              attr='Map tiles by Carto, under CC BY 3.0. Data by OpenStreetMap, under ODbL'
-                             ).add_to(m)
+                             ).add_to(my_render_map)
 
-            folium.TileLayer('OpenStreetMap', attr='© OpenStreetMap contributors').add_to(m)
+            folium.TileLayer('OpenStreetMap', attr='© OpenStreetMap contributors').add_to(my_render_map)
 
             # 锁定范围
             grid_geo_json = get_border(self.upper_right, self.lower_left)
@@ -905,12 +948,14 @@ class CrowdSim:
                                         'dashArray': '5,5',
                                         'fillOpacity': 0,
                                     })
-            m.add_child(border)
+            my_render_map.add_child(border)
             all_features = []
             for index, traj in tqdm(enumerate(trajectories)):
-                if 0 > traj.df['id'].iloc[0] >= (-self.num_cars):
+                is_car = 0 > traj.df['id'].iloc[0] >= (-self.num_cars)
+                is_drone = traj.df['id'].iloc[0] < (-self.num_cars)
+                if is_car:
                     name = f"Agent {self.num_agents - index - 1} (Car)"
-                elif traj.df['id'].iloc[0] < (-self.num_cars):
+                elif is_drone:
                     name = f"Agent {self.num_agents - index - 1} (Drone)"
                 else:
                     name = f"Human {traj.df['id'].iloc[0]}"
@@ -933,9 +978,23 @@ class CrowdSim:
 
                 # Create features for the current trajectory
                 features = traj_to_timestamped_geojson(index, traj, self.num_cars,
-                                                       self.num_drones, color, index < self.num_agents, self.fix_target)
-                # link the name with trajectories
-                all_features.extend(features)
+                                                       self.num_drones, color, index < self.num_agents, self.fix_target,
+                                                       color == 'red')
+                if is_car or is_drone:
+                    TimestampedGeoJson(
+                        {
+                            "type": "FeatureCollection",
+                            "features": features,
+                            "name": name
+                        },
+                        period="PT5S",  # Adjust the time interval as needed
+                        add_last_point=True,
+                        transition_time=5,
+                        loop=plot_loop  # Apply the custom GeoJSON options
+                    ).add_to(my_render_map)
+                else:
+                    # link thre name with trajectories
+                    all_features.extend(features)
 
             # Point Set Mapping:
             # point_set = folium.FeatureGroup(name="My Point Set")
@@ -949,7 +1008,7 @@ class CrowdSim:
             #         point_set)
             #
             # # Add the FeatureGroup to the map
-            # point_set.add_to(m)
+            # point_set.add_to(my_render_map)
 
             # Create a single TimestampedGeoJson with all features
             TimestampedGeoJson(
@@ -957,13 +1016,13 @@ class CrowdSim:
                     "type": "FeatureCollection",
                     "features": all_features,
                 },
-                period="PT15S",  # Adjust the time interval as needed
+                period="PT5S",  # Adjust the time interval as needed
                 add_last_point=True,
                 transition_time=5,
-                loop=plot_loop  # Apply the custom GeoJSON options
-            ).add_to(m)
+                loop=False  # Apply the custom GeoJSON options
+            ).add_to(my_render_map)
 
-            folium.LayerControl().add_to(m)
+            folium.LayerControl().add_to(my_render_map)
             # collect environment metric info and add it to folium
             info = self.collect_info()
             if self.dynamic_zero_shot:
@@ -987,9 +1046,10 @@ class CrowdSim:
                     icon_anchor=(0, 0),
                     html=f'<div style="font-size: 12pt">{info_str}</div>',
                 )
-            ).add_to(m)
-            m.get_root().render()
-            m.get_root().save(output_file)
+            ).add_to(my_render_map)
+            my_render_map.get_root().html.add_child(folium.Element(javascript))
+            my_render_map.get_root().render()
+            my_render_map.get_root().save(output_file)
             logging.info(f"{output_file} saved!")
 
     def xy_to_dataframe(self, aoi_list, energy_list, id_list, max_latitude, max_longitude, timestamp_list, x_list,
@@ -1176,7 +1236,7 @@ class RLlibCUDACrowdSim(MultiAgentEnv):
 
         logging.debug("received run_config: %s", pprint.pformat(run_config))
         os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"
-        self.iter: int = 0
+        self.episode_count: int = 0
         requirements = ["env_params", "trainer"]
         for requirement in requirements:
             if requirement not in run_config:
@@ -1379,6 +1439,25 @@ class RLlibCUDACrowdSim(MultiAgentEnv):
         # current_observation shape [n_envs, n_agent, dim_obs]
         next_obs = self.pull_vec_from_device_to_list(_OBSERVATIONS, self.obs_vec_dim)
         state_list = self.pull_vec_from_device_to_list(_STATE, self.env.vector_state_dim)
+        # logging.debug(f"aoi_grid: {next_obs[0][_IMAGE_STATE][0][0]}, emergency_grid: {next_obs[0][_IMAGE_STATE][0][1]}")
+        # if wandb.run is not None and self.episode_count % 50 == 0 and self.env.timestep % 20 == 0:
+        #     for i, item in enumerate(next_obs[0][_IMAGE_STATE] if self.use_2d_state else next_obs[0]):
+        #         if self.use_2d_state:
+        #             aoi_grid = wandb.Image(item[0], caption=aoi_caption)
+        #         else:
+        #             aoi_grid = wandb.Image(item[self.obs_vec_dim: self.obs_vec_dim + grid_size * grid_size
+        #                         ].reshape(1, grid_size, grid_size), caption=aoi_caption)
+        #         wandb.log({f"grids/aoi_agent_{i}": aoi_grid})
+        #     first_state = state_list[0]
+        #     if self.use_2d_state:
+        #         state_aoi = wandb.Image(first_state[_IMAGE_STATE][0], caption=state_aoi_caption)
+        #         emergency_aoi = wandb.Image(first_state[_IMAGE_STATE][1], caption=emergency_caption)
+        #     else:
+        #         state_aoi = wandb.Image(first_state[self.state_vec_dim:self.state_vec_dim + grid_size * grid_size
+        #                                 ].reshape(grid_size, grid_size), caption=state_aoi_caption)
+        #         emergency_aoi = wandb.Image(first_state[self.state_vec_dim + grid_size * grid_size:
+        #                                   ].reshape(grid_size, grid_size), caption=emergency_caption)
+        #     wandb.log({"grids/state_aoi": state_aoi, "grids/emergency_aoi": emergency_aoi})
         # assert np.array_equal(next_obs[0][0][20 + grid_size * grid_size:],state_list[0][self.state_vec_dim + grid_size * grid_size:])
         # assert np.array_equal(next_obs[0][0][20 + grid_size * grid_size:],next_obs[0][-1][20 + grid_size * grid_size:])
         if self.centralized:
@@ -1396,7 +1475,8 @@ class RLlibCUDACrowdSim(MultiAgentEnv):
             info_list.append({})
         if all(dones):
             logging.debug("All OK!")
-            log_env_metrics(self.iter, info)
+            log_env_metrics(info)
+            self.episode_count += 1
         return obs_list, reward_list, dones, info_list
 
     def step(
@@ -1408,7 +1488,7 @@ class RLlibCUDACrowdSim(MultiAgentEnv):
 
     def render(self, mode=None):
         logging.debug("render called")
-        self.env.render(os.path.join("/workspace", "saved_data", "trajectories", self.render_file_name), False, False)
+        self.env.render(os.path.join("/workspace", "saved_data", "trajectories", self.render_file_name), True, False)
 
 
 def get_rllib_multi_agent_obs(current_observation, state, agents: list[Any]) -> MultiAgentDict:
@@ -1545,7 +1625,7 @@ def get_rllib_obs_and_reward(agents: list[Any], state: Union[np.ndarray, dict],
     return obs_dict, reward_dict
 
 
-def log_env_metrics(cur_iter, info: dict):
+def log_env_metrics(info: dict):
     # Create table data
     table_data = [["Metric Name", "Value"]]
     table_data.extend([[key, value] for key, value in info.items()])
@@ -1559,8 +1639,7 @@ class RLlibCrowdSim(MultiAgentEnv):
     def __init__(self, run_config: dict):
         # print("passed run_config is", run_config)
         super().__init__()
-        self.iter = 0
-        self.iter: int = 0
+        self.episode_count: int = 0
         requirements = ["env_params", "trainer", "render_file_name"]
         for requirement in requirements:
             if requirement not in run_config:
@@ -1612,7 +1691,7 @@ class RLlibCrowdSim(MultiAgentEnv):
         # current_observation shape [n_agent, dim_obs]
         obs_dict, reward_dict = get_rllib_obs_and_reward(self.agents, self.env.global_state, obs, reward)
         if dones["__all__"]:
-            log_env_metrics(self.iter, info)
+            log_env_metrics(info)
         # else:
         logging.debug("wandb not detected")
         # truncated = {"__all__": False}

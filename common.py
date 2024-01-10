@@ -9,7 +9,7 @@ import argparse
 from envs.crowd_sim.crowd_sim import LARGE_DATASET_NAME
 
 # 'encoder_layer', 'core_arch', 'cut_points', 'fix_target'
-display_tags = {'num_drones', 'num_cars', 'gen_interval'}
+display_tags = {'num_drones', 'num_cars', 'gen_interval', 'share_policy'}
 logging_dir = os.path.join("/workspace", "saved_data")
 
 def add_common_arguments(parser: ArgumentParser):
@@ -169,7 +169,7 @@ def is_valid_format(input_str):
         return False
 
 
-def get_restore_dict(args: argparse.Namespace, uuid: str, time_str: str, checkpoint_num: int):
+def get_restore_dict(args: argparse.Namespace, uuid: str, time_str: str, checkpoint_num: int, backup_str: str = ""):
     """
     Get the restore dict for a given experiment.
 
@@ -183,7 +183,7 @@ def get_restore_dict(args: argparse.Namespace, uuid: str, time_str: str, checkpo
     """
     parent_result_name = os.path.join("/workspace", "saved_data", "marllib_results")
     sub_folder_name = "_".join([args.algo, args.core_arch, args.dataset])
-    return {
+    restore_dict = {
         'model_path': os.path.join(parent_result_name, sub_folder_name,
                                    f"{str(args.algo).upper()}Trainer_{args.env}_"
                                    f"{args.dataset}_{uuid}_00000_0_{time_str}",
@@ -192,3 +192,7 @@ def get_restore_dict(args: argparse.Namespace, uuid: str, time_str: str, checkpo
                                     f"experiment_state-{time_str}.json"),
         'render': args.render
     }
+    if len(backup_str) > 0:
+        restore_dict['params_path'] = os.path.join(parent_result_name, sub_folder_name,
+                                                   f"experiment_state-{backup_str}.json")
+    return restore_dict

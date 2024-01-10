@@ -1,5 +1,6 @@
 import numpy as np
 import movingpandas
+import pandas as pd
 np.seterr(invalid='ignore')
 
 # from datasets.KAIST.env_config import BaseEnvConfig
@@ -79,17 +80,17 @@ def get_border(ur, lf):
 
 
 def traj_to_timestamped_geojson(index, trajectory: movingpandas.Trajectory, car_num, drone_num, color,
-                                connect_line=False, fix_target=False):
+                                connect_line=False, fix_target=False, is_emergency=False):
     point_gdf = trajectory.df.copy()
     point_gdf["previous_geometry"] = point_gdf["geometry"].shift()
     point_gdf["time"] = point_gdf.index
     point_gdf["previous_time"] = point_gdf["time"].shift()
     point_gdf.loc[point_gdf["time"].iloc[0], "previous_geometry"] = point_gdf['geometry'].iloc[0]
     point_gdf.loc[point_gdf["time"].iloc[0], "previous_time"] = point_gdf['time'].iloc[0]
+    # pd.Timedelta(days=0, hours=0, minutes=15))
     features = []
-
     # for Point in GeoJSON type
-    for row in point_gdf.itertuples(index=False):
+    for i, row in enumerate(point_gdf.itertuples(index=False)):
         current_point_coordinates = [row.geometry.xy[0][0], row.geometry.xy[1][0]]
         previous_point_coordinates = [row.previous_geometry.xy[0][0], row.previous_geometry.xy[1][0]]
         current_time = [row.time.isoformat()]
@@ -105,24 +106,30 @@ def traj_to_timestamped_geojson(index, trajectory: movingpandas.Trajectory, car_
                          f'<p>energy: {row.energy}J </p>'
         elif row.id < (-car_num):
             radius = 6  # 125(5 units)
-            opacity = 0.05
+            opacity = 1
             popup_html = f'<h4> (Drone) Agent {car_num + drone_num - index - 1}</h4>' + \
+                         f"<p style='font-size:16px;'>Timestamp: {i}</p>" + \
                          f'<p>raw coord: {current_point_coordinates}</p>' + \
                          f'<p>grid coord: ({row.x},{row.y})</p>' + \
                          f'<p>dist coord: ({row.x_distance}m, {row.y_distance}m)</p>' + \
                          f'<p>energy: {row.energy}J </p>'
         else:
-            radius = 8
-            opacity = 1
+            if is_emergency:
+                radius = 64
+                opacity = 0.5
+            else:
+                radius = 6
+                opacity = 1
             popup_html = f'<h4> PoI {int(row.id)}</h4>' + \
-                         f"<p >raw coord: {current_point_coordinates}</p>" + \
-                         f'<p>grid coord: ({row.x},{row.y})</p>' + \
-                         f'<p>dist coord: ({row.x_distance}m, {row.y_distance}m)</p>' + \
                          f"<p style='font-size:16px;'>AoI(Response Delay): {int(row.aoi)} </p>" + \
                          f"<p style='font-size:16px;'>Creation Time: {row.creation_time} </p>"
+            # f"<p >raw coord: {current_point_coordinates}</p>" + \
+            # f'<p>grid coord: ({row.x},{row.y})</p>' + \
+            # f'<p>dist coord: ({row.x_distance}m, {row.y_distance}m)</p>' + \
+
         if connect_line:
             feature_dict = create_linestring_feature([previous_point_coordinates, current_point_coordinates],
-                                                     [previous_time, current_time], color=color)
+                                                     [previous_time[0], current_time[0]], color=color)
         else:
             feature_dict = create_point_feature(color, current_point_coordinates, current_time, opacity,
                                                 popup_html, radius)
@@ -188,3 +195,28 @@ def create_linestring_feature(coordinates, dates, color):
 # if __name__ == "__main__":
 #     print(judge_collision(new_robot_px=6505, new_robot_py=5130,
 #                           old_robot_px=6925, old_robot_py=5130))
+def map_values_to_levels(arr: np.ndarray, num_levels=8):
+    # Create an array of equally spaced levels from 0 to 1
+    levels = np.linspace(0, 1, num_levels + 1)
+
+    # Map each value in the input array to the nearest level
+    mapped_values = np.interp(arr, levels[:-1], levels[1:])
+
+    return mapped_values
+
+
+def generate_hotspot_circle(size, radius):
+    center = (size - 1) / 2  # Center of the array
+
+    # Create an empty array
+    hotspot_array = np.zeros((size, size))
+
+    # Calculate the Gaussian-like values based on distance from the center
+    for i in range(size):
+        for j in range(size):
+            distance = np.sqrt((i - center) ** 2 + (j - center) ** 2)
+            if distance <= radius:
+                # Use a Gaussian-like function to assign values
+                hotspot_array[i, j] = np.exp(-distance ** 2 / (2 * (radius / 2) ** 2))
+
+    return hotspot_array

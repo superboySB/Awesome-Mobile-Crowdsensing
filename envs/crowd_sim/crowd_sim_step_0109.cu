@@ -104,7 +104,7 @@ __device__ void CUDACrowdSimGenerateAoIGrid(
     }
 }
 
-  __device__ void CUDABubbleSortWithArg(
+  __device__ void CUdaBubbleSortWithArg(
       float * metricArray,
       int * indexArray,
       const int arraySize
@@ -211,7 +211,7 @@ __device__ void CUDACrowdSimGenerateAoIGrid(
         }
       }
 
-      CUDABubbleSortWithArg(
+      CUdaBubbleSortWithArg(
         neighbor_agent_distances_arr + kThisDistanceArrayIdxOffset,
         neighbor_agent_ids_sorted_by_distances_arr + kThisDistanceArrayIdxOffset,
         kNumAgentsObserved - 1
@@ -267,76 +267,14 @@ __device__ void CUDACrowdSimGenerateAoIGrid(
       kEnvId
     );
     // Copy Global Emergency AoI Grid to Local AoI Grid
-//     const int StateAoIGridDest = kThisEnvStateOffset + StateAoIGridIdxOffset + grid_flatten_size;
+    const int StateAoIGridDest = kThisEnvStateOffset + StateAoIGridIdxOffset + grid_flatten_size;
 //     printf("Copy from %p to %p\n", state_arr + StateAoIGridDest,
 //     obs_arr + kThisAgentAoIGridIdxOffset + 100);
-//     memcpy(obs_arr + kThisAgentAoIGridIdxOffset + grid_flatten_size, state_arr + StateAoIGridDest,
-//     grid_flatten_size * sizeof(float));
-  // ablation, obs_arr without emergency grid
-    memset(obs_arr + kThisAgentAoIGridIdxOffset + grid_flatten_size, 0, grid_flatten_size * sizeof(float));
+    memcpy(obs_arr + kThisAgentAoIGridIdxOffset + grid_flatten_size, state_arr + StateAoIGridDest,
+    grid_flatten_size * sizeof(float));
   }
 }
-  __device__ void CudaCrowdSimGenerateEmergencyQueue(
-      float * emergency_queue,
-      int * emergency_index,
-      float * emergency_aoi,
-      const int emergency_count,
-      const int EmergencyQueueLength,
-      const int FeaturesInEmergencyQueue,
-      const float * target_x_time_list,
-      const float * target_y_time_list,
-      const float agent_x,
-      const float agent_y,
-      const int * aoi_schedule,
-      int * target_aoi_arr,
-      bool * target_coverage_arr,
-      const int kNumTargets,
-      const int kEpisodeLength,
-      const int dynamic_zero_shot,
-      const int zero_shot_start,
-      const int env_timestep,
-      const int kThisAgentArrayIdx,
-      const int kThisTargetAgeArrayIdxOffset,
-      const int kThisTargetPositionTimeListIdxOffset,
-      const int kThisEnvZeroShotOffset,
-      const int kAgentXRange,
-      const int kAgentYRange
-  ){
-        // generate emergency points information
-      memset(emergency_index, -1, sizeof(emergency_index));
-      for(int i = zero_shot_start;i < kNumTargets;i++){
-//       Condition for putting Emergency into the queue:
-//       1. dynamic_zero_shot mode enabled
-//       2. current timestep is larger than the emergency point's schedule
-//       3. the emergency point is not covered
-      if(dynamic_zero_shot && env_timestep > aoi_schedule[kThisEnvZeroShotOffset + i - zero_shot_start]
-      && target_coverage_arr[kThisTargetAgeArrayIdxOffset + i] == false){
-        emergency_index[i - zero_shot_start] = i;
-        emergency_aoi[i - zero_shot_start] = target_aoi_arr[i];
-      }
-      }
-      CUDABubbleSortWithArg(emergency_aoi, emergency_index, emergency_count);
-      int total_size = EmergencyQueueLength * FeaturesInEmergencyQueue;
-      // Fill the Emergency Queue, but limit to first 10 entries.
-      for(int i = 0;i < total_size;i += FeaturesInEmergencyQueue){
-        int pos_index = kThisTargetPositionTimeListIdxOffset + emergency_index[i];
-        if((i >> 1) < emergency_count && emergency_index[i] != -1){
-          float emergency_x = target_x_time_list[pos_index];
-          float emergency_y = target_y_time_list[pos_index];
-          emergency_queue[i] = emergency_x;
-          emergency_queue[i + 1] = emergency_y;
-          emergency_queue[i + 2] = emergency_aoi[emergency_index[i]];
-          float delta_x = (emergency_x - agent_x) / kAgentXRange;
-          float delta_y = (emergency_y - agent_y) / kAgentYRange;
-          emergency_queue[i + 3] = sqrt(delta_x * delta_x + delta_y * delta_y);
-        }
-        else{
-          for(int j = 0;j < FeaturesInEmergencyQueue;j++){
-            emergency_queue[i + j] = 0.0;
-          }
-        }
-      }
-  }
+
   // k: const with timesteps, arr: on current timestep, time_list: multiple timesteps
   __global__ void CudaCrowdSimStep(
     float * state_arr,
@@ -407,12 +345,10 @@ __device__ void CUDACrowdSimGenerateAoIGrid(
     const int total_num_grids = grid_flatten_size << 1;
     const int AgentFeature = 4 + kNumAgents;
     // Update on 2024.1.10, add emergency points queue
-    const int EmergencyQueueLength = 10;
-    const int FeaturesInEmergencyQueue = 4;
     const int StateFullAgentFeature  = kNumAgents * AgentFeature;
     const int StateAoIGridIdxOffset = StateFullAgentFeature;
     const int state_features = StateAoIGridIdxOffset + total_num_grids;
-    const int obs_features = AgentFeature + (kNumAgentsObserved << 2) + EmergencyQueueLength * FeaturesInEmergencyQueue + total_num_grids;
+    const int obs_features = AgentFeature + (kNumAgentsObserved << 2) + total_num_grids;
     const int kThisEnvStateOffset = kEnvId * state_features;
     const int emergency_count = kNumTargets - zero_shot_start;
     const int kThisEnvZeroShotOffset = kEnvId * emergency_count;
@@ -689,8 +625,33 @@ __device__ void CUDACrowdSimGenerateAoIGrid(
         // -------------------------------
     // Use only agent 0's thread to set done_arr
     if (kThisAgentId == 0) {
-    // State Emergency TODO
-    // emergency_queue = state_arr[kThisEnvStateOffset + StateFullAgentFeature];
+      // generate emergency points information
+//       memset(emergency_index, -1, sizeof(emergency_index));
+//       for(int i = zero_shot_start;i < kNumTargets;i++){
+      // Condition for putting Emergency into the queue:
+      // 1. dynamic_zero_shot mode enabled
+      // 2. current timestep is larger than the emergency point's schedule
+      // 3. the emergency point is not covered
+//       if(dynamic_zero_shot && env_timestep > aoi_schedule[kThisEnvZeroShotOffset + i - zero_shot_start]
+//       && target_coverage_arr[kThisTargetAgeArrayIdxOffset + i] == false){
+//         emergency_index[i - zero_shot_start] = i;
+//         emergency_aoi[i - zero_shot_start] = target_aoi_arr[i];
+//       }
+//       }
+//       CUdaBubbleSortWithArg(emergency_aoi, emergency_index, emergency_count);
+//       // Fill the Emergency Queue, but limit to first 10 entries.
+//       emergency_queue = state_arr[kThisEnvStateOffset + StateFullAgentFeature];
+//       for(int i = 0;i < 20;i += 2){
+//         if((i >> 1) < emergency_count && emergency_index[i] != -1){
+//           emergency_queue[i] = target_x_time_list[kThisTargetPositionTimeListIdxOffset + emergency_index[i]];
+//           emergency_queue[i + 1] = target_y_time_list[kThisTargetPositionTimeListIdxOffset + emergency_index[i]];
+//         }
+//         else{
+//           emergency_queue[i] = 0;
+//           emergency_queue[i + 1] = 0;
+//         }
+//       }
+
       bool no_energy = false;
       // run for loop for agents and check agent_energy_arr
       for (int agent_idx = 0; agent_idx < kNumAgents; agent_idx++) {

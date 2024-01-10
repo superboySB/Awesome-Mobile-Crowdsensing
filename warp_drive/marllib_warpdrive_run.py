@@ -1,7 +1,8 @@
 import argparse
 import logging
 import os
-import pprint
+import warnings
+
 from marllib import marl
 from marllib.marl.common import algo_type_dict
 from marllib.envs.base_env import ENV_REGISTRY
@@ -37,6 +38,7 @@ if __name__ == '__main__':
                                                                   'are completely random')
     parser.add_argument("--cut_points", type=int, default=200, help='number of points allowed')
     parser.add_argument("--ckpt", action='store_true', help='load checkpoint')
+    parser.add_argument("--share_policy", choices=['all', 'group', 'individual'], default='all')
     # parser.add_argument("--ckpt", nargs=3, type=str, help='uuid, time_str, checkpoint_num to restore')
     args = parser.parse_args()
 
@@ -47,7 +49,7 @@ if __name__ == '__main__':
     if args.dynamic_zero_shot and args.all_random:
         raise ValueError("dynamic_zero_shot and all_random cannot be both true")
     if args.render:
-        logging.getLogger().setLevel(logging.DEBUG)
+        logging.getLogger().setLevel(logging.INFO)
     else:
         if args.local_mode:
             logging.getLogger().setLevel(logging.DEBUG)
@@ -59,7 +61,7 @@ if __name__ == '__main__':
         # register new env
         ENV_REGISTRY[args.env] = RLlibCUDACrowdSim
         COOP_ENV_REGISTRY[args.env] = RLlibCUDACrowdSim
-        share_policy = 'all'
+        share_policy = args.share_policy
         if args.dataset == LARGE_DATASET_NAME:
             from datasets.Sanfrancisco.env_config import BaseEnvConfig
         else:
@@ -90,6 +92,7 @@ if __name__ == '__main__':
     else:
         # this is a mocking env not used in actual run.
         if args.env == 'crowdsim' or args.algo in algo_type_dict['VD']:
+            warnings.warn("VD Method must use share_policy='all'")
             share_policy = 'all'
         else:
             share_policy = 'group'
@@ -111,16 +114,18 @@ if __name__ == '__main__':
     # (in remote mode, env and learner are on different processes)
     # 'share_policy': share_policy
     if args.render or args.ckpt:
-        uuid = "c4a4a"
-        time_str = "2024-01-08_22-03-58"
-        checkpoint_num = 1000
-        restore_dict = get_restore_dict(args, uuid, time_str, checkpoint_num)
+        uuid = "1370b"
+        time_str = "2024-01-09_15-09-49"
+        checkpoint_num = 40000
+        backup_str = "2024-01-09_15-09-48"
+        restore_dict = get_restore_dict(args, uuid, time_str, checkpoint_num, backup_str)
     else:
         restore_dict = {}
     if args.render:
         # adjust to latest update!
         kwargs = {
-            'restore_path': restore_dict, 'local_mode': True, 'share_policy': "all", 'checkpoint_end': False,
+            'restore_path': restore_dict, 'local_mode': True, 'share_policy': share_policy,
+            'checkpoint_end': False,
             'num_workers': 0, 'rollout_fragment_length': BaseEnvConfig.env.num_timestep,
             'algo_args': {'resume': False}
         }
