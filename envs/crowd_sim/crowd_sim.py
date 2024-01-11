@@ -215,6 +215,7 @@ class CrowdSim:
             self.num_points_per_center = 1
             points_x, points_y = self.generate_emergency(self.num_centers, self.num_points_per_center)
             self.zero_shot_start = 0
+            self.emergency_count = 0
         else:
             self.zero_shot_start = self.num_sensing_targets
             points_per_gen = self.num_agents - 1
@@ -226,7 +227,8 @@ class CrowdSim:
                 self.num_centers = generation_time * points_per_gen
                 self.num_points_per_center = 1
                 points_x, points_y = self.generate_emergency(self.num_centers, self.num_points_per_center)
-                self.num_sensing_targets += (self.num_centers * self.num_points_per_center)
+                self.emergency_count = (self.num_centers * self.num_points_per_center)
+                self.num_sensing_targets += self.emergency_count
                 # add visualization parts of dynamic generated points.
         # human infos
         unique_ids = np.arange(0, self.num_sensing_targets)  # id from 0 to 91
@@ -1118,11 +1120,16 @@ class CUDACrowdSim(CrowdSim, CUDAEnvironmentContext):
                                  ("target_y", self.float_dtype(self.target_y_time_list), True),
                                  # [self.episode_length + 1, self.num_sensing_targets]
                                  ("aoi_schedule", self.int_dtype(self.aoi_schedule)),
+                                 ("emergency_allocation_table", self.int_dtype(np.full([self.num_agents, ], -1)), True),
                                  ("target_aoi", self.int_dtype(np.ones([self.num_sensing_targets, ])), True),
                                  ("emergency_index", self.int_dtype(np.full(
-                                     [self.num_agents, self.num_sensing_targets - self.zero_shot_start], -1)), True),
+                                     [self.num_agents, self.emergency_count], -1)), True),
                                  ("emergency_dis", self.float_dtype(np.zeros(
-                                     [self.num_agents, self.num_sensing_targets - self.zero_shot_start])), True),
+                                     [self.num_agents, self.emergency_count])), True),
+                                 ("emergency_dis_to_target_index", self.int_dtype(np.zeros(
+                                     [self.num_agents, ])), True),
+                                 ("emergency_dis_to_target", self.float_dtype(np.zeros(
+                                     [self.num_agents, ])), True),
                                  ("target_coverage", self.bool_dtype(np.zeros([self.num_sensing_targets, ])), True),
                                  ("valid_status", self.bool_dtype(np.ones([self.num_agents, ])), True),
                                  ("neighbor_agent_ids", self.int_dtype(np.full([self.num_agents, ], -1)), True),
@@ -1168,9 +1175,12 @@ class CUDACrowdSim(CrowdSim, CUDAEnvironmentContext):
             "target_x",
             "target_y",
             "aoi_schedule",
+            "emergency_allocation_table",
             "target_aoi",
             "emergency_index",
             "emergency_dis",
+            "emergency_dis_to_target_index",
+            "emergency_dis_to_target",
             "target_coverage",
             "valid_status",
             "neighbor_agent_ids",
