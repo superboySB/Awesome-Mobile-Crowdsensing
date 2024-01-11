@@ -314,7 +314,7 @@ class CrowdSim:
         self.observation_space = None  # Note: this will be set via the env_wrapper
         # state = (type,energy,x,y) * self.num_agents + neighbor_aoi_grids (10 * 10)
         self.vector_state_dim = self.num_agents * 8
-        self.image_state_dim = 100 + 100
+        self.image_state_dim = 100
         if self.use_2d_state:
             self.global_state = {
                 _IMAGE_STATE: np.zeros(self.image_state_dim).reshape(-1, grid_size, grid_size),
@@ -360,10 +360,12 @@ class CrowdSim:
         random.shuffle(self.available_colors)
         # Initialize an index to keep track of the selected color
         self.selected_color_index = 0
+        self.queue_feature = 4
+        self.queue_length = 10
 
-        # Function to get the next color
 
     def get_next_color(self):
+        # Function to get the next color
         # Check if we have used all colors, shuffle again if needed
         if self.selected_color_index >= len(self.available_colors):
             random.shuffle(self.available_colors)
@@ -418,8 +420,6 @@ class CrowdSim:
         # for target_id in range(self.num_sensing_targets):
         self.target_aoi_timelist = np.zeros([self.episode_length + 1, self.num_sensing_targets], dtype=np.int_)
         self.target_aoi_timelist[self.timestep, :] = 1
-        # reset global distance matrix
-        self.calculate_global_distance_matrix()
         # for logging
         self.data_collection = 0
         # print("Reset target coverage timelist")
@@ -504,6 +504,8 @@ class CrowdSim:
         return relative_positions
 
     def generate_observation_and_update_state(self) -> Dict[int, np.ndarray]:
+        # reset global distance matrix
+        self.calculate_global_distance_matrix()
         # Self info for all agents (num_agents, 2)
         agents_state = np.vstack([np.diag(np.ones(self.num_agents)), self.agent_types,
                                   self.agent_energy_timelist[self.timestep] / self.max_uav_energy,
@@ -536,29 +538,35 @@ class CrowdSim:
                                                 self.drone_car_comm_range * 2,
                                                 grid_size)
 
-        full_queue = np.zeros((10 * 4,), dtype=self.float_dtype)
+        full_queue = np.zeros((self.num_agents, self.queue_length * self.queue_feature))
         if self.dynamic_zero_shot:
             emergency_aoi_parts = np.zeros((1, grid_size, grid_size), dtype=self.float_dtype)
-            # emergency_aoi_parts = self.generate_aoi_grid(self.target_x_time_list[self.timestep, self.zero_shot_start:],
-            #                                              self.target_y_time_list[self.timestep, self.zero_shot_start:],
-            #                                              self.aoi_schedule,
-            #                                              self.target_aoi_timelist[self.timestep, self.zero_shot_start:],
-            #                                              int(self.max_distance_x // 2),
-            #                                              int(self.max_distance_y // 2),
-            #                                              int(self.max_distance_x),
-            #                                              int(self.max_distance_y),
-            #                                              grid_size)
-            # current_aoi = self.target_aoi_timelist[self.timestep]
-            # valid_zero_shots_mask = (current_aoi > 1) & (np.arange(len(current_aoi)) > self.zero_shot_start)
-            # # find valid emergencies only
-            # zero_shot_aois, zero_shot_x, zero_shot_y = (current_aoi[valid_zero_shots_mask],
-            # self.target_x_time_list[self.timestep, valid_zero_shots_mask],
-            # self.target_y_time_list[self.timestep, valid_zero_shots_mask])
-            # aoi_priorities = np.argsort(zero_shot_aois)[:10]
-            # emergency_coordinates = np.vstack([zero_shot_x[aoi_priorities], zero_shot_y[aoi_priorities]]).T
-            # full_queue[:emergency_coordinates.shape[0] * 2] = emergency_coordinates.reshape(-1)
-        else:
-            emergency_aoi_parts = np.zeros((1, grid_size, grid_size), dtype=self.float_dtype)
+            current_aoi = self.target_aoi_timelist[self.timestep]
+            valid_zero_shots_mask = (current_aoi > 1) & (np.arange(self.num_sensing_targets) > self.zero_shot_start) & \
+                                    np.concatenate([np.zeros(self.zero_shot_start, dtype=self.bool_dtype),
+                                                    self.timestep > self.aoi_schedule]) & \
+                                    (self.target_coveraged_timelist[self.timestep] == 0)
+            # find valid emergencies only
+            zero_shot_aois, zero_shot_x, zero_shot_y = (current_aoi[valid_zero_shots_mask],
+                                                        self.target_x_time_list[self.timestep, valid_zero_shots_mask],
+                                                        self.target_y_time_list[self.timestep, valid_zero_shots_mask])
+            # select the part of global distance matrix, where distances between all zero_shot points and all agents
+            # are included
+            zero_shot_distance_matrix = self.global_distance_matrix[self.num_agents:][valid_zero_shots_mask,
+                                        :self.num_agents]
+            # select the nearest agents for each zero_shot points
+            # zero_shot_nearest_agents_ids = np.argsort(zero_shot_distance_matrix, axis=-1, kind='stable')
+            # calculate distance of each zero_shot points to each agent and argsort
+            zero_shot_distance_to_agents = np.argsort(zero_shot_distance_matrix, axis=0, kind='stable')[:10]
+            # fill the queue of each agent according to argsort result, features are listed in the order (x,y,aoi,distance)
+            for agent_id in range(self.num_agents):
+                if len(zero_shot_distance_to_agents[:, agent_id]) > 0:
+                    agent_queue = np.zeros((self.queue_length, self.queue_feature), dtype=self.float_dtype)
+                    agent_queue[:, 0] = zero_shot_x[zero_shot_distance_to_agents[:, agent_id]]
+                    agent_queue[:, 1] = zero_shot_y[zero_shot_distance_to_agents[:, agent_id]]
+                    agent_queue[:, 2] = zero_shot_aois[zero_shot_distance_to_agents[:, agent_id]]
+                    agent_queue[:, 3] = zero_shot_distance_matrix[zero_shot_distance_to_agents[:, agent_id], agent_id]
+                    full_queue[agent_id, :] = agent_queue.reshape(-1)
 
         # Generate global state AoI grid
         state_aoi_grid = self.generate_aoi_grid(self.target_x_time_list[self.timestep, :self.zero_shot_start],
@@ -570,20 +578,19 @@ class CrowdSim:
                                                 int(self.max_distance_x),
                                                 int(self.max_distance_y),
                                                 grid_size)
-
+        vector_obs = self.float_dtype(np.hstack((agents_state, homoge_parts.reshape(self.num_agents, -1),
+                                                 hetero_parts.reshape(self.num_agents, -1), full_queue)))
         # Global state
         if self.use_2d_state:
             self.global_state = {
                 _VECTOR_STATE: self.float_dtype(agents_state.ravel()),
-                _IMAGE_STATE: self.float_dtype(np.vstack([state_aoi_grid, emergency_aoi_parts]), )
+                _IMAGE_STATE: self.float_dtype(state_aoi_grid)
             }
             for array in self.global_state.values():
                 logging.debug("Global state shape: {}".format(array.shape))
-            vector_obs = self.float_dtype(np.hstack((agents_state, homoge_parts.reshape(self.num_agents, -1),
-                                                     hetero_parts.reshape(self.num_agents, -1))))
             observations = {agent_id: {
                 _VECTOR_STATE: vector_obs[agent_id],
-                _IMAGE_STATE: np.stack([aoi_grid_parts[agent_id], emergency_aoi_parts.squeeze(0)], axis=0),
+                _IMAGE_STATE: aoi_grid_parts[agent_id][np.newaxis]
             } for agent_id in range(self.num_agents)
             }
             for array in observations[0].values():
@@ -591,18 +598,11 @@ class CrowdSim:
             return observations
         else:
             # Merge parts for observations
-            aoi_grids = np.stack([aoi_grid_parts.reshape(self.num_agents, -1),
-                                  np.tile(emergency_aoi_parts, reps=(self.num_agents, 1, 1)).reshape(self.num_agents,
-                                                                                                     -1)], axis=-1)
-            observations = self.float_dtype(np.hstack(
-                (agents_state, homoge_parts.reshape(self.num_agents, -1),
-                 hetero_parts.reshape(self.num_agents, -1),
-                 aoi_grids.reshape(self.num_agents, -1)))
-            )
+            aoi_grids = aoi_grid_parts.reshape(self.num_agents, -1)
+            observations = self.float_dtype(np.hstack((vector_obs,
+                                                       aoi_grids.reshape(self.num_agents, -1))))
             self.global_state = self.float_dtype(np.concatenate([agents_state.ravel(),
-                                                                 # full_queue,
-                                                                 state_aoi_grid.ravel(),
-                                                                 emergency_aoi_parts.ravel()]))
+                                                                 state_aoi_grid.ravel()]))
             observations = {agent_id: observations[agent_id] for agent_id in range(self.num_agents)}
         return observations
 
@@ -1117,8 +1117,12 @@ class CUDACrowdSim(CrowdSim, CUDAEnvironmentContext):
                                  # [self.episode_length + 1, self.num_sensing_targets]
                                  ("target_y", self.float_dtype(self.target_y_time_list), True),
                                  # [self.episode_length + 1, self.num_sensing_targets]
-                                 ("aoi_schedule", self.int_dtype(self.aoi_schedule), True),
+                                 ("aoi_schedule", self.int_dtype(self.aoi_schedule)),
                                  ("target_aoi", self.int_dtype(np.ones([self.num_sensing_targets, ])), True),
+                                 ("emergency_index", self.int_dtype(np.full(
+                                     [self.num_agents, self.num_sensing_targets - self.zero_shot_start], -1)), True),
+                                 ("emergency_dis", self.float_dtype(np.zeros(
+                                     [self.num_agents, self.num_sensing_targets - self.zero_shot_start])), True),
                                  ("target_coverage", self.bool_dtype(np.zeros([self.num_sensing_targets, ])), True),
                                  ("valid_status", self.bool_dtype(np.ones([self.num_agents, ])), True),
                                  ("neighbor_agent_ids", self.int_dtype(np.full([self.num_agents, ], -1)), True),
@@ -1165,13 +1169,14 @@ class CUDACrowdSim(CrowdSim, CUDAEnvironmentContext):
             "target_y",
             "aoi_schedule",
             "target_aoi",
+            "emergency_index",
+            "emergency_dis",
             "target_coverage",
             "valid_status",
             "neighbor_agent_ids",
             "car_sensing_range",
             "drone_sensing_range",
             "drone_car_comm_range",
-            # "neighbor_pairs",
             "neighbor_agent_distances",
             "neighbor_agent_ids_sorted",
             "_done_",
@@ -1287,8 +1292,9 @@ class RLlibCUDACrowdSim(MultiAgentEnv):
                 self.num_envs = 10
                 warnings.warn("render=True, num_envs is always equal to 10, and user input is ignored.")
             elif self.is_local:
-                self.num_envs = 3
-                warnings.warn("local_mode=True, num_envs is always equal to 3, and user input is ignored.")
+                # pass
+                self.num_envs = 4
+                warnings.warn("local_mode=True, num_envs is always equal to 4, and user input is ignored.")
             self.env_wrapper: CUDAEnvWrapper = CUDAEnvWrapper(
                 self.env,
                 num_envs=self.num_envs,
@@ -1369,8 +1375,8 @@ class RLlibCUDACrowdSim(MultiAgentEnv):
         """
         self.env_wrapper.reset()
         if self.env.dynamic_zero_shot:
-            # all newly generated points are delayed by one episode, that is, these points are prepared
-            # for next episodes. But it should be fine.
+            # One episode delays all newly generated points, that is, these points are prepared
+            #  for the next episodes. But it should be fine.
             self.env.targets_regen()
             obs_for_agents = list(self.env.generate_observation_and_update_state().values())
             if isinstance(obs_for_agents[0], dict):

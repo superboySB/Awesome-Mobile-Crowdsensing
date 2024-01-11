@@ -104,11 +104,13 @@ __device__ void CUDACrowdSimGenerateAoIGrid(
     }
 }
 
-  __device__ void CUDABubbleSortWithArg(
+  __device__ void CUDABubbleSortFloatWithArg(
       float * metricArray,
       int * indexArray,
       const int arraySize
   ){
+  int threadId = threadIdx.x;
+  if (threadId == 0){
       for (int i = 0; i < arraySize; i++) {
         for (int j = 0; j < arraySize - i; j++) {
           if (metricArray[j] > metricArray[j+1]) {
@@ -123,6 +125,108 @@ __device__ void CUDACrowdSimGenerateAoIGrid(
         }
       }
   }
+  }
+
+    __device__ void CUDABubbleSortIntWithArg(
+      int * metricArray,
+      int * indexArray,
+      const int arraySize
+  ){
+   int threadId = threadIdx.x;
+   if (threadId == 0){
+   for (int i = 0; i < arraySize; i++) {
+        for (int j = 0; j < arraySize - i; j++) {
+          if (metricArray[j] > metricArray[j+1]) {
+            int tmp1 = metricArray[j];
+            metricArray[j] = metricArray[j+1];
+            metricArray[j+1] = tmp1;
+
+            int tmp2 = indexArray[j];
+            indexArray[j] = indexArray[j+1];
+            indexArray[j+1] = tmp2;
+          }
+        }
+      }
+   }
+  }
+
+    __device__ void CudaCrowdSimGenerateEmergencyQueue(
+      float * emergency_queue,
+      int * emergency_index,
+      float * emergency_dis,
+      const int emergency_count,
+      const int EmergencyQueueLength,
+      const int FeaturesInEmergencyQueue,
+      const float * target_x_time_list,
+      const float * target_y_time_list,
+      const float agent_x,
+      const float agent_y,
+      const int * aoi_schedule,
+      int * target_aoi_arr,
+      bool * target_coverage_arr,
+      const int kNumTargets,
+      const int kEpisodeLength,
+      const int dynamic_zero_shot,
+      const int zero_shot_start,
+      const int env_timestep,
+      const int kThisTargetAgeArrayIdxOffset,
+      const int kThisTargetPositionTimeListIdxOffset,
+      const int kAgentXRange,
+      const int kAgentYRange,
+      const int kThisAgentId,
+      const int kEnvId
+  ){
+        // generate emergency points information
+      float invKEpisodeLength = 1.0 / kEpisodeLength;
+      memset(emergency_index, -1, sizeof(int) * emergency_count);
+        float invKAgentXRange = 1.0 / kAgentXRange;
+      float invKAgentYRange = 1.0 / kAgentYRange;
+      for(int i = zero_shot_start;i < kNumTargets;i++){
+//       Condition for putting Emergency into the queue:
+//       1. dynamic_zero_shot mode enabled
+//       2. current timestep is larger than the emergency point's schedule
+//       3. the emergency point is not covered
+// print information of this point
+//       printf("Emergency %d Pos: %f, %f Schedule: %d Coverage: %d\n", i, target_x_time_list[kThisTargetPositionTimeListIdxOffset + i],
+//       target_y_time_list[kThisTargetPositionTimeListIdxOffset + i], aoi_schedule[i - zero_shot_start],
+//       target_coverage_arr[kThisTargetAgeArrayIdxOffset + i]);
+      int real_index = i - zero_shot_start;
+      if(dynamic_zero_shot && env_timestep > aoi_schedule[real_index]
+      && target_coverage_arr[kThisTargetAgeArrayIdxOffset + i] == false){
+        int pos_index = kThisTargetPositionTimeListIdxOffset + i;
+        emergency_index[real_index] = i;
+        float delta_x = (target_x_time_list[pos_index] - agent_x) * invKAgentXRange;
+        float delta_y = (target_y_time_list[pos_index] - agent_y) * invKAgentYRange;
+        emergency_dis[real_index] = sqrt(delta_x * delta_x + delta_y * delta_y);
+      }
+      else{
+        emergency_dis[real_index] = kMaxDistance;
+      }
+//       printf("Emergency Dis Value %p\n", emergency_dis + real_index);
+      }
+//       printf("Emergency Queue for Agent %d in Env %d: \n", kThisAgentId, kEnvId);
+      CUDABubbleSortFloatWithArg(emergency_dis, emergency_index, emergency_count);
+      int total_size = EmergencyQueueLength * FeaturesInEmergencyQueue;
+      // Fill the Emergency Queue, but limit to first 10 entries.
+      for(int i = 0;i < total_size;i += FeaturesInEmergencyQueue){
+        int real_index = i / FeaturesInEmergencyQueue;
+        int pos_index = kThisTargetPositionTimeListIdxOffset + emergency_index[real_index];
+        if(real_index < emergency_count && emergency_index[real_index] != -1){
+          emergency_queue[i] = target_x_time_list[pos_index] * invKAgentXRange;
+          emergency_queue[i + 1] = target_y_time_list[pos_index] * invKAgentYRange;
+          emergency_queue[i + 2] = target_aoi_arr[kThisTargetAgeArrayIdxOffset + emergency_index[real_index]] * invKEpisodeLength;
+          emergency_queue[i + 3] = emergency_dis[real_index];
+          // print filled information
+//           printf("aoi info: %d %f\n", emergency_index[real_index], emergency_queue[i + 2]);
+        }
+        else{
+          for(int j = 0;j < FeaturesInEmergencyQueue;j++){
+            emergency_queue[i + j] = 0.0;
+          }
+        }
+      }
+  }
+
   // Device helper function to generate observation
   __device__ void CudaCrowdSimGenerateObservation(
       float * state_arr,
@@ -140,7 +244,10 @@ __device__ void CUDACrowdSimGenerateAoIGrid(
       const float * target_y_time_list,
       const int * aoi_schedule,
       int * target_aoi_arr,
-      const int grid_flatten_size,
+      int * emergency_index,
+      float * emergency_dis,
+      bool * target_coverage_arr,
+      const int total_num_grids,
       float * neighbor_agent_distances_arr,
       int * neighbor_agent_ids_sorted_by_distances_arr,
       const float kDroneCarCommRange,
@@ -148,70 +255,75 @@ __device__ void CUDACrowdSimGenerateAoIGrid(
       int kNumAgents,
       int kEpisodeLength,
       const int obs_features,
+      const int obs_vec_features,
       const int kEnvId,
       const int kThisAgentId,
       const int kThisAgentArrayIdx,
       const int AgentFeature,
-      const int kThisEnvZeroShotOffset,
       const int kThisEnvAgentsOffset,
       const int kThisEnvStateOffset,
-      const int StateAoIGridIdxOffset,
+      const int state_vec_features,
       const float max_distance_x,
       const float max_distance_y,
       const int dynamic_zero_shot,
-      const int zero_shot_start
+      const int zero_shot_start,
+      const int emergency_count,
+      const int FeaturesInEmergencyQueue,
+      const int EmergencyQueueLength
   ) {
     // observation: agent type, agent energy, Heterogeneous and homogeneous visible agents
     // displacements, 100 dim AoI Maps.
     // state: all agents type, energy, position (4dim per agent) + 100 dim AoI Maps.
-    if (kThisAgentId < kNumAgents) {
 //       printf("StateGen: %d %d\n", kThisAgentId, kThisEnvStateOffset);
-      const int kThisAgentIdxOffset = (kThisEnvAgentsOffset + kThisAgentId) * obs_features;
-      const int kThisAgentAoIGridIdxOffset = (kThisAgentIdxOffset + AgentFeature +
-      (kNumAgentsObserved << 2));
+      const int kThisAgentObsOffset = kThisAgentArrayIdx * obs_features;
+      const int kThisAgentAoIGridIdxOffset = kThisAgentObsOffset + obs_vec_features;
       const int kThisAgentFeaturesOffset = AgentFeature * kThisAgentId;
-      memset(obs_arr + kThisAgentIdxOffset, 0, (obs_features - 2 * grid_flatten_size) * sizeof(float));
+      const int kThisDistanceArrayIdxOffset = kThisAgentArrayIdx * (kNumAgents - 1);
+      const float agent_x = agent_x_arr[kThisAgentArrayIdx];
+      const float agent_y = agent_y_arr[kThisAgentArrayIdx];
+      float * this_state_arr_pointer = state_arr + kThisEnvStateOffset + kThisAgentFeaturesOffset;
+      float * this_obs_arr_pointer = obs_arr + kThisAgentObsOffset;
+      memset(obs_arr + kThisAgentObsOffset, 0, obs_vec_features * sizeof(float));
       // ------------------------------------
       // [Part 1] self info (4 + kNumAgents, one_hot, type, energy, x, y)
       const int my_type = agent_types_arr[kThisAgentId];
       const float my_energy = agent_energy_arr[kThisAgentArrayIdx] / kAgentEnergyRange;
       // One hot Representation
 //       printf("One Hot for %d\n", kThisAgentId);
-      obs_arr[kThisAgentIdxOffset + kThisAgentId] = 1;
+      this_obs_arr_pointer[kThisAgentId] = 1;
       // type and energy
-      obs_arr[kThisAgentIdxOffset + kNumAgents + 0] = my_type;
-      obs_arr[kThisAgentIdxOffset + kNumAgents + 1] = my_energy;
+      this_obs_arr_pointer[kNumAgents + 0] = my_type;
+      this_obs_arr_pointer[kNumAgents + 1] = my_energy;
       // Fill self info into state
 //       printf("State for Agent %d: %d %f %f %f\n", kThisAgentId, my_type, my_energy,
 //       agent_x_arr[kThisAgentArrayIdx] / kAgentXRange, agent_y_arr[kThisAgentArrayIdx] / kAgentYRange);
-      state_arr[kThisEnvStateOffset + kThisAgentFeaturesOffset + kThisAgentId] = 1;
-      state_arr[kThisEnvStateOffset + kThisAgentFeaturesOffset + kNumAgents + 0] = my_type;
-      state_arr[kThisEnvStateOffset + kThisAgentFeaturesOffset + kNumAgents + 1] = my_energy;
+      this_state_arr_pointer[kThisAgentId] = 1;
+      this_state_arr_pointer[kNumAgents + 0] = my_type;
+      this_state_arr_pointer[kNumAgents + 1] = my_energy;
       // ------------------------------------
       // [Part 2] other agent's infos (2 * self.num_agents_observed * 2)
       // Other agents displacements are sorted by distance
       // Sort the neighbor homogeneous and heterogeneous agents as the following part of observations
 
-      const int kThisDistanceArrayIdxOffset = (kThisAgentId + kThisEnvAgentsOffset) * (kNumAgents - 1);
       for (int agent_idx = 0; agent_idx < kNumAgents; agent_idx++){
-        float normalized_x = agent_x_arr[kThisEnvAgentsOffset + agent_idx] / kAgentXRange;
-        float normalized_y = agent_y_arr[kThisEnvAgentsOffset + agent_idx] / kAgentYRange;
         if (agent_idx != kThisAgentId){
-        float temp_x = agent_x_arr[kThisAgentArrayIdx] - agent_x_arr[kThisEnvAgentsOffset + agent_idx];
-        float temp_y = agent_y_arr[kThisAgentArrayIdx] - agent_y_arr[kThisEnvAgentsOffset + agent_idx];
+        float temp_x = agent_x - agent_x_arr[kThisEnvAgentsOffset + agent_idx];
+        float temp_y = agent_y - agent_y_arr[kThisEnvAgentsOffset + agent_idx];
         neighbor_agent_distances_arr[kThisDistanceArrayIdxOffset + agent_idx] = sqrt(temp_x * temp_x + temp_y * temp_y);
         neighbor_agent_ids_sorted_by_distances_arr[kThisDistanceArrayIdxOffset + agent_idx] = agent_idx;
         }
         else{
-          state_arr[kThisEnvStateOffset + kThisAgentFeaturesOffset + kNumAgents + 2] = normalized_x;
-          state_arr[kThisEnvStateOffset + kThisAgentFeaturesOffset + kNumAgents + 3] = normalized_y;
+        float normalized_x = agent_x / kAgentXRange;
+        float normalized_y = agent_y / kAgentYRange;
+          this_state_arr_pointer[kNumAgents + 2] = normalized_x;
+          this_state_arr_pointer[kNumAgents + 3] = normalized_y;
           //  state stores position of each agents
-          obs_arr[kThisAgentIdxOffset + kNumAgents + 2] = normalized_x;
-          obs_arr[kThisAgentIdxOffset + kNumAgents + 3] = normalized_y;
+          this_obs_arr_pointer[kNumAgents + 2] = normalized_x;
+          this_obs_arr_pointer[kNumAgents + 3] = normalized_y;
         }
       }
 
-      CUDABubbleSortWithArg(
+      CUDABubbleSortFloatWithArg(
         neighbor_agent_distances_arr + kThisDistanceArrayIdxOffset,
         neighbor_agent_ids_sorted_by_distances_arr + kThisDistanceArrayIdxOffset,
         kNumAgentsObserved - 1
@@ -219,10 +331,8 @@ __device__ void CUDACrowdSimGenerateAoIGrid(
 
     int homoge_part_idx = 0;
     int hetero_part_idx = 0;
-    const int kThisHomogeAgentIdxOffset = kThisAgentIdxOffset + AgentFeature;
+    const int kThisHomogeAgentIdxOffset = kThisAgentObsOffset + AgentFeature;
     const int kThisHeteroAgentIdxOffset = kThisHomogeAgentIdxOffset + 2 * kNumAgentsObserved;
-    const float agent_x = agent_x_arr[kThisAgentArrayIdx];
-    const float agent_y = agent_y_arr[kThisAgentArrayIdx];
     const int kThisAgentType = agent_types_arr[kThisAgentId];
     const int kThisTargetPositionTimeListIdxOffset = env_timestep * kNumTargets;
     const int kThisTargetAgeArrayIdxOffset = kEnvId * kNumTargets;
@@ -247,96 +357,54 @@ __device__ void CUDACrowdSimGenerateAoIGrid(
             hetero_part_idx++;
         }
     }
-    // Generate Local AoI Grid of Each Agent
-      CUDACrowdSimGenerateAoIGrid(
-      obs_arr + kThisAgentAoIGridIdxOffset,
-      agent_x_arr[kThisAgentArrayIdx],
-      agent_y_arr[kThisAgentArrayIdx],
-      kDroneCarCommRange * 2,
-      kDroneCarCommRange * 2,
-      target_x_time_list + kThisTargetPositionTimeListIdxOffset,
-      target_y_time_list + kThisTargetPositionTimeListIdxOffset,
-      aoi_schedule + kThisEnvZeroShotOffset,
-      target_aoi_arr + kThisTargetAgeArrayIdxOffset,
-      zero_shot_start,
+    const int kThisAgentEmergencyOffset = kThisAgentArrayIdx * emergency_count;
+    // Generate Emergency Queue for each agent
+    CudaCrowdSimGenerateEmergencyQueue(
+      obs_arr + kThisAgentObsOffset + AgentFeature + (kNumAgentsObserved << 2),
+      emergency_index + kThisAgentEmergencyOffset,
+      emergency_dis + kThisAgentEmergencyOffset,
+      emergency_count,
+      EmergencyQueueLength,
+      FeaturesInEmergencyQueue,
+      target_x_time_list,
+      target_y_time_list,
+      agent_x,
+      agent_y,
+      aoi_schedule,
+      target_aoi_arr,
+      target_coverage_arr,
+      kNumTargets,
       kEpisodeLength,
-      false,
+      dynamic_zero_shot,
       zero_shot_start,
       env_timestep,
+      kThisTargetAgeArrayIdxOffset,
+      kThisTargetPositionTimeListIdxOffset,
+      kAgentXRange,
+      kAgentYRange,
       kThisAgentId,
       kEnvId
     );
-    // Copy Global Emergency AoI Grid to Local AoI Grid
-//     const int StateAoIGridDest = kThisEnvStateOffset + StateAoIGridIdxOffset + grid_flatten_size;
-//     printf("Copy from %p to %p\n", state_arr + StateAoIGridDest,
-//     obs_arr + kThisAgentAoIGridIdxOffset + 100);
-//     memcpy(obs_arr + kThisAgentAoIGridIdxOffset + grid_flatten_size, state_arr + StateAoIGridDest,
-//     grid_flatten_size * sizeof(float));
-  // ablation, obs_arr without emergency grid
-    memset(obs_arr + kThisAgentAoIGridIdxOffset + grid_flatten_size, 0, grid_flatten_size * sizeof(float));
-  }
+    // Generate Local AoI Grid of each agent
+    CUDACrowdSimGenerateAoIGrid(
+    obs_arr + kThisAgentAoIGridIdxOffset,
+    agent_x,
+    agent_y,
+    kDroneCarCommRange * 2,
+    kDroneCarCommRange * 2,
+    target_x_time_list + kThisTargetPositionTimeListIdxOffset,
+    target_y_time_list + kThisTargetPositionTimeListIdxOffset,
+    aoi_schedule,
+    target_aoi_arr + kThisTargetAgeArrayIdxOffset,
+    zero_shot_start,
+    kEpisodeLength,
+    false,
+    zero_shot_start,
+    env_timestep,
+    kThisAgentId,
+    kEnvId
+  );
 }
-  __device__ void CudaCrowdSimGenerateEmergencyQueue(
-      float * emergency_queue,
-      int * emergency_index,
-      float * emergency_aoi,
-      const int emergency_count,
-      const int EmergencyQueueLength,
-      const int FeaturesInEmergencyQueue,
-      const float * target_x_time_list,
-      const float * target_y_time_list,
-      const float agent_x,
-      const float agent_y,
-      const int * aoi_schedule,
-      int * target_aoi_arr,
-      bool * target_coverage_arr,
-      const int kNumTargets,
-      const int kEpisodeLength,
-      const int dynamic_zero_shot,
-      const int zero_shot_start,
-      const int env_timestep,
-      const int kThisAgentArrayIdx,
-      const int kThisTargetAgeArrayIdxOffset,
-      const int kThisTargetPositionTimeListIdxOffset,
-      const int kThisEnvZeroShotOffset,
-      const int kAgentXRange,
-      const int kAgentYRange
-  ){
-        // generate emergency points information
-      memset(emergency_index, -1, sizeof(emergency_index));
-      for(int i = zero_shot_start;i < kNumTargets;i++){
-//       Condition for putting Emergency into the queue:
-//       1. dynamic_zero_shot mode enabled
-//       2. current timestep is larger than the emergency point's schedule
-//       3. the emergency point is not covered
-      if(dynamic_zero_shot && env_timestep > aoi_schedule[kThisEnvZeroShotOffset + i - zero_shot_start]
-      && target_coverage_arr[kThisTargetAgeArrayIdxOffset + i] == false){
-        emergency_index[i - zero_shot_start] = i;
-        emergency_aoi[i - zero_shot_start] = target_aoi_arr[i];
-      }
-      }
-      CUDABubbleSortWithArg(emergency_aoi, emergency_index, emergency_count);
-      int total_size = EmergencyQueueLength * FeaturesInEmergencyQueue;
-      // Fill the Emergency Queue, but limit to first 10 entries.
-      for(int i = 0;i < total_size;i += FeaturesInEmergencyQueue){
-        int pos_index = kThisTargetPositionTimeListIdxOffset + emergency_index[i];
-        if((i >> 1) < emergency_count && emergency_index[i] != -1){
-          float emergency_x = target_x_time_list[pos_index];
-          float emergency_y = target_y_time_list[pos_index];
-          emergency_queue[i] = emergency_x;
-          emergency_queue[i + 1] = emergency_y;
-          emergency_queue[i + 2] = emergency_aoi[emergency_index[i]];
-          float delta_x = (emergency_x - agent_x) / kAgentXRange;
-          float delta_y = (emergency_y - agent_y) / kAgentYRange;
-          emergency_queue[i + 3] = sqrt(delta_x * delta_x + delta_y * delta_y);
-        }
-        else{
-          for(int j = 0;j < FeaturesInEmergencyQueue;j++){
-            emergency_queue[i + j] = 0.0;
-          }
-        }
-      }
-  }
   // k: const with timesteps, arr: on current timestep, time_list: multiple timesteps
   __global__ void CudaCrowdSimStep(
     float * state_arr,
@@ -361,8 +429,8 @@ __device__ void CUDACrowdSimGenerateAoIGrid(
     const float * target_y_time_list,
     const int * aoi_schedule,
     int * target_aoi_arr,
-//     int * emergency_index,
-//     int * emergency_aoi,
+    int * emergency_index,
+    float * emergency_dis,
     bool * target_coverage_arr,
     bool * valid_status_arr,
     int * neighbor_agent_ids_arr,
@@ -402,28 +470,28 @@ __device__ void CUDACrowdSimGenerateAoIGrid(
     const int kThisEnvAgentsOffset = kEnvId * kNumAgents;
     const int kThisAgentArrayIdx = kThisEnvAgentsOffset + kThisAgentId;
     const int kNumActionDim = 1;  // use Discrete instead of MultiDiscrete
-    // Update on 2024.1, Double AoI Grid (100 -> 200)
+    // Update on 2024.1.2, Double AoI Grid (100 -> 200)
+    // Update on 2024.1.10, remove emergency grid. (200 -> 100)
     const int grid_flatten_size = 100;
-    const int total_num_grids = grid_flatten_size << 1;
+    const int total_num_grids = grid_flatten_size;
     const int AgentFeature = 4 + kNumAgents;
     // Update on 2024.1.10, add emergency points queue
     const int EmergencyQueueLength = 10;
     const int FeaturesInEmergencyQueue = 4;
-    const int StateFullAgentFeature  = kNumAgents * AgentFeature;
-    const int StateAoIGridIdxOffset = StateFullAgentFeature;
-    const int state_features = StateAoIGridIdxOffset + total_num_grids;
-    const int obs_features = AgentFeature + (kNumAgentsObserved << 2) + EmergencyQueueLength * FeaturesInEmergencyQueue + total_num_grids;
+    const int StateFullAgentFeature = kNumAgents * AgentFeature;
+    const int state_vec_features = StateFullAgentFeature;
+    const int state_features = state_vec_features + total_num_grids;
+    const int obs_vec_features = AgentFeature + (kNumAgentsObserved << 2) + EmergencyQueueLength * FeaturesInEmergencyQueue;
+    const int obs_features = obs_vec_features + total_num_grids;
     const int kThisEnvStateOffset = kEnvId * state_features;
     const int emergency_count = kNumTargets - zero_shot_start;
-    const int kThisEnvZeroShotOffset = kEnvId * emergency_count;
 //     printf("Drone Sensing Range: %f\n", kDroneSensingRange);
 //     printf("features: %d, obs: %d\n", state_features, obs_features);
-//     printf("ZeroShotOffset: %d\n", kThisEnvZeroShotOffset);
 //     printf("total targets: %d fix targets: %d\n", kNumTargets, zero_shot_start);
     // -------------------------------
     // Load Actions to update agent positions
     if (kThisAgentId < kNumAgents) {
-      int kThisAgentActionIdxOffset = (kThisEnvAgentsOffset + kThisAgentId) * kNumActionDim;
+      int kThisAgentActionIdxOffset = kThisAgentArrayIdx * kNumActionDim;
       float dx,dy;
       bool is_drone = agent_types_arr[kThisAgentId];
       if (!is_drone){ // Car Movement
@@ -460,8 +528,8 @@ __device__ void CUDACrowdSimGenerateAoIGrid(
       bool is_drone = agent_types_arr[kThisAgentId];
       if (is_drone && !single_type_agent){  // drone
         float min_dist = kMaxDistance;
-        float my_x = agent_x_arr[kThisAgentArrayIdx + kThisAgentId];
-        float my_y = agent_y_arr[kThisAgentArrayIdx + kThisAgentId];
+        float my_x = agent_x_arr[kThisAgentArrayIdx];
+        float my_y = agent_y_arr[kThisAgentArrayIdx];
         int nearest_car_id = -1;
         neighbor_agent_ids_arr[kThisAgentArrayIdx] = -1;
         for (int other_agent_id = 0; other_agent_id < kNumAgents; other_agent_id++) {
@@ -494,7 +562,7 @@ __device__ void CUDACrowdSimGenerateAoIGrid(
     const int kThisTargetAgeArrayIdxOffset = kEnvId * kNumTargets;
     const int kThisTargetPositionTimeListIdxOffset = env_timestep * kNumTargets;
     const float invEpisodeLength = 1.0f / kEpisodeLength;
-    if (kThisAgentId == 0){
+  if (kThisAgentId == 0) {
 //     printf("TargetTimeListOffset: %d\n", kThisTargetPositionTimeListIdxOffset);
 // print last 30 entries of coverage array
 //     for (int i = 0; i < 30; i++){
@@ -502,20 +570,23 @@ __device__ void CUDACrowdSimGenerateAoIGrid(
 //     }
 //     printf("\n");
     float global_reward = 0.0;
+    int emergency_cover_num = 0;
+    int valid_emergency_count = 0;
     for (int target_idx = 0; target_idx < kNumTargets; target_idx++) {
         int is_dyn_point = dynamic_zero_shot && target_idx >= zero_shot_start;
-        int target_coverage;
+        bool target_coverage;
         if (!is_dyn_point){
           target_coverage = false;
         }
         else{
-          if(env_timestep < aoi_schedule[kThisEnvZeroShotOffset + target_idx - zero_shot_start]){
+          if(env_timestep < aoi_schedule[target_idx - zero_shot_start]){
           // directly skip the target if it is not on schedule yet.
 //           printf("continuing loop for target %d in %d\n", target_idx, kEnvId);
           continue;
           }
 //           printf("Coverage Status for Emergency %d: %d\n", target_idx, target_coverage_arr[kThisTargetAgeArrayIdxOffset + target_idx]);
           target_coverage = target_coverage_arr[kThisTargetAgeArrayIdxOffset + target_idx];
+          valid_emergency_count++;
         }
         float min_dist = kMaxDistance;
         int nearest_agent_id = -1;
@@ -544,10 +615,10 @@ __device__ void CUDACrowdSimGenerateAoIGrid(
           reward_increment *= 5;
         }
         float reward_update = reward_increment * invEpisodeLength;
-//         if(is_dyn_point && (!target_coverage)){
-//           printf("Emergency %d Pos: (%f, %f)\n", target_idx, target_x, target_y);
-//           printf("Agent Pos: (%f, %f)\n", agent_x_arr[kThisEnvAgentsOffset + nearest_agent_id],
-//           agent_y_arr[kThisEnvAgentsOffset + nearest_agent_id]);
+//         if(is_dyn_point && (!target_coverage))
+//         {
+//           printf("Emergency %d Pos: %f, %f\n", target_idx, target_x, target_y);
+//           printf("Agent Pos: %f, %f\n", agent_x_arr[kThisEnvAgentsOffset + nearest_agent_id], agent_y_arr[kThisEnvAgentsOffset + nearest_agent_id]);
 //           printf("dist: %f\n", min_dist);
 //         }
         if (target_coverage || (min_dist <= kDroneSensingRange && nearest_agent_id != -1)) {
@@ -557,9 +628,10 @@ __device__ void CUDACrowdSimGenerateAoIGrid(
             // Only Surveillance Points have AoI reset.
               target_aoi = 1;
             }
-//             else{
+            else{
+              emergency_cover_num++;
 //               printf("emergency %d at (%f,%f) in env %d handled by %d \n", target_idx, target_x, target_y, kEnvId, nearest_agent_id);
-//             }
+            }
             // Reward is one time for emergency
             if(!(is_dyn_point && target_coverage)) {
               rewards_arr[kThisEnvAgentsOffset + nearest_agent_id] += reward_update;
@@ -580,7 +652,11 @@ __device__ void CUDACrowdSimGenerateAoIGrid(
 //               printf("Emergency %d not handled, delay: %d, coverage is %d\n", target_idx, target_aoi, target_coverage);
 //               }
             global_reward -= is_dyn_point ? 5 * invEpisodeLength : invEpisodeLength;
-//             printf("target %d not cover ed, coverage arr %d\n", target_idx, target_coverage_arr[kThisTargetAgeArrayIdxOffset + target_idx]);
+
+//             if (target_idx < 5){
+//               printf("%p Offset: %d Idx: %d\n", target_coverage_arr + kThisTargetAgeArrayIdxOffset + target_idx, kThisTargetAgeArrayIdxOffset, target_idx);
+//               printf("target %d not covered, coverage arr %d\n", target_idx, target_coverage_arr[kThisTargetAgeArrayIdxOffset + target_idx]);
+//             }
         }
         target_aoi_arr[kThisTargetAgeArrayIdxOffset + target_idx] = target_aoi;
 //         if(is_dyn_point){
@@ -589,24 +665,36 @@ __device__ void CUDACrowdSimGenerateAoIGrid(
         target_coverage_arr[kThisTargetAgeArrayIdxOffset + target_idx] = target_coverage;
     }
     global_rewards_arr[kEnvId] = global_reward;
+    if (dynamic_zero_shot){
+    float factor = 1;
+    if(valid_emergency_count){
+      factor = emergency_cover_num * 1.0 / valid_emergency_count;
+    }
+//       printf("Env %d Emergency Coverage: %f\n", kEnvId, factor);
+      global_rewards_arr[kEnvId] *= factor;
+      // discount decentralized rewards_arr
+      for (int agent_idx = 0; agent_idx < kNumAgents; agent_idx++) {
+        rewards_arr[kThisEnvAgentsOffset + agent_idx] *= factor;
+      }
+    }
   }
   __sync_env_threads(); // Make sure all agents have calculated the reward
   // Generate State (only the first agent can generate state AoI)
   if (kThisAgentId == 0){
       // const int global_range = kDroneCarCommRange * 4;
-//       printf("StateAoIGen: %d %p %p\n", kEnvId, state_arr + kThisEnvStateOffset + StateAoIGridIdxOffset,
-//       state_arr + kThisEnvStateOffset + StateAoIGridIdxOffset + 100);
-      memset(state_arr + kThisEnvStateOffset, 0, (state_features - 2 * grid_flatten_size) * sizeof(float));
+//       printf("StateAoIGen: %d %p %p\n", kEnvId, state_arr + kThisEnvStateOffset + state_vec_features,
+//       state_arr + kThisEnvStateOffset + state_vec_features + 100);
+      memset(state_arr + kThisEnvStateOffset, 0, state_vec_features * sizeof(float));
 //       printf("Grid Center (%f, %f)\n", max_distance_x / 2, max_distance_y / 2);
       CUDACrowdSimGenerateAoIGrid(
-        state_arr + kThisEnvStateOffset + StateAoIGridIdxOffset,
+        state_arr + kThisEnvStateOffset + state_vec_features,
         max_distance_x >> 1,
         max_distance_y >> 1,
         max_distance_x,
         max_distance_y,
         target_x_time_list + kThisTargetPositionTimeListIdxOffset,
         target_y_time_list + kThisTargetPositionTimeListIdxOffset,
-        aoi_schedule + kThisEnvZeroShotOffset,
+        aoi_schedule,
         target_aoi_arr + kThisTargetAgeArrayIdxOffset,
         zero_shot_start,
         kEpisodeLength,
@@ -616,31 +704,13 @@ __device__ void CUDACrowdSimGenerateAoIGrid(
         kThisAgentId,
         kEnvId
       );
-      // Generate Emergency AoI Grid
-      CUDACrowdSimGenerateAoIGrid(
-      state_arr + kThisEnvStateOffset + StateAoIGridIdxOffset + grid_flatten_size,
-      max_distance_x >> 1,
-      max_distance_y >> 1,
-      max_distance_x,
-      max_distance_y,
-      target_x_time_list + kThisTargetPositionTimeListIdxOffset + zero_shot_start,
-      target_y_time_list + kThisTargetPositionTimeListIdxOffset + zero_shot_start,
-      aoi_schedule + kThisEnvZeroShotOffset,
-      target_aoi_arr + kThisTargetAgeArrayIdxOffset + zero_shot_start,
-      emergency_count,
-      kEpisodeLength,
-      dynamic_zero_shot,
-      zero_shot_start,
-      env_timestep,
-      kThisAgentId,
-      kEnvId
-    );
   }
-  __sync_env_threads();  // Wait here until state AoI are generated (emergency AoIs are shared.)
+ __sync_env_threads();  // Wait here until state AoI are generated (emergency AoIs are shared.)
     // -------------------------------
     // Compute Observation
 //     printf("GenObs: %d %d\n", kEnvId, kThisAgentId);
-    CudaCrowdSimGenerateObservation(
+  if (kThisAgentId < kNumAgents){
+      CudaCrowdSimGenerateObservation(
       state_arr,
       obs_arr,
       agent_types_arr,
@@ -656,6 +726,9 @@ __device__ void CUDACrowdSimGenerateAoIGrid(
       target_y_time_list,
       aoi_schedule,
       target_aoi_arr,
+      emergency_index,
+      emergency_dis,
+      target_coverage_arr,
       grid_flatten_size,
       neighbor_agent_distances_arr,
       neighbor_agent_ids_sorted_by_distances_arr,
@@ -664,19 +737,23 @@ __device__ void CUDACrowdSimGenerateAoIGrid(
       kNumAgents,
       kEpisodeLength,
       obs_features,
+      obs_vec_features,
       kEnvId,
       kThisAgentId,
       kThisAgentArrayIdx,
       AgentFeature,
-      kThisEnvZeroShotOffset,
       kThisEnvAgentsOffset,
       kThisEnvStateOffset,
-      StateAoIGridIdxOffset,
+      state_vec_features,
       max_distance_x,
       max_distance_y,
       dynamic_zero_shot,
-      zero_shot_start
+      zero_shot_start,
+      emergency_count,
+      FeaturesInEmergencyQueue,
+      EmergencyQueueLength
       );
+  }
 
     __sync_env_threads();  // Wait here to update observation before determining done_arr
 
