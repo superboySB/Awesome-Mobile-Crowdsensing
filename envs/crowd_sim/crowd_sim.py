@@ -219,15 +219,16 @@ class CrowdSim:
             points_x, points_y = self.generate_emergency(self.num_centers, self.num_points_per_center)
             self.zero_shot_start = 0
             self.emergency_count = 0
+            self.points_per_gen = 0
         else:
             self.zero_shot_start = self.num_sensing_targets
-            points_per_gen = self.num_agents - 1
+            self.points_per_gen = self.num_agents - 1
             self.aoi_schedule = np.repeat(np.arange(self.gen_interval, self.episode_length, self.gen_interval),
-                                          repeats=points_per_gen)
+                                          repeats=self.points_per_gen)
             logging.debug(f"AoI Schedule: {self.aoi_schedule}")
-            generation_time = int(self.aoi_schedule.shape[0] / points_per_gen)
+            generation_time = int(self.aoi_schedule.shape[0] / self.points_per_gen)
             if self.dynamic_zero_shot:
-                self.num_centers = generation_time * points_per_gen
+                self.num_centers = generation_time * self.points_per_gen
                 self.num_points_per_center = 1
                 points_x, points_y = self.generate_emergency(self.num_centers, self.num_points_per_center)
                 self.emergency_count = (self.num_centers * self.num_points_per_center)
@@ -443,12 +444,10 @@ class CrowdSim:
 
     def targets_regen(self):
         if self.dynamic_zero_shot and not self.all_random:
-            logging.debug("Emergency points resetted!")
+            logging.debug("Emergency points reset completed!")
             points_x, points_y = self.generate_emergency(self.num_centers, self.num_points_per_center)
-            self.target_x_time_list[:, self.num_sensing_targets -
-                                       self.num_centers * self.num_points_per_center:] = points_x
-            self.target_y_time_list[:, self.num_sensing_targets -
-                                       self.num_centers * self.num_points_per_center:] = points_y
+            self.target_x_time_list[:, self.zero_shot_start:] = points_x
+            self.target_y_time_list[:, self.zero_shot_start:] = points_y
         elif self.all_random:
             points_x, points_y = self.generate_emergency(self.num_centers, self.num_points_per_center)
             self.target_x_time_list[:, :] = points_x
@@ -545,7 +544,8 @@ class CrowdSim:
                                                 self.drone_car_comm_range * 2,
                                                 grid_size)
 
-        full_queue = np.zeros((self.num_agents, self.queue_feature))
+        # TODO: this full_queue is mock, no actual prediction is provided.
+        full_queue = np.zeros((self.num_agents, self.queue_feature * (self.points_per_gen + 1)))
         if self.dynamic_zero_shot:
             current_aoi = self.target_aoi_timelist[self.timestep]
             valid_zero_shots_mask = (current_aoi > 1) & (np.arange(self.num_sensing_targets) > self.zero_shot_start) & \
@@ -968,7 +968,7 @@ class CrowdSim:
                     if index < self.num_agents:
                         color = self.get_next_color()
                     elif (self.dynamic_zero_shot and self.num_agents <= index < self.num_agents +
-                          self.num_sensing_targets - self.num_centers * self.num_points_per_center):
+                          self.zero_shot_start):
                         color = "orange"
                     else:
                         # emergency targets
@@ -1125,6 +1125,7 @@ class CUDACrowdSim(CrowdSim, CUDAEnvironmentContext):
                                  ("target_y", self.float_dtype(self.target_y_time_list), True),
                                  # [self.episode_length + 1, self.num_sensing_targets]
                                  ("aoi_schedule", self.int_dtype(self.aoi_schedule)),
+                                 ("emergency_per_gen", self.int_dtype(self.points_per_gen)),
                                  ("emergency_allocation_table", self.int_dtype(np.full([self.num_agents, ], -1)), True),
                                  ("target_aoi", self.int_dtype(np.ones([self.num_sensing_targets, ])), True),
                                  ("emergency_index", self.int_dtype(np.full(
@@ -1180,6 +1181,7 @@ class CUDACrowdSim(CrowdSim, CUDAEnvironmentContext):
             "target_x",
             "target_y",
             "aoi_schedule",
+            "emergency_per_gen",
             "emergency_allocation_table",
             "target_aoi",
             "emergency_index",
@@ -1308,7 +1310,7 @@ class RLlibCUDACrowdSim(MultiAgentEnv):
                 warnings.warn("render=True, num_envs is always equal to 3, and user input is ignored.")
             elif self.is_local:
                 # pass
-                self.num_envs = 4
+                self.num_envs = 500
                 warnings.warn("local_mode=True, num_envs is always equal to 4, and user input is ignored.")
             self.env_wrapper: CUDAEnvWrapper = CUDAEnvWrapper(
                 self.env,

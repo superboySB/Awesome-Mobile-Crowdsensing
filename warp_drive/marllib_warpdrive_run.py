@@ -140,7 +140,7 @@ if __name__ == '__main__':
                   'checkpoint_end': False, 'algo_args': {'resume': args.resume},
                   'checkpoint_freq': args.evaluation_interval,
                   'stop': {"timesteps_total": 60000000}, 'restore_path': restore_dict,
-                  'evaluation_interval': args.evaluation_interval,
+                  'evaluation_interval': 1 if args.local_mode else args.evaluation_interval,
                   'logging_config': logging_config if args.track else None, 'remote_worker_envs': False}
         if args.env == 'crowdsim':
             kwargs['custom_vector_env'] = RLlibCUDACrowdSimWrapper
