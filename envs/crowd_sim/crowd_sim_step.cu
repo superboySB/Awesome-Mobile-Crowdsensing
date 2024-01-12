@@ -88,7 +88,7 @@ extern "C" {
       int x = floorf((target_x_time_list[i] - grid_min_x) * inv_delta_x);
       int y = floorf((target_y_time_list[i] - grid_min_y) * inv_delta_y);
       if (0 <= x && x < 10 && 0 <= y && y < 10) {
-        //         printf("In Range Target %d: (%f, %f) -> (%d, %d)\n", i, target_x_time_list[i], target_y_time_list[i], x, y);
+//         printf("In Range Target %d: (%f, %f) -> (%d, %d)\n", i, target_x_time_list[i], target_y_time_list[i], x, y);
         int idx = x * 10 + y;
         if (is_dyn_point) {
           if (env_timestep >= aoi_schedule[i - zero_shot_start]) {
@@ -361,34 +361,6 @@ extern "C" {
         hetero_part_idx++;
       }
     }
-//     const int kThisAgentEmergencyOffset = kThisAgentArrayIdx * emergency_count;
-    // Generate Emergency Queue for each agent
-//     CudaCrowdSimGenerateEmergencyQueue(
-//       obs_arr + kThisAgentObsOffset + AgentFeature + (kNumAgentsObserved << 2),
-//       emergency_index + kThisAgentEmergencyOffset,
-//       emergency_dis + kThisAgentEmergencyOffset,
-//       emergency_count,
-//       EmergencyQueueLength,
-//       FeaturesInEmergencyQueue,
-//       target_x_time_list,
-//       target_y_time_list,
-//       agent_x,
-//       agent_y,
-//       aoi_schedule,
-//       target_aoi_arr,
-//       target_coverage_arr,
-//       kNumTargets,
-//       kEpisodeLength,
-//       dynamic_zero_shot,
-//       zero_shot_start,
-//       env_timestep,
-//       kThisTargetAgeArrayIdxOffset,
-//       kThisTargetPositionTimeListIdxOffset,
-//       kAgentXRange,
-//       kAgentYRange,
-//       kThisAgentId,
-//       kEnvId
-//     );
     // Generate Local AoI Grid of each agent
     CUDACrowdSimGenerateAoIGrid(
       obs_arr + kThisAgentAoIGridIdxOffset,
@@ -408,10 +380,6 @@ extern "C" {
       kThisAgentId,
       kEnvId
     );
-  // ablation, AoI Grid is zero
-//     for (int i = 0; i < total_num_grids; i++) {
-//       obs_arr[kThisAgentAoIGridIdxOffset + i] = 0.0;
-//     }
   }
 
   __device__ int GetNearestAgentId(
@@ -465,32 +433,33 @@ extern "C" {
                         const float * target_x_time_list,
                           const float * target_y_time_list,
                             const int * aoi_schedule,
-                              int * emergency_allocation_table,
-                              int * target_aoi_arr,
-                              int * emergency_index,
-                              float * emergency_dis,
-                              int * emergency_dis_to_target_index,
-                              float * emergency_dis_to_target,
-                              bool * target_coverage_arr,
-                              bool * valid_status_arr,
-                              int * neighbor_agent_ids_arr,
-                              const float kCarSensingRange,
-                                const float kDroneSensingRange,
-                                  const float kDroneCarCommRange,
-                                    float * neighbor_agent_distances_arr,
-                                    int * neighbor_agent_ids_sorted_by_distances_arr,
-                                    int * done_arr,
-                                    int * env_timestep_arr,
-                                    int kNumAgents,
-                                    int kEpisodeLength,
-                                    const int max_distance_x,
-                                      const int max_distance_y,
-                                        const float slot_time,
-                                          const int * agent_speed_arr,
-                                            int dynamic_zero_shot,
-                                            int zero_shot_start,
-                                            int single_type_agent,
-                                            bool * agents_over_range
+                              const int emergency_per_gen,
+                                int * emergency_allocation_table,
+                                int * target_aoi_arr,
+                                int * emergency_index,
+                                float * emergency_dis,
+                                int * emergency_dis_to_target_index,
+                                float * emergency_dis_to_target,
+                                bool * target_coverage_arr,
+                                bool * valid_status_arr,
+                                int * neighbor_agent_ids_arr,
+                                const float kCarSensingRange,
+                                  const float kDroneSensingRange,
+                                    const float kDroneCarCommRange,
+                                      float * neighbor_agent_distances_arr,
+                                      int * neighbor_agent_ids_sorted_by_distances_arr,
+                                      int * done_arr,
+                                      int * env_timestep_arr,
+                                      int kNumAgents,
+                                      int kEpisodeLength,
+                                      const int max_distance_x,
+                                        const int max_distance_y,
+                                          const float slot_time,
+                                            const int * agent_speed_arr,
+                                              int dynamic_zero_shot,
+                                              int zero_shot_start,
+                                              int single_type_agent,
+                                              bool * agents_over_range
   ) {
     //     printf("state: %p, obs: %p\n", state_arr, obs_arr);
     const int kEnvId = getEnvID(blockIdx.x);
@@ -522,7 +491,7 @@ extern "C" {
     const int StateFullAgentFeature = kNumAgents * AgentFeature;
     const int state_vec_features = StateFullAgentFeature;
     const int state_features = state_vec_features + total_num_grids;
-    const int obs_vec_features = AgentFeature + (kNumAgentsObserved << 2) + FeaturesInEmergencyQueue;
+    const int obs_vec_features = AgentFeature + (kNumAgentsObserved << 2) + FeaturesInEmergencyQueue * (emergency_per_gen + 1);
     const int obs_features = obs_vec_features + total_num_grids;
     const int kThisEnvStateOffset = kEnvId * state_features;
     int * this_emergency_allocation_table = emergency_allocation_table + kThisEnvAgentsOffset;
@@ -795,9 +764,9 @@ extern "C" {
         target_y_time_list + kThisTargetPositionTimeListIdxOffset,
         aoi_schedule,
         target_aoi_arr + kThisTargetAgeArrayIdxOffset,
-        zero_shot_start,
+        kNumTargets,
         kEpisodeLength,
-        false,
+        dynamic_zero_shot,
         zero_shot_start,
         env_timestep,
         kThisAgentId,
@@ -858,6 +827,8 @@ extern "C" {
 
     // additional reward logic after observation generation
     if (kThisAgentId < kNumAgents) {
+    float my_x = agent_x_arr[kThisAgentArrayIdx];
+    float my_y = agent_y_arr[kThisAgentArrayIdx];
     float * my_obs_at_emergency = obs_arr + kThisAgentArrayIdx * obs_features + AgentFeature + (kNumAgentsObserved << 2);
     int my_emergency_target = emergency_allocation_table[kThisEnvAgentsOffset + kThisAgentId];
     if(my_emergency_target != -1){
@@ -866,8 +837,8 @@ extern "C" {
       my_obs_at_emergency[0] = target_x / kAgentXRange;
       my_obs_at_emergency[1] = target_y / kAgentYRange;
       my_obs_at_emergency[2] = target_aoi_arr[kThisTargetAgeArrayIdxOffset + my_emergency_target] * invEpisodeLength;
-      float delta_x = (agent_x_arr[kThisAgentArrayIdx] - target_x) / kAgentXRange;
-      float delta_y = (agent_y_arr[kThisAgentArrayIdx] - target_y) / kAgentYRange;
+      float delta_x = (my_x - target_x) / kAgentXRange;
+      float delta_y = (my_y - target_y) / kAgentYRange;
       my_obs_at_emergency[3] = sqrt(delta_x * delta_x + delta_y * delta_y);
       // print four information in a row
 //       printf("Agent %d in %d allocated to emergency %d, distance: %f\n", kThisAgentId, kEnvId, my_emergency_target,
@@ -878,7 +849,26 @@ extern "C" {
         my_obs_at_emergency[i] = 0.0;
       }
     }
-
+    // find the next generation time
+    int emergency_start_index = -1;
+    for(int i = 0;i < emergency_count; i += emergency_per_gen){
+      if(env_timestep < aoi_schedule[i]){
+        emergency_start_index = i;
+        break;
+      }
+    }
+    // Test, give future emergency points to all agents
+        for(int i = 1;i < emergency_per_gen + 1;i++){
+          float target_x = target_x_time_list[kThisTargetPositionTimeListIdxOffset + emergency_start_index + zero_shot_start];
+          float target_y = target_y_time_list[kThisTargetPositionTimeListIdxOffset + emergency_start_index + zero_shot_start];
+          my_obs_at_emergency[i * FeaturesInEmergencyQueue + 0] = target_x / kAgentXRange;
+          my_obs_at_emergency[i * FeaturesInEmergencyQueue + 1] = target_y / kAgentYRange;
+          my_obs_at_emergency[i * FeaturesInEmergencyQueue + 2] = target_aoi_arr[kThisTargetAgeArrayIdxOffset + emergency_start_index + zero_shot_start] * invEpisodeLength;
+          float delta_x = (my_x - target_x) / kAgentXRange;
+          float delta_y = (my_y - target_y) / kAgentYRange;
+          my_obs_at_emergency[i * FeaturesInEmergencyQueue + 3] = sqrt(delta_x * delta_x + delta_y * delta_y);
+          emergency_start_index++;
+        }
       // energy penalty
       if (agent_energy_arr[kThisAgentArrayIdx] <= 0) {
         rewards_arr[kThisAgentArrayIdx] -= 10;
