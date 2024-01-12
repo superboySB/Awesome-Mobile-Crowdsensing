@@ -54,8 +54,9 @@ def add_common_arguments(parser: ArgumentParser):
     parser.add_argument('--num_cars', type=int, default=2, help='number of cars')
     parser.add_argument("--num_envs", type=int, default=500, help='number of environments to sample')
     parser.add_argument('--fix_target', action='store_true', default=True, help='fix target')
-    parser.add_argument('--gen_interval', default=30, help='time interval between '
+    parser.add_argument('--gen_interval', type=int, default=30, help='time interval between '
                                                            'two generations of emergencies')
+    parser.add_argument('--evaluation_interval', type=int, default=1000, help='evaluation interval')
 
 def customize_experiment(args: argparse.Namespace, run_config: dict = None, yaml_config_path: str = None, ):
     """

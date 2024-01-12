@@ -408,6 +408,10 @@ extern "C" {
       kThisAgentId,
       kEnvId
     );
+  // ablation, AoI Grid is zero
+//     for (int i = 0; i < total_num_grids; i++) {
+//       obs_arr[kThisAgentAoIGridIdxOffset + i] = 0.0;
+//     }
   }
 
   __device__ int GetNearestAgentId(
@@ -649,7 +653,7 @@ extern "C" {
         //           printf("Agent Pos: %f, %f\n", agent_x_arr[kThisEnvAgentsOffset + nearest_agent_id], agent_y_arr[kThisEnvAgentsOffset + nearest_agent_id]);
         //           printf("dist: %f\n", min_dist);
         //         }
-        bool dyn_point_covered = is_dyn_point && (target_coverage || min_dist <= kDroneSensingRange && nearest_agent_id != -1);
+        bool dyn_point_covered = is_dyn_point && (target_coverage || min_dist <= kDroneSensingRange / 2 && nearest_agent_id != -1);
         bool regular_point_covered = !is_dyn_point && (min_dist <= kDroneSensingRange && nearest_agent_id != -1);
         if (dyn_point_covered || regular_point_covered) {
           // Covered Emergency or Covered Surveillance

@@ -19,7 +19,6 @@ REGISTRY = {}
 os.environ["PATH"] += os.pathsep + '/usr/local/cuda/bin'
 
 if __name__ == '__main__':
-
     parser = argparse.ArgumentParser()
     add_common_arguments(parser)
     parser.add_argument('--centralized', action='store_true', help='use centralized reward function')
@@ -45,6 +44,11 @@ if __name__ == '__main__':
     assert args.encoder_layer is not None and is_valid_format(args.encoder_layer), \
         f"encoder_layer should be in format X-X-X, got {args.encoder_layer}"
     expr_name = customize_experiment(args)
+    this_expr_dir = os.path.join(logging_dir, 'trajectories', '_'.join([args.algo, args.core_arch, args.dataset]),
+                                 expr_name)
+    # make dir
+    if not os.path.exists(this_expr_dir):
+        os.makedirs(this_expr_dir)
     logging.debug("experiment name: %s", expr_name)
     if args.dynamic_zero_shot and args.all_random:
         raise ValueError("dynamic_zero_shot and all_random cannot be both true")
@@ -81,10 +85,7 @@ if __name__ == '__main__':
             if item != 'env_config':
                 if item == 'render_file_name':
                     original = getattr(args, item)
-                    for key_feature in [args.algo, args.core_arch, args.dataset]:
-                        if key_feature not in original:
-                            original += f"_{key_feature}"
-                    env_params[item] = original
+                    env_params[item] = os.path.join(str(this_expr_dir), original)
                 else:
                     env_params[item] = getattr(args, item)
         logging.debug(env_params)
@@ -114,9 +115,9 @@ if __name__ == '__main__':
     # (in remote mode, env and learner are on different processes)
     # 'share_policy': share_policy
     if args.render or args.ckpt:
-        uuid = "f7f5c"
-        time_str = "2024-01-11_18-55-44"
-        checkpoint_num = 30000
+        uuid = "f139e"
+        time_str = "2024-01-11_18-55-33"
+        checkpoint_num = 26000
         backup_str = ""
         restore_dict = get_restore_dict(args, uuid, time_str, checkpoint_num, backup_str)
     else:
@@ -136,9 +137,10 @@ if __name__ == '__main__':
     else:
         kwargs = {'local_mode': args.local_mode, 'num_gpus': 1, 'num_workers': args.num_workers,
                   'share_policy': share_policy,
-                  'checkpoint_end': False, 'algo_args': {'resume': args.resume}, 'checkpoint_freq': 500,
-                  'stop': {"timesteps_total": 60001200}, 'restore_path': restore_dict,
-                  'ckpt_path': os.path.join("/workspace", "checkpoints", "marllib"), 'evaluation_interval': False,
+                  'checkpoint_end': False, 'algo_args': {'resume': args.resume},
+                  'checkpoint_freq': args.evaluation_interval,
+                  'stop': {"timesteps_total": 60000000}, 'restore_path': restore_dict,
+                  'evaluation_interval': args.evaluation_interval,
                   'logging_config': logging_config if args.track else None, 'remote_worker_envs': False}
         if args.env == 'crowdsim':
             kwargs['custom_vector_env'] = RLlibCUDACrowdSimWrapper

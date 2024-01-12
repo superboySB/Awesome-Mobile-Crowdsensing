@@ -1504,7 +1504,7 @@ class RLlibCUDACrowdSim(MultiAgentEnv):
 
     def render(self, mode=None):
         logging.debug("render called")
-        self.env.render(os.path.join("/workspace", "saved_data", "trajectories", self.render_file_name), True, False)
+        self.env.render(f'{self.render_file_name}_{self.episode_count}', True, False)
 
 
 def get_rllib_multi_agent_obs(current_observation, state, agents: list[Any]) -> MultiAgentDict:
