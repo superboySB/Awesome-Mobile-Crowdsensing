@@ -540,9 +540,8 @@ class CrowdSim:
                                                 self.drone_car_comm_range * 2,
                                                 grid_size)
 
-        full_queue = np.zeros((self.num_agents, self.queue_length * self.queue_feature))
+        full_queue = np.zeros((self.num_agents, self.queue_feature))
         if self.dynamic_zero_shot:
-            emergency_aoi_parts = np.zeros((1, grid_size, grid_size), dtype=self.float_dtype)
             current_aoi = self.target_aoi_timelist[self.timestep]
             valid_zero_shots_mask = (current_aoi > 1) & (np.arange(self.num_sensing_targets) > self.zero_shot_start) & \
                                     np.concatenate([np.zeros(self.zero_shot_start, dtype=self.bool_dtype),
@@ -561,14 +560,14 @@ class CrowdSim:
             # calculate distance of each zero_shot points to each agent and argsort
             zero_shot_distance_to_agents = np.argsort(zero_shot_distance_matrix, axis=0, kind='stable')[:10]
             # fill the queue of each agent according to argsort result, features are listed in the order (x,y,aoi,distance)
-            for agent_id in range(self.num_agents):
-                if len(zero_shot_distance_to_agents[:, agent_id]) > 0:
-                    agent_queue = np.zeros((self.queue_length, self.queue_feature), dtype=self.float_dtype)
-                    agent_queue[:, 0] = zero_shot_x[zero_shot_distance_to_agents[:, agent_id]]
-                    agent_queue[:, 1] = zero_shot_y[zero_shot_distance_to_agents[:, agent_id]]
-                    agent_queue[:, 2] = zero_shot_aois[zero_shot_distance_to_agents[:, agent_id]]
-                    agent_queue[:, 3] = zero_shot_distance_matrix[zero_shot_distance_to_agents[:, agent_id], agent_id]
-                    full_queue[agent_id, :] = agent_queue.reshape(-1)
+            # for agent_id in range(self.num_agents):
+            #     if len(zero_shot_distance_to_agents[:, agent_id]) > 0:
+            #         agent_queue = np.zeros((self.queue_length, self.queue_feature), dtype=self.float_dtype)
+            #         agent_queue[:, 0] = zero_shot_x[zero_shot_distance_to_agents[:, agent_id]]
+            #         agent_queue[:, 1] = zero_shot_y[zero_shot_distance_to_agents[:, agent_id]]
+            #         agent_queue[:, 2] = zero_shot_aois[zero_shot_distance_to_agents[:, agent_id]]
+            #         agent_queue[:, 3] = zero_shot_distance_matrix[zero_shot_distance_to_agents[:, agent_id], agent_id]
+            #         full_queue[agent_id, :] = agent_queue.reshape(-1)
 
         # Generate global state AoI grid
         state_aoi_grid = self.generate_aoi_grid(self.target_x_time_list[self.timestep, :self.zero_shot_start],
@@ -894,14 +893,15 @@ class CrowdSim:
                                                 max_longitude, timestamp_list, x_list, y_list)
                 mixed_df = pd.concat([mixed_df, robot_df])
             # add emergency targets.
+            # pull emergency coordinates from device to host, since points in host are already refreshed
+            all_zero_shot_x = self.cuda_data_manager.pull_data_from_device("target_x")[0][:, self.zero_shot_start:]
+            all_zero_shot_y = self.cuda_data_manager.pull_data_from_device("target_y")[0][:, self.zero_shot_start:]
             if self.dynamic_zero_shot:
-                for i in range(self.num_sensing_targets - self.num_centers * self.num_points_per_center,
-                               self.num_sensing_targets):
+                for i in range(self.zero_shot_start, self.num_sensing_targets):
                     logging.debug(f"Creation Time: {self.aoi_schedule[i - self.zero_shot_start]}")
-                    logging.debug(self.target_aoi_timelist[:, i])
                     delay_list = np.full_like(self.target_aoi_timelist[:, i], self.target_aoi_timelist[:, i][-1])
-                    x_list = self.target_x_time_list[:, i]
-                    y_list = self.target_y_time_list[:, i]
+                    x_list = all_zero_shot_x[:, i - self.zero_shot_start]
+                    y_list = all_zero_shot_y[:, i - self.zero_shot_start]
                     id_list = np.full_like(x_list, i)
                     energy_list = np.zeros_like(x_list)
                     robot_df = self.xy_to_dataframe(delay_list, energy_list, id_list, max_latitude,
@@ -1299,8 +1299,8 @@ class RLlibCUDACrowdSim(MultiAgentEnv):
         self.agents = []
         if "mock" not in additional_params:
             if self.is_render:
-                self.num_envs = 10
-                warnings.warn("render=True, num_envs is always equal to 10, and user input is ignored.")
+                self.num_envs = 3
+                warnings.warn("render=True, num_envs is always equal to 3, and user input is ignored.")
             elif self.is_local:
                 # pass
                 self.num_envs = 4

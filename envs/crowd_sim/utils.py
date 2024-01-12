@@ -115,16 +115,16 @@ def traj_to_timestamped_geojson(index, trajectory: movingpandas.Trajectory, car_
                          f'<p>energy: {row.energy}J </p>'
         else:
             if is_emergency:
-                radius = 64
+                radius = 32
                 opacity = 0.5
             else:
                 radius = 6
                 opacity = 1
             popup_html = f'<h4> PoI {int(row.id)}</h4>' + \
-                         f"<p style='font-size:16px;'>AoI(Response Delay): {int(row.aoi)} </p>" + \
-                         f"<p style='font-size:16px;'>Creation Time: {row.creation_time} </p>"
+                         f"<p style='font-size:14px;'>AoI(Response Delay): {int(row.aoi)} </p>" + \
+                         f"<p style='font-size:14px;'>Creation Time: {row.creation_time} </p>" + \
+                         f"<p style='font-size:14px;'>grid coord: ({row.x},{row.y})</p>"
             # f"<p >raw coord: {current_point_coordinates}</p>" + \
-            # f'<p>grid coord: ({row.x},{row.y})</p>' + \
             # f'<p>dist coord: ({row.x_distance}m, {row.y_distance}m)</p>' + \
 
         if connect_line:
