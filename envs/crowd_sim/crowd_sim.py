@@ -55,6 +55,8 @@ EMERGENCY_METRIC = "response_delay"
 
 SURVEILLANCE_METRIC = "surveillance_aoi"
 
+VALID_HANDLING_RATIO = "valid_handling_ratio"
+
 user_override_params = ['env_config', 'dynamic_zero_shot', 'use_2d_state', 'all_random',
                         'num_drones', 'num_cars', 'cut_points', 'fix_target', 'gen_interval']
 
@@ -181,6 +183,7 @@ class CrowdSim:
         if cut_points != -1:
             self.num_sensing_targets = min(self.num_sensing_targets, cut_points)
         self.aoi_threshold = self.config.env.aoi_threshold
+        self.emergency_threshold = self.config.env.emergency_threshold
         self.num_agents_observed = self.num_agents - 1
         self.all_random = all_random
         self.episode_length = self.config.env.num_timestep
@@ -294,6 +297,8 @@ class CrowdSim:
                                          fill_value=self.starting_location_x, dtype=self.float_dtype)
         self.agent_y_time_list = np.full([self.episode_length + 1, self.num_agents],
                                          fill_value=self.starting_location_y, dtype=self.float_dtype)
+        self.emergency_allocation_table = np.full([self.emergency_count, ], -1, dtype=self.int_dtype)
+        self.agent_reward_time_list = np.zeros([self.episode_length + 1, self.num_agents], dtype=self.float_dtype)
         self.data_collection = 0
         # Types and Status of vehicles
         self.agent_types = self.int_dtype(np.ones([self.num_agents, ]))
@@ -813,12 +818,12 @@ class CrowdSim:
             FRESHNESS_FACTOR: freshness_factor,
         }
         if self.dynamic_zero_shot and not self.all_random:
-            info[SURVEILLANCE_METRIC] = np.mean(self.target_aoi_timelist[self.timestep,
-                                               :-self.num_centers * self.num_points_per_center])
-            info[EMERGENCY_METRIC] = np.mean(self.target_aoi_timelist[self.timestep,
-                                             -self.num_centers * self.num_points_per_center:])
-            info[OVERALL_AOI] = (info[SURVEILLANCE_METRIC] + info[EMERGENCY_METRIC]) / 2
-            logging.debug(f"Emergency: {info[EMERGENCY_METRIC]}")
+            info[SURVEILLANCE_METRIC] = np.mean(self.target_aoi_timelist[self.timestep, :-self.emergency_count])
+            emergency_aoi = self.target_aoi_timelist[self.timestep, -self.emergency_count:]
+            info[EMERGENCY_METRIC] = np.mean(emergency_aoi)
+            info[VALID_HANDLING_RATIO] = np.mean(emergency_aoi < self.emergency_threshold)
+            # info[OVERALL_AOI] = (info[SURVEILLANCE_METRIC] + info[EMERGENCY_METRIC]) / 2
+            # logging.debug(f"Emergency: {info[EMERGENCY_METRIC]}")
         else:
             mean_aoi = np.mean(self.target_aoi_timelist[self.timestep])
             # self.data_collection += np.sum(
@@ -833,31 +838,6 @@ class CrowdSim:
         return info
 
     def render(self, output_file=None, plot_loop=False, moving_line=False):
-
-        javascript = """
-        <script>
-        var animationPaused = false;
-
-        function toggleAnimation() {
-            var layers = document.getElementsByClassName('leaflet-bar leaflet-bar-horizontal leaflet-bar-timecontrol leaflet-control');
-            for (var i = 0; i < layers.length; i++) {
-                var layer = layers[i];
-                if (animationPaused) {
-                    layer._pause();
-                } else {
-                    layer._start();
-                }
-            }
-            animationPaused = !animationPaused;
-        }
-
-        document.addEventListener('keydown', function(event) {
-            if (event.keyCode === 32) { // Spacebar key code
-                toggleAnimation();
-            }
-        });
-        </script>
-        """
 
         def custom_style_function(feature):
             return {
@@ -874,6 +854,23 @@ class CrowdSim:
         if isinstance(self, CUDACrowdSim):
             self.agent_x_time_list[self.timestep, :] = self.cuda_data_manager.pull_data_from_device("agent_x")[0]
             self.agent_y_time_list[self.timestep, :] = self.cuda_data_manager.pull_data_from_device("agent_y")[0]
+            agent_emergency_allocation = self.cuda_data_manager.pull_data_from_device("emergency_allocation_table")[0]
+            self.agent_reward_time_list[self.timestep, :] = self.cuda_data_manager.pull_data_from_device(_REWARDS)[0]
+            # get emergency index where the allocation table is not -1
+            num_of_normal_targets = self.num_sensing_targets - self.emergency_count
+            for i in range(self.num_agents):
+                emergency_index = agent_emergency_allocation[i]
+                if emergency_index != -1:
+                    self.emergency_allocation_table[emergency_index - num_of_normal_targets] = i
+            # agent_emergency_allocation will now be the index of emergency points, where the index of
+            # agent_emergency_allocation are the allocated agents.
+            # agent table
+            # 0 1 2 3
+            # 201 202 200 203
+            # Emergency Table
+            # 200 201 202 203
+            # 2 0 1 3
+
         if self.timestep == self.config.env.num_timestep:
             # output final trajectory
             # 可将机器人traj，可以载入到human的dataframe中，id从-1开始递减
@@ -891,6 +888,8 @@ class CrowdSim:
                 energy_list = self.agent_energy_timelist[:, i]
                 robot_df = self.xy_to_dataframe(aoi_list, energy_list, id_list, max_latitude,
                                                 max_longitude, timestamp_list, x_list, y_list)
+                robot_df['reward'] = self.agent_reward_time_list[:, i]
+                # Add reward timelist for rendering.
                 mixed_df = pd.concat([mixed_df, robot_df])
             # add emergency targets.
             # pull emergency coordinates from device to host, since points in host are already refreshed
@@ -907,6 +906,8 @@ class CrowdSim:
                     robot_df = self.xy_to_dataframe(delay_list, energy_list, id_list, max_latitude,
                                                     max_longitude, timestamp_list, x_list, y_list)
                     robot_df['creation_time'] = self.aoi_schedule[i - self.zero_shot_start]
+                    robot_df['allocation'] = int(self.emergency_allocation_table[i - self.zero_shot_start])
+                    robot_df['episode_length'] = self.episode_length
                     mixed_df = pd.concat([mixed_df, robot_df])
             # ------------------------------------------------------------------------------------
             # 建立moving pandas轨迹，也可以选择调用高级API继续清洗轨迹。
@@ -960,7 +961,7 @@ class CrowdSim:
                 elif is_drone:
                     name = f"Agent {self.num_agents - index - 1} (Drone)"
                 else:
-                    name = f"Human {traj.df['id'].iloc[0]}"
+                    name = f"PoI {traj.df['id'].iloc[0]}"
 
                 # Define your color logic here
                 if self.dynamic_zero_shot:
@@ -979,15 +980,20 @@ class CrowdSim:
                         color = "orange"
 
                 # Create features for the current trajectory
-                features = traj_to_timestamped_geojson(index, traj, self.num_cars,
-                                                       self.num_drones, color, index < self.num_agents, self.fix_target,
+                features = traj_to_timestamped_geojson(index,
+                                                       traj,
+                                                       self.num_cars,
+                                                       self.num_drones,
+                                                       color,
+                                                       index < self.num_agents,
+                                                       self.fix_target,
                                                        color == 'red')
                 if is_car or is_drone:
+                    # create a feature group
                     TimestampedGeoJson(
                         {
                             "type": "FeatureCollection",
                             "features": features,
-                            "name": name
                         },
                         period="PT5S",  # Adjust the time interval as needed
                         add_last_point=True,
@@ -1032,8 +1038,8 @@ class CrowdSim:
                 info_str = f"Energy: {info[ENERGY_METRIC_NAME]:.2f},<br>" \
                            f"Freshness: {info[FRESHNESS_FACTOR]:.2f},<br>" \
                            f"Surveillance: {info[SURVEILLANCE_METRIC]:.2f},<br>" \
-                           f"Response Delay: {info[EMERGENCY_METRIC]:.2f},<br>" \
-                           f"Overall AoI: {info[OVERALL_AOI]:.2f}"
+                           f"Response Delay: {info[EMERGENCY_METRIC]:.2f}"
+                # f"Overall AoI: {info[OVERALL_AOI]:.2f}"
             else:
                 info_str = f"Energy Ratio: {info[ENERGY_METRIC_NAME]:.2f}, " \
                            f"Freshness: {info[FRESHNESS_FACTOR]:.4f}, " \
@@ -1049,7 +1055,6 @@ class CrowdSim:
                     html=f'<div style="font-size: 12pt">{info_str}</div>',
                 )
             ).add_to(my_render_map)
-            my_render_map.get_root().html.add_child(folium.Element(javascript))
             my_render_map.get_root().render()
             my_render_map.get_root().save(output_file)
             logging.info(f"{output_file} saved!")

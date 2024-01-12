@@ -100,36 +100,44 @@ def traj_to_timestamped_geojson(index, trajectory: movingpandas.Trajectory, car_
             radius = 8  # 125(5 units)
             opacity = 0.05
             popup_html = f'<h4> (Car) Agent {car_num + drone_num - index - 1}</h4>' + \
-                         f'<p>raw coord: {current_point_coordinates}</p>' + \
-                         f'<p>grid coord: ({row.x},{row.y})</p>' + \
-                         f'<p>dist coord: ({row.x_distance}m, {row.y_distance}m)</p>' + \
-                         f'<p>energy: {row.energy}J </p>'
+                         f"<p style='font-size:14px;'>Timestamp: {i}</p>" + \
+                         f"<p style='font-size:14px;'>reward: {row.reward:.4f} </p>" + \
+                         f"<p style='font-size:14px;'>energy: {row.energy}J </p>"
+
+            # f'<p>raw coord: {current_point_coordinates}</p>' + \
+            # f'<p>grid coord: ({row.x},{row.y})</p>' + \
+            # f'<p>dist coord: ({row.x_distance}m, {row.y_distance}m)</p>' + \
         elif row.id < (-car_num):
             radius = 6  # 125(5 units)
             opacity = 1
             popup_html = f'<h4> (Drone) Agent {car_num + drone_num - index - 1}</h4>' + \
-                         f"<p style='font-size:16px;'>Timestamp: {i}</p>" + \
-                         f'<p>raw coord: {current_point_coordinates}</p>' + \
-                         f'<p>grid coord: ({row.x},{row.y})</p>' + \
-                         f'<p>dist coord: ({row.x_distance}m, {row.y_distance}m)</p>' + \
-                         f'<p>energy: {row.energy}J </p>'
+                         f"<p style='font-size:14px;'>Timestamp: {i}</p>" + \
+                         f"<p style='font-size:14px;'>reward: {row.reward:.4f} </p>" + \
+                         f"<p style='font-size:14px;'>energy: {row.energy}J </p>"
+
+            # f'<p>raw coord: {current_point_coordinates}</p>' + \
+            # f'<p>grid coord: ({row.x},{row.y})</p>' + \
+            # f'<p>dist coord: ({row.x_distance}m, {row.y_distance}m)</p>' + \
         else:
             if is_emergency:
                 radius = 32
-                opacity = 0.5
+                opacity = min(1, row.creation_time / row.episode_length)
             else:
                 radius = 6
                 opacity = 1
             popup_html = f'<h4> PoI {int(row.id)}</h4>' + \
-                         f"<p style='font-size:14px;'>AoI(Response Delay): {int(row.aoi)} </p>" + \
+                         f"<p style='font-size:14px;'>grid coord: ({row.x},{row.y})</p>" + \
                          f"<p style='font-size:14px;'>Creation Time: {row.creation_time} </p>" + \
-                         f"<p style='font-size:14px;'>grid coord: ({row.x},{row.y})</p>"
+                         f"<p style='font-size:14px;'>Delay: {int(row.aoi)} </p>" + \
+                         f"<p style='font-size:14px;'>Allocation: {row.allocation}</p>"
+
             # f"<p >raw coord: {current_point_coordinates}</p>" + \
             # f'<p>dist coord: ({row.x_distance}m, {row.y_distance}m)</p>' + \
 
         if connect_line:
             feature_dict = create_linestring_feature([previous_point_coordinates, current_point_coordinates],
-                                                     [previous_time[0], current_time[0]], color=color)
+                                                     [previous_time[0], current_time[0]],
+                                                     color=color, caption=popup_html)
         else:
             feature_dict = create_point_feature(color, current_point_coordinates, current_time, opacity,
                                                 popup_html, radius)
@@ -167,8 +175,8 @@ def create_point_feature(color, current_point_coordinates, current_time, opacity
     return feature_dict
 
 
-def create_linestring_feature(coordinates, dates, color):
-    return {
+def create_linestring_feature(coordinates, dates, color, caption=None):
+    feature_dict = {
         "type": "Feature",
         "geometry": {
             "type": "LineString",
@@ -181,7 +189,7 @@ def create_linestring_feature(coordinates, dates, color):
                 'fillColor': color,
                 'fillOpacity': 1,  # 透明度
                 'stroke': 'true',
-                'radius': 3,
+                'radius': 5,
                 'weight': 1,
             },
 
@@ -191,6 +199,9 @@ def create_linestring_feature(coordinates, dates, color):
             "code": 11,
         },
     }
+    if caption is not None:
+        feature_dict["properties"]["popup"] = caption
+    return feature_dict
 
 # if __name__ == "__main__":
 #     print(judge_collision(new_robot_px=6505, new_robot_py=5130,
