@@ -3,7 +3,7 @@
 dataset_name='SanFrancisco'
 exp_name='WARP'_$dataset_name
 session_name=$exp_name'_3'
-cards=(2 3)
+cards=(0 2 3)
 card_num=${#cards[@]}
 dry_run=false
 # Process command-line arguments
@@ -21,7 +21,6 @@ while [[ $# -gt 0 ]]; do
 done
 trains=(
     "--algo ippo --use_2d_state --dynamic_zero_shot --gen_interval 40"
-    "--algo ippo --use_2d_state --dynamic_zero_shot --gen_interval 30"
     "--algo ippo --use_2d_state --dynamic_zero_shot --gen_interval 15"
     "--algo ippo --use_2d_state --dynamic_zero_shot --gen_interval 10"
     "--algo ippo --use_2d_state --dynamic_zero_shot --gen_interval 6"
@@ -61,7 +60,7 @@ for ((i = 0; i < train_num; i++)); do
   # shellcheck disable=SC2004
   # if want to add $PATH, remember to add / before $
   command="python warp_drive/marllib_warpdrive_run.py --track\
-  --num_drones 4 --num_cars 0 --group baseline --tag merged_grid --dataset '$dataset_name'\
+  --num_drones 4 --num_cars 0 --group baseline --tag restore_small_range dataset '$dataset_name'\
   --gpu_id ${cards[card_id]} ${trains[i]}"
   echo "$command"
   if [ "$dry_run" = "false" ] && [ "$choice" != "n" ]

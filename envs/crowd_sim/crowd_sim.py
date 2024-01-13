@@ -1,6 +1,7 @@
 """
 The Mobile Crowdsensing Environment
 """
+from datetime import datetime
 import logging
 import os
 import pprint
@@ -371,7 +372,6 @@ class CrowdSim:
         self.queue_feature = 4
         self.queue_length = 10
 
-
     def get_next_color(self):
         # Function to get the next color
         # Check if we have used all colors, shuffle again if needed
@@ -545,7 +545,7 @@ class CrowdSim:
                                                 grid_size)
 
         # TODO: this full_queue is mock, no actual prediction is provided.
-        full_queue = np.zeros((self.num_agents, self.queue_feature * (self.points_per_gen + 1)))
+        full_queue = np.zeros((self.num_agents, self.queue_feature))
         if self.dynamic_zero_shot:
             current_aoi = self.target_aoi_timelist[self.timestep]
             valid_zero_shots_mask = (current_aoi > 1) & (np.arange(self.num_sensing_targets) > self.zero_shot_start) & \
@@ -1306,11 +1306,11 @@ class RLlibCUDACrowdSim(MultiAgentEnv):
         self.agents = []
         if "mock" not in additional_params:
             if self.is_render:
-                self.num_envs = 3
+                self.num_envs = 500
                 warnings.warn("render=True, num_envs is always equal to 3, and user input is ignored.")
             elif self.is_local:
                 # pass
-                self.num_envs = 500
+                self.num_envs = 4
                 warnings.warn("local_mode=True, num_envs is always equal to 4, and user input is ignored.")
             self.env_wrapper: CUDAEnvWrapper = CUDAEnvWrapper(
                 self.env,
@@ -1401,8 +1401,8 @@ class RLlibCUDACrowdSim(MultiAgentEnv):
             new_obs = np.stack(obs_for_agents)
             zero_shot_start = self.env.zero_shot_start
             logging.debug("Modifying Emergency Points on CUDA!")
-            points_x, points_y = (torch.tensor(self.env.target_x_time_list[:, zero_shot_start:]).cuda(),
-                                  torch.tensor(self.env.target_y_time_list[:, zero_shot_start:]).cuda())
+            points_x, points_y = (torch.tensor(self.env.target_x_time_list[:, zero_shot_start:]),
+                                  torch.tensor(self.env.target_y_time_list[:, zero_shot_start:]))
             self.env_wrapper.cuda_data_manager.data_on_device_via_torch("target_x_at_reset")[:, :,
             zero_shot_start:] = points_x
             self.env_wrapper.cuda_data_manager.data_on_device_via_torch("target_y_at_reset")[:, :,
@@ -1496,6 +1496,8 @@ class RLlibCUDACrowdSim(MultiAgentEnv):
             obs_list.append(one_obs)
             reward_list.append(one_reward)
             info_list.append({})
+        if self.episode_count % 1000 == 0:
+            self.render()
         if all(dones):
             logging.debug("All OK!")
             log_env_metrics(info)
@@ -1511,6 +1513,8 @@ class RLlibCUDACrowdSim(MultiAgentEnv):
 
     def render(self, mode=None):
         logging.debug("render called")
+        # add datetime to trajectory
+        # datetime_str = datetime.now().strftime("%Y%m%d_%H%M%S")
         self.env.render(f'{self.render_file_name}_{self.episode_count}', True, False)
 
 
