@@ -25,7 +25,7 @@ if __name__ == '__main__':
     # select algorithm
     parser.add_argument("--num_workers", type=int, default=0, help='number of workers to sample environment.')
     parser.add_argument("--render", action='store_true', help='render the environment')
-    parser.add_argument("--render_file_name", type=str, default='trajectory.html',
+    parser.add_argument("--render_file_name", type=str, default='trajectory',
                         help='file name for resulting render html file')
     parser.add_argument("--use_2d_state", action='store_true', help='use 2d state representation')
     parser.add_argument("--encoder_layer", type=str, help='encoder layer config, input in format X-X-X',
@@ -38,6 +38,7 @@ if __name__ == '__main__':
     parser.add_argument("--cut_points", type=int, default=200, help='number of points allowed')
     parser.add_argument("--ckpt", action='store_true', help='load checkpoint')
     parser.add_argument("--share_policy", choices=['all', 'group', 'individual'], default='all')
+    parser.add_argument("--separate_render", action='store_true', help='render file will be stored separately')
     # parser.add_argument("--ckpt", nargs=3, type=str, help='uuid, time_str, checkpoint_num to restore')
     args = parser.parse_args()
 
@@ -85,7 +86,10 @@ if __name__ == '__main__':
             if item != 'env_config':
                 if item == 'render_file_name':
                     original = getattr(args, item)
-                    env_params[item] = os.path.join(str(this_expr_dir), original)
+                    if args.separate_render:
+                        env_params[item] = os.path.join("/workspace", "saved_data", "trajectories", original)
+                    else:
+                        env_params[item] = os.path.join(str(this_expr_dir), original)
                 else:
                     env_params[item] = getattr(args, item)
         logging.debug(env_params)
@@ -115,9 +119,9 @@ if __name__ == '__main__':
     # (in remote mode, env and learner are on different processes)
     # 'share_policy': share_policy
     if args.render or args.ckpt:
-        uuid = "f139e"
-        time_str = "2024-01-11_18-55-33"
-        checkpoint_num = 26000
+        uuid = "4eba8"
+        time_str = "2024-01-13_10-49-01"
+        checkpoint_num = 3000
         backup_str = ""
         restore_dict = get_restore_dict(args, uuid, time_str, checkpoint_num, backup_str)
     else:
@@ -140,8 +144,9 @@ if __name__ == '__main__':
                   'checkpoint_end': False, 'algo_args': {'resume': args.resume},
                   'checkpoint_freq': args.evaluation_interval,
                   'stop': {"timesteps_total": 60000000}, 'restore_path': restore_dict,
-                  'evaluation_interval': 1 if args.local_mode else args.evaluation_interval,
+                  'evaluation_interval': False,
                   'logging_config': logging_config if args.track else None, 'remote_worker_envs': False}
+        # 1 if args.local_mode else args.evaluation_interval
         if args.env == 'crowdsim':
             kwargs['custom_vector_env'] = RLlibCUDACrowdSimWrapper
         algorithm_object.fit(env, model, **kwargs)

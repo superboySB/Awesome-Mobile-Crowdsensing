@@ -8,8 +8,8 @@ from datetime import datetime
 import argparse
 from envs.crowd_sim.crowd_sim import LARGE_DATASET_NAME
 
-# 'encoder_layer', 'core_arch', 'cut_points', 'fix_target'
-display_tags = {'num_drones', 'num_cars', 'gen_interval', 'share_policy'}
+# 'encoder_layer', 'core_arch', 'cut_points', 'fix_target', 'num_drones', 'num_cars',
+display_tags = {'gen_interval', 'share_policy'}
 logging_dir = os.path.join("/workspace", "saved_data")
 
 def add_common_arguments(parser: ArgumentParser):
