@@ -363,7 +363,8 @@ class CrowdSim:
         # [may not necessary] Copy drones dict for applying at reset (with limited energy reserve)
         # self.drones_at_reset = copy.deepcopy(self.drones)
         # List of available colors excluding orange and red
-        self.available_colors = ["blue", "green", "yellow", "purple", "cyan", "magenta", "teal", "lime", "brown"]
+        self.available_colors = ['blue', "darkgreen", "darkred", "purple", 'black', "magenta", 'darkblue', "teal",
+                                 "brown", 'gray']
 
         # Shuffle the list of available colors
         random.shuffle(self.available_colors)
