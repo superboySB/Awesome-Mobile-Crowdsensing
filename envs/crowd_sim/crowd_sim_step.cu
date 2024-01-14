@@ -616,6 +616,8 @@ extern "C" {
           reward_increment *= 5;
         }
         float reward_update = reward_increment * invEpisodeLength;
+        // print target point x,y, agent_id and reward amount
+
         //         if(is_dyn_point && (!target_coverage))
         //         {
         //           printf("Emergency %d Pos: %f, %f\n", target_idx, target_x, target_y);
@@ -639,10 +641,12 @@ extern "C" {
                 break;
               }
             }
-//           printf("%d: emergency %d at %f,%f in env %d handled by %d \n", env_timestep, target_idx, target_x, target_y, kEnvId, nearest_agent_id);
+
           }
           // Reward is one time for emergency
           if (!(is_dyn_point && target_coverage)) {
+//           printf("Target %d Pos: %f, %f, AoI: %d agent %d receives reward %f\n", target_idx, target_x, target_y,
+//           target_aoi_arr[kThisTargetAgeArrayIdxOffset + target_idx], nearest_agent_id, reward_update);
             rewards_arr[kThisEnvAgentsOffset + nearest_agent_id] += reward_update;
             if (is_drone && !single_type_agent) {
               int drone_nearest_car_id = neighbor_agent_ids_arr[kThisEnvAgentsOffset + nearest_agent_id];
@@ -650,6 +654,10 @@ extern "C" {
             }
             global_reward += reward_update;
             target_coverage = true;
+            if(is_dyn_point){
+//               printf("%d: emergency %d at %f,%f in env %d handled by %d, aoi=%d\n",
+//               env_timestep, target_idx, target_x, target_y, kEnvId, nearest_agent_id, target_aoi);
+            }
           }
           //             count++;
           //             printf("target %d covered, coverage arr %d\n", target_idx, target_coverage_arr[kThisTargetAgeArrayIdxOffset + target_idx]);
@@ -730,14 +738,18 @@ extern "C" {
       if (this_emergency_allocation_table[kThisAgentId] != -1) {
         int emergency_allocated = this_emergency_allocation_table[kThisAgentId];
         // reward divide by delay
-        rewards_arr[kThisEnvAgentsOffset + kThisAgentId] /= target_aoi_arr[kThisTargetAgeArrayIdxOffset + emergency_allocated];
-        float agent_x = agent_x_arr[kThisEnvAgentsOffset + kThisAgentId];
-        float agent_y = agent_y_arr[kThisEnvAgentsOffset + kThisAgentId];
+//         rewards_arr[kThisAgentArrayIdx] /= target_aoi_arr[kThisTargetAgeArrayIdxOffset + emergency_allocated];
+//         printf("Reward of agent %d discounted by %f, now %f\n", kThisAgentId,
+//         1.0 / target_aoi_arr[kThisTargetAgeArrayIdxOffset + emergency_allocated],
+//         rewards_arr[kThisAgentArrayIdx]);
+        float agent_x = agent_x_arr[kThisAgentArrayIdx];
+        float agent_y = agent_y_arr[kThisAgentArrayIdx];
         float target_x = target_x_time_list[kThisTargetPositionTimeListIdxOffset + emergency_allocated];
         float target_y = target_y_time_list[kThisTargetPositionTimeListIdxOffset + emergency_allocated];
         float delta_x = (agent_x - target_x) / kAgentXRange;
         float delta_y = (agent_y - target_y) / kAgentYRange;
-        rewards_arr[kThisEnvAgentsOffset + kThisAgentId] -= sqrt(delta_x * delta_x + delta_y * delta_y);
+        rewards_arr[kThisAgentArrayIdx] -= sqrt(delta_x * delta_x + delta_y * delta_y) * target_aoi_arr[kThisTargetAgeArrayIdxOffset + emergency_allocated];
+//         printf("Distance penalty of %d: %f\n", kThisAgentId, -sqrt(delta_x * delta_x + delta_y * delta_y));
         // print agent, emergency allocated and distance
 //         printf("Agent %d in %d allocated to emergency %d, distance: %f\n", kThisAgentId, kEnvId, emergency_allocated,
 //         sqrt(delta_x * delta_x + delta_y * delta_y));
@@ -830,7 +842,7 @@ extern "C" {
     float my_x = agent_x_arr[kThisAgentArrayIdx];
     float my_y = agent_y_arr[kThisAgentArrayIdx];
     float * my_obs_at_emergency = obs_arr + kThisAgentArrayIdx * obs_features + AgentFeature + (kNumAgentsObserved << 2);
-    int my_emergency_target = emergency_allocation_table[kThisEnvAgentsOffset + kThisAgentId];
+    int my_emergency_target = emergency_allocation_table[kThisAgentArrayIdx];
     if(my_emergency_target != -1){
       float target_x = target_x_time_list[kThisTargetPositionTimeListIdxOffset + my_emergency_target];
       float target_y = target_y_time_list[kThisTargetPositionTimeListIdxOffset + my_emergency_target];

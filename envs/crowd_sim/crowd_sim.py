@@ -1038,19 +1038,22 @@ class CrowdSim:
                 info_str = f"Energy: {info[ENERGY_METRIC_NAME]:.2f},<br>" \
                            f"Freshness: {info[FRESHNESS_FACTOR]:.2f},<br>" \
                            f"Surveillance: {info[SURVEILLANCE_METRIC]:.2f},<br>" \
-                           f"Response Delay: {info[EMERGENCY_METRIC]:.2f}"
+                           f"Response Delay: {info[EMERGENCY_METRIC]:.2f},<br>" \
+                           f"Valid Ratio: {info[VALID_HANDLING_RATIO]:.2f},<br>" \
+                           f"Total Reward: {np.sum(self.agent_reward_time_list):.2f}"
                 # f"Overall AoI: {info[OVERALL_AOI]:.2f}"
             else:
                 info_str = f"Energy Ratio: {info[ENERGY_METRIC_NAME]:.2f}, " \
                            f"Freshness: {info[FRESHNESS_FACTOR]:.4f}, " \
                            f"Coverage: {info[COVERAGE_METRIC_NAME]:.4f},<br>" \
                            f"Mean AoI: {info[AOI_METRIC_NAME]:.2f},<br>" \
-                           f"Fresh Coverage: {info[MAIN_METRIC_NAME]:.2f}"
+                           f"Fresh Coverage: {info[MAIN_METRIC_NAME]:.2f}" \
+                           f"Total Reward: {np.sum(self.agent_reward_time_list):.2f}"
                 # f"Data Collect: {info[DATA_METRIC_NAME]:.4f}, " \
             folium.map.Marker(
                 [self.upper_right[1], self.upper_right[0]],
                 icon=DivIcon(
-                    icon_size=(180, 36),
+                    icon_size=(180, 60),
                     icon_anchor=(0, 0),
                     html=f'<div style="font-size: 12pt">{info_str}</div>',
                 )
@@ -1258,7 +1261,8 @@ class RLlibCUDACrowdSim(MultiAgentEnv):
 
         logging.debug("received run_config: %s", pprint.pformat(run_config))
         os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"
-        self.episode_count: int = 0
+        self.eval_interval = 5
+        self.evaluate_count_down: int = self.eval_interval
         requirements = ["env_params", "trainer"]
         for requirement in requirements:
             if requirement not in run_config:
@@ -1306,8 +1310,8 @@ class RLlibCUDACrowdSim(MultiAgentEnv):
         self.agents = []
         if "mock" not in additional_params:
             if self.is_render:
-                self.num_envs = 500
-                warnings.warn("render=True, num_envs is always equal to 3, and user input is ignored.")
+                self.num_envs = 4
+                warnings.warn("render=True, num_envs is always equal to 4, and user input is ignored.")
             elif self.is_local:
                 # pass
                 self.num_envs = 4
@@ -1463,7 +1467,7 @@ class RLlibCUDACrowdSim(MultiAgentEnv):
         next_obs = self.pull_vec_from_device_to_list(_OBSERVATIONS, self.obs_vec_dim)
         state_list = self.pull_vec_from_device_to_list(_STATE, self.env.vector_state_dim)
         # logging.debug(f"aoi_grid: {next_obs[0][_IMAGE_STATE][0][0]}, emergency_grid: {next_obs[0][_IMAGE_STATE][0][1]}")
-        # if wandb.run is not None and self.episode_count % 50 == 0 and self.env.timestep % 20 == 0:
+        # if wandb.run is not None and self.evaluate_count_down % 50 == 0 and self.env.timestep % 20 == 0:
         #     for i, item in enumerate(next_obs[0][_IMAGE_STATE] if self.use_2d_state else next_obs[0]):
         #         if self.use_2d_state:
         #             aoi_grid = wandb.Image(item[0], caption=aoi_caption)
@@ -1496,12 +1500,15 @@ class RLlibCUDACrowdSim(MultiAgentEnv):
             obs_list.append(one_obs)
             reward_list.append(one_reward)
             info_list.append({})
-        if self.episode_count % 1000 == 0:
+        if self.evaluate_count_down <= 0:
             self.render()
         if all(dones):
             logging.debug("All OK!")
-            log_env_metrics(info)
-            self.episode_count += 1
+            if self.evaluate_count_down <= 0:
+                self.evaluate_count_down = self.eval_interval
+            else:
+                self.evaluate_count_down -= 1
+            log_env_metrics(info, self.evaluate_count_down)
         return obs_list, reward_list, dones, info_list
 
     def step(
@@ -1514,8 +1521,8 @@ class RLlibCUDACrowdSim(MultiAgentEnv):
     def render(self, mode=None):
         logging.debug("render called")
         # add datetime to trajectory
-        # datetime_str = datetime.now().strftime("%Y%m%d_%H%M%S")
-        self.env.render(f'{self.render_file_name}_{self.episode_count}', True, False)
+        datetime_str = datetime.now().strftime("%Y%m%d_%H%M%S")
+        self.env.render(f'{self.render_file_name}_{datetime_str}', True, False)
 
 
 def get_rllib_multi_agent_obs(current_observation, state, agents: list[Any]) -> MultiAgentDict:
@@ -1652,7 +1659,7 @@ def get_rllib_obs_and_reward(agents: list[Any], state: Union[np.ndarray, dict],
     return obs_dict, reward_dict
 
 
-def log_env_metrics(info: dict):
+def log_env_metrics(info: dict, episode_count: int):
     # Create table data
     table_data = [["Metric Name", "Value"]]
     table_data.extend([[key, value] for key, value in info.items()])
@@ -1660,6 +1667,7 @@ def log_env_metrics(info: dict):
     logging.info(tabulate(table_data, headers="firstrow", tablefmt="grid"))
     if wandb.run is not None:
         wandb.log(info)
+        # wandb.log({'evaluation_count_down': episode_count})
 
 
 class RLlibCrowdSim(MultiAgentEnv):
@@ -1718,7 +1726,7 @@ class RLlibCrowdSim(MultiAgentEnv):
         # current_observation shape [n_agent, dim_obs]
         obs_dict, reward_dict = get_rllib_obs_and_reward(self.agents, self.env.global_state, obs, reward)
         if dones["__all__"]:
-            log_env_metrics(info)
+            log_env_metrics(info, self.episode_count)
         # else:
         logging.debug("wandb not detected")
         # truncated = {"__all__": False}
