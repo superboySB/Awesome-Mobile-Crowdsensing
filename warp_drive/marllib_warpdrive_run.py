@@ -31,7 +31,7 @@ if __name__ == '__main__':
     parser.add_argument("--encoder_layer", type=str, help='encoder layer config, input in format X-X-X',
                         default='128-128-128')
     parser.add_argument("--core_arch", type=str, help='core architecture, mlp, gru or lstm',
-                        choices=['mlp', 'gru', 'lstm'], default='mlp')
+                        choices=['mlp', 'gru', 'lstm', 'crowdsim_net'], default='mlp')
     parser.add_argument('--local_mode', action='store_true', help='run in local mode')
     parser.add_argument('--all_random', action='store_true', help='PoIs in the environment '
                                                                   'are completely random')
@@ -48,6 +48,8 @@ if __name__ == '__main__':
     this_expr_dir = os.path.join(logging_dir, 'trajectories', '_'.join([args.algo, args.core_arch, args.dataset]),
                                  expr_name)
     # make dir
+    if args.core_arch == 'crowdsim_net':
+        assert args.env == 'crowdsim', f"crowdsim_net only supports crowdsim env, got {args.env}"
     if not os.path.exists(this_expr_dir):
         os.makedirs(this_expr_dir)
     logging.debug("experiment name: %s", expr_name)
@@ -119,9 +121,9 @@ if __name__ == '__main__':
     # (in remote mode, env and learner are on different processes)
     # 'share_policy': share_policy
     if args.render or args.ckpt:
-        uuid = "4eba8"
-        time_str = "2024-01-13_10-49-01"
-        checkpoint_num = 3000
+        uuid = "68f1b"
+        time_str = "2024-01-13_13-48-43"
+        checkpoint_num = 12000
         backup_str = ""
         restore_dict = get_restore_dict(args, uuid, time_str, checkpoint_num, backup_str)
     else:

@@ -62,7 +62,7 @@ class BaseEnvConfig(object):
     env.drone_sensing_range = 500  # unit
     env.car_action_space = env.drone_action_space / 3
     env.car_sensing_range = 250
-    env.drone_car_comm_range = 500
+    env.drone_car_comm_range = 1000
 
     env.max_x_distance = 6951  # m
     env.max_y_distance = 7734  # m
