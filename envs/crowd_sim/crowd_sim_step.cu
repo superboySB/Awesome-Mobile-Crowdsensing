@@ -861,6 +861,27 @@ extern "C" {
         my_obs_at_emergency[i] = 0.0;
       }
     }
+//         // find the next generation time
+//     int emergency_start_index = -1;
+//     for(int i = 0;i < emergency_count; i += emergency_per_gen){
+//       if(env_timestep < aoi_schedule[i]){
+//         emergency_start_index = i;
+//         break;
+//       }
+//     }
+//     // Test, give future emergency points to all agents
+//         for(int i = 1;i < emergency_per_gen + 1;i++){
+//           float target_x = target_x_time_list[kThisTargetPositionTimeListIdxOffset + emergency_start_index + zero_shot_start];
+//           float target_y = target_y_time_list[kThisTargetPositionTimeListIdxOffset + emergency_start_index + zero_shot_start];
+//           my_obs_at_emergency[i * FeaturesInEmergencyQueue + 0] = target_x / kAgentXRange;
+//           my_obs_at_emergency[i * FeaturesInEmergencyQueue + 1] = target_y / kAgentYRange;
+//           my_obs_at_emergency[i * FeaturesInEmergencyQueue + 2] = target_aoi_arr[kThisTargetAgeArrayIdxOffset + emergency_start_index + zero_shot_start] * invEpisodeLength;
+//           float delta_x = (my_x - target_x) / kAgentXRange;
+//           float delta_y = (my_y - target_y) / kAgentYRange;
+//           my_obs_at_emergency[i * FeaturesInEmergencyQueue + 3] = sqrt(delta_x * delta_x + delta_y * delta_y) *
+//           target_aoi_arr[kThisTargetAgeArrayIdxOffset + emergency_start_index + zero_shot_start];
+//           emergency_start_index++;
+//         }
       // energy penalty
       if (agent_energy_arr[kThisAgentArrayIdx] <= 0) {
         rewards_arr[kThisAgentArrayIdx] -= 10;
