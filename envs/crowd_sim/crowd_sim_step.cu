@@ -231,7 +231,52 @@ extern "C" {
       }
     }
   }
+// WARNING: This function is not tested.
+  __device__ void CudaCrowdSimGreedyAllocation(
+  float * agent_x_arr,
+  float * agent_y_arr,
+  float target_x,
+  float target_y,
+  int target_idx,
+  float * this_emergency_dis_to_target,
+  int * this_emergency_dis_to_target_index,
+  int * this_emergency_allocation_table,
+  int kNumAgents,
+  int kThisEnvAgentsOffset
+//   int kThisAgentId,
+//  int kEnvId,
+//   int env_timestep,
+  ){
+                // calculate distance between current target (x,y) and all agents
+              for (int i = 0; i < kNumAgents; i++) {
+                float temp_x = target_x - agent_x_arr[kThisEnvAgentsOffset + i];
+                float temp_y = target_y - agent_y_arr[kThisEnvAgentsOffset + i];
+                float dist = sqrt(temp_x * temp_x + temp_y * temp_y);
+                this_emergency_dis_to_target[i] = dist;
+                this_emergency_dis_to_target_index[i] = i;
+              }
+              // sort the distance array as well as the index
+              CUDABubbleSortFloatWithArg(this_emergency_dis_to_target, this_emergency_dis_to_target_index, kNumAgents);
 
+//               printf("allocating emergency %d in env %d\n", target_idx, kEnvId);
+//               for (int i = 0; i < kNumAgents; i++) {
+//                 printf("%d:%d ",kEnvId, this_emergency_allocation_table[i]);
+//               }
+//               if(kThisAgentId == 0){
+//                 printf("\n");
+//               }
+// using this_emergency_dis_to_target_index, try allocate emergency point to an agent, ignore if all agents are occupied
+              for (int i = 0; i < kNumAgents; i++) {
+                int candidate_agent_id = this_emergency_dis_to_target_index[i];
+                if (this_emergency_allocation_table[candidate_agent_id] == -1) {
+                  // allocate this emergency point to this agent
+                  this_emergency_allocation_table[candidate_agent_id] = target_idx;
+//                   printf("%d: emergency %d at %f,%f in env %d will be handled by %d \n",
+//                   env_timestep, target_idx, target_x, target_y, kEnvId, candidate_agent_id);
+                  break;
+                }
+              }
+  }
   // Device helper function to generate observation
   __device__ void CudaCrowdSimGenerateObservation(
     float * state_arr,
@@ -479,7 +524,7 @@ extern "C" {
     assert(env_timestep > 0 && env_timestep <= kEpisodeLength);
     const int kThisEnvAgentsOffset = kEnvId * kNumAgents;
     const int kThisAgentArrayIdx = kThisEnvAgentsOffset + kThisAgentId;
-    const int kNumActionDim = 1; // use Discrete instead of MultiDiscrete
+    const int kNumActionDim = 2; // use Discrete instead of MultiDiscrete
     // Update on 2024.1.2, Double AoI Grid (100 -> 200)
     // Update on 2024.1.10, remove emergency grid. (200 -> 100)
     const int grid_flatten_size = 100;
@@ -495,8 +540,8 @@ extern "C" {
     const int obs_features = obs_vec_features + total_num_grids;
     const int kThisEnvStateOffset = kEnvId * state_features;
     int * this_emergency_allocation_table = emergency_allocation_table + kThisEnvAgentsOffset;
-    int * this_emergency_dis_to_target_index = emergency_dis_to_target_index + kThisEnvAgentsOffset;
-    float * this_emergency_dis_to_target = emergency_dis_to_target + kThisEnvAgentsOffset;
+//     int * this_emergency_dis_to_target_index = emergency_dis_to_target_index + kThisEnvAgentsOffset;
+//     float * this_emergency_dis_to_target = emergency_dis_to_target + kThisEnvAgentsOffset;
 
     //     printf("Drone Sensing Range: %f\n", kDroneSensingRange);
     //     printf("features: %d, obs: %d\n", state_features, obs_features);
@@ -675,32 +720,25 @@ extern "C" {
               }
             }
             if (!is_allocated) {
-              // calculate distance between current target (x,y) and all agents
-              for (int i = 0; i < kNumAgents; i++) {
-                float temp_x = target_x - agent_x_arr[kThisEnvAgentsOffset + i];
-                float temp_y = target_y - agent_y_arr[kThisEnvAgentsOffset + i];
-                float dist = sqrt(temp_x * temp_x + temp_y * temp_y);
-                this_emergency_dis_to_target[i] = dist;
-                this_emergency_dis_to_target_index[i] = i;
+              // find the last timestep in aoi_schedule that is smaller than env_timestep
+              int first_schedule = 0;
+              for (int i = 0; i < emergency_count; i += emergency_per_gen) {
+                if (env_timestep < aoi_schedule[i]) {
+                  break;
+                }
+                else{
+                  first_schedule = i;
+                }
               }
-              // sort the distance array as well as the index
-              CUDABubbleSortFloatWithArg(this_emergency_dis_to_target, this_emergency_dis_to_target_index, kNumAgents);
-
-//               printf("allocating emergency %d in env %d\n", target_idx, kEnvId);
-//               for (int i = 0; i < kNumAgents; i++) {
-//                 printf("%d:%d ",kEnvId, this_emergency_allocation_table[i]);
-//               }
-//               if(kThisAgentId == 0){
-//                 printf("\n");
-//               }
-// using this_emergency_dis_to_target_index, try allocate emergency point to an agent, ignore if all agents are occupied
-              for (int i = 0; i < kNumAgents; i++) {
-                int candidate_agent_id = this_emergency_dis_to_target_index[i];
-                if (this_emergency_allocation_table[candidate_agent_id] == -1) {
-                  // allocate this emergency point to this agent
-                  this_emergency_allocation_table[candidate_agent_id] = target_idx;
-//                   printf("%d: emergency %d at %f,%f in env %d will be handled by %d \n",
-//                   env_timestep, target_idx, target_x, target_y, kEnvId, candidate_agent_id);
+//               printf("Now selecting emergencies for interval > %d\n", aoi_schedule[first_schedule]);
+              // collect agents own selection of emergency targets from action_indices_arr
+              for(int i = 0;i < kNumAgents;i++){
+                int kThisAgentActionIdxOffset = (kThisEnvAgentsOffset + i) * kNumActionDim;
+                int agent_selection = action_indices_arr[kThisAgentActionIdxOffset + 1];
+                if(agent_selection < emergency_per_gen &&
+                agent_selection + first_schedule + zero_shot_start == target_idx){
+//                 printf("Agent %d in %d selected emergency %d\n", i, kEnvId, target_idx);
+                  this_emergency_allocation_table[i] = target_idx;
                   break;
                 }
               }

@@ -19,6 +19,7 @@ import pandas as pd
 from folium import DivIcon
 from folium.plugins import TimestampedGeoJson, AntPath
 from gym import spaces
+from gym.spaces import Discrete, Box, MultiDiscrete
 from ray.rllib.env import GroupAgentsWrapper
 
 from run_configs.mcs_configs_python import PROJECT_NAME
@@ -336,12 +337,14 @@ class CrowdSim:
         self.drone_action_space_dy = self.float_dtype(self.config.env.drone_action_space[:, 1])
         self.car_action_space_dx = self.float_dtype(self.config.env.car_action_space[:, 0])
         self.car_action_space_dy = self.float_dtype(self.config.env.car_action_space[:, 1])
-        self.action_space = spaces.Dict({
-            agent_id: spaces.Discrete(len(self.drone_action_space_dx))
-            if self.agent_types[agent_id] == 1
-            else spaces.Discrete(len(self.car_action_space_dx))
-            for agent_id in range(self.num_agents)
-        })
+        self.action_space = spaces.Dict()
+        self.emergency_slots = 3
+        for agent_id in range(self.num_agents):
+            # note one action for not choosing any emergency.
+            if self.agent_types[agent_id] == 1:
+                self.action_space[agent_id] = MultiDiscrete([len(self.drone_action_space_dx), self.emergency_slots + 1])
+            else:
+                self.action_space[agent_id] = MultiDiscrete([len(self.car_action_space_dx), self.emergency_slots + 1])
         # Used in generate_observation()
         # When use_full_observation is True, then all the agents will have info of
         # all the other agents, otherwise, each agent will only have info of
@@ -1248,7 +1251,7 @@ def get_space(new_space: spaces.Dict, obs_example: Union[dict, np.ndarray], upda
         for key, value in obs_example.items():
             if len(value.shape) != 1:
                 # 2d or 3d observation space
-                new_space[update_key][key] = spaces.Box(low=np.full_like(value, -np.inf),
+                new_space[update_key][key] = Box(low=np.full_like(value, -np.inf),
                                                         high=np.full_like(value, np.inf))
             else:
                 new_space[update_key][key] = binary_search_bound(value)
@@ -1456,7 +1459,10 @@ class RLlibCUDACrowdSim(MultiAgentEnv):
         step all cuda environments at the same time.
         """
         # convert MultiAgentDict to an ndarray with shape [num_agent, action_index]
-        vectorized_actions = np.expand_dims(np.vstack([np.array(list(action_dict.values()))
+        if isinstance(self.action_space, MultiDiscrete):
+            vectorized_actions = np.stack([np.array(list(action_dict.values())) for action_dict in actions])
+        else:
+            vectorized_actions = np.expand_dims(np.vstack([np.array(list(action_dict.values()))
                                                        for action_dict in actions]), axis=-1)
         # np.asarray(list(map(int, {1: 2, 2: 5, 3: 8}.values()))), 30% faster than
         # actions_ls = [int(actions[agent_id]) for agent_id in actions.keys()]
@@ -1600,17 +1606,17 @@ class RLlibCUDACrowdSimWrapper(VectorEnv):
         pass
 
 
-def binary_search_bound(array: np.ndarray) -> spaces.Box:
+def binary_search_bound(array: np.ndarray) -> Box:
     """
     :param array: reference observation
     """
     x = float(BIG_NUMBER)
-    box = spaces.Box(low=-x, high=x, shape=array.shape, dtype=array.dtype)
+    box = Box(low=-x, high=x, shape=array.shape, dtype=array.dtype)
     low_high_valid = (box.low < 0).all() and (box.high > 0).all()
     # This loop avoids issues with overflow to make sure low/high are good.
     while not low_high_valid:
         x //= 2
-        box = spaces.Box(low=-x, high=x, shape=array.shape, dtype=array.dtype)
+        box = Box(low=-x, high=x, shape=array.shape, dtype=array.dtype)
         low_high_valid = (box.low < 0).all() and (box.high > 0).all()
     return box
 
