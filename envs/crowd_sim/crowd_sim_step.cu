@@ -510,6 +510,7 @@ extern "C" {
     const int kEnvId = getEnvID(blockIdx.x);
     const int kThisAgentId = getAgentID(threadIdx.x, blockIdx.x, blockDim.x);
     const int emergency_count = kNumTargets - zero_shot_start;
+    float mean_emergency_aoi = 0.0;
     // Update Timestep
     // Increment time ONCE -- only 1 thread can do this.
     if (kThisAgentId == 0) {
@@ -769,6 +770,11 @@ extern "C" {
       //         rewards_arr[kThisEnvAgentsOffset + agent_idx] *= factor;
       //       }
       //     }
+
+        for(int i = zero_shot_start;i < kNumTargets;i++){
+          mean_emergency_aoi += (target_aoi_arr[kThisTargetAgeArrayIdxOffset + i] - 1);
+        }
+        mean_emergency_aoi /= emergency_count;
     }
     __sync_env_threads(); // Make sure all agents have calculated the reward
     // check emergency allocation and give extra reward
@@ -793,7 +799,8 @@ extern "C" {
 //         sqrt(delta_x * delta_x + delta_y * delta_y));
       }
 //       else{
-//         printf("Agent %d in %d not allocated to any emergency\n", kThisAgentId, kEnvId);
+// //         printf("Agent %d in %d not allocated to any emergency\n", kThisAgentId, kEnvId);
+//         rewards_arr[kThisAgentArrayIdx] -= mean_emergency_aoi;
 //       }
     }
     __sync_env_threads(); // Make sure all agents have calculated the reward
@@ -881,15 +888,20 @@ extern "C" {
     float my_y = agent_y_arr[kThisAgentArrayIdx];
     float * my_obs_at_emergency = obs_arr + kThisAgentArrayIdx * obs_features + AgentFeature + (kNumAgentsObserved << 2);
     int my_emergency_target = emergency_allocation_table[kThisAgentArrayIdx];
+//     for(int i = 0;i < FeaturesInEmergencyQueue * emergency_per_gen;i++){
+//       my_obs_at_emergency[i] = 0.0;
+//     }
     if(my_emergency_target != -1){
       float target_x = target_x_time_list[kThisTargetPositionTimeListIdxOffset + my_emergency_target];
       float target_y = target_y_time_list[kThisTargetPositionTimeListIdxOffset + my_emergency_target];
       my_obs_at_emergency[0] = target_x / kAgentXRange;
       my_obs_at_emergency[1] = target_y / kAgentYRange;
-      my_obs_at_emergency[2] = target_aoi_arr[kThisTargetAgeArrayIdxOffset + my_emergency_target] * invEpisodeLength;
+      my_obs_at_emergency[2] =
+      target_aoi_arr[kThisTargetAgeArrayIdxOffset + my_emergency_target] * invEpisodeLength;
       float delta_x = (my_x - target_x) / kAgentXRange;
       float delta_y = (my_y - target_y) / kAgentYRange;
-      my_obs_at_emergency[3] = sqrt(delta_x * delta_x + delta_y * delta_y) * target_aoi_arr[kThisTargetAgeArrayIdxOffset + my_emergency_target];
+      my_obs_at_emergency[3] =
+      sqrt(delta_x * delta_x + delta_y * delta_y) * target_aoi_arr[kThisTargetAgeArrayIdxOffset + my_emergency_target];
       // print four information in a row
 //       printf("Agent %d in %d allocated to emergency %d, distance: %f\n", kThisAgentId, kEnvId, my_emergency_target,
 //       sqrt(delta_x * delta_x + delta_y * delta_y));

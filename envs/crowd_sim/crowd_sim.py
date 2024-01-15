@@ -290,19 +290,6 @@ class CrowdSim:
         assert not np.isnan(self.target_theta_timelist).any()
 
         # agent infos
-        self.timestep = 0
-        self.starting_location_x = self.nlon / 2
-        self.starting_location_y = self.nlat / 2
-        self.max_uav_energy = self.config.env.max_uav_energy
-        self.agent_energy_timelist = np.full([self.episode_length + 1, self.num_agents],
-                                             fill_value=self.max_uav_energy, dtype=self.float_dtype)
-        self.agent_x_time_list = np.full([self.episode_length + 1, self.num_agents],
-                                         fill_value=self.starting_location_x, dtype=self.float_dtype)
-        self.agent_y_time_list = np.full([self.episode_length + 1, self.num_agents],
-                                         fill_value=self.starting_location_y, dtype=self.float_dtype)
-        self.emergency_allocation_table = np.full([self.emergency_count, ], -1, dtype=self.int_dtype)
-        self.agent_reward_time_list = np.zeros([self.episode_length + 1, self.num_agents], dtype=self.float_dtype)
-        self.data_collection = 0
         # Types and Status of vehicles
         self.agent_types = self.int_dtype(np.ones([self.num_agents, ]))
         self.cars = {}
@@ -314,6 +301,38 @@ class CrowdSim:
             else:
                 self.agent_types[agent_id] = 1  # Drone
                 self.drones[agent_id] = True
+        self.drone_action_space_dx = self.float_dtype(self.config.env.drone_action_space[:, 0])
+        self.drone_action_space_dy = self.float_dtype(self.config.env.drone_action_space[:, 1])
+        self.car_action_space_dx = self.float_dtype(self.config.env.car_action_space[:, 0])
+        self.car_action_space_dy = self.float_dtype(self.config.env.car_action_space[:, 1])
+        self.action_space = spaces.Dict()
+        self.emergency_slots = self.points_per_gen
+        for agent_id in range(self.num_agents):
+            # note one action for not choosing any emergency.
+            if self.agent_types[agent_id] == 1:
+                self.action_space[agent_id] = MultiDiscrete([len(self.drone_action_space_dx), self.emergency_slots + 1])
+            else:
+                self.action_space[agent_id] = MultiDiscrete([len(self.car_action_space_dx), self.emergency_slots + 1])
+        self.action_dim = self.action_space[0].sample().shape[0]
+
+        self.timestep = 0
+        self.starting_location_x = self.nlon / 2
+        self.starting_location_y = self.nlat / 2
+        self.max_uav_energy = self.config.env.max_uav_energy
+        self.agent_energy_timelist = np.full([self.episode_length + 1, self.num_agents],
+                                             fill_value=self.max_uav_energy, dtype=self.float_dtype)
+        self.agent_x_time_list = np.full([self.episode_length + 1, self.num_agents],
+                                         fill_value=self.starting_location_x, dtype=self.float_dtype)
+        self.agent_y_time_list = np.full([self.episode_length + 1, self.num_agents],
+                                         fill_value=self.starting_location_y, dtype=self.float_dtype)
+        self.emergency_allocation_table = np.full([self.emergency_count, ], -1, dtype=self.int_dtype)
+        self.agent_emergency_table = np.full([self.episode_length + 1, self.num_agents], fill_value=-1,
+                                             dtype=self.int_dtype)
+        self.agent_actions_time_list = np.zeros([self.episode_length + 1, self.num_agents, self.action_dim],
+                                                dtype=self.int_dtype)
+        self.agent_rewards_time_list = np.zeros([self.episode_length + 1, self.num_agents], dtype=self.float_dtype)
+        self.data_collection = 0
+
 
         # These will be set during reset (see below)
         self.timestep = None
@@ -333,18 +352,7 @@ class CrowdSim:
         else:
             self.global_state = np.zeros((self.vector_state_dim + self.image_state_dim,),
                                          dtype=self.float_dtype)
-        self.drone_action_space_dx = self.float_dtype(self.config.env.drone_action_space[:, 0])
-        self.drone_action_space_dy = self.float_dtype(self.config.env.drone_action_space[:, 1])
-        self.car_action_space_dx = self.float_dtype(self.config.env.car_action_space[:, 0])
-        self.car_action_space_dy = self.float_dtype(self.config.env.car_action_space[:, 1])
-        self.action_space = spaces.Dict()
-        self.emergency_slots = 3
-        for agent_id in range(self.num_agents):
-            # note one action for not choosing any emergency.
-            if self.agent_types[agent_id] == 1:
-                self.action_space[agent_id] = MultiDiscrete([len(self.drone_action_space_dx), self.emergency_slots + 1])
-            else:
-                self.action_space[agent_id] = MultiDiscrete([len(self.car_action_space_dx), self.emergency_slots + 1])
+
         # Used in generate_observation()
         # When use_full_observation is True, then all the agents will have info of
         # all the other agents, otherwise, each agent will only have info of
@@ -429,6 +437,7 @@ class CrowdSim:
         self.agent_x_time_list[self.timestep, :] = self.starting_location_x
         self.agent_y_time_list[self.timestep, :] = self.starting_location_y
         self.agent_energy_timelist[self.timestep, :] = self.max_uav_energy
+        self.emergency_allocation_table[:] = -1
         # for target_id in range(self.num_sensing_targets):
         self.target_aoi_timelist = np.zeros([self.episode_length + 1, self.num_sensing_targets], dtype=np.int_)
         self.target_aoi_timelist[self.timestep, :] = 1
@@ -859,13 +868,15 @@ class CrowdSim:
             self.agent_x_time_list[self.timestep, :] = self.cuda_data_manager.pull_data_from_device("agent_x")[0]
             self.agent_y_time_list[self.timestep, :] = self.cuda_data_manager.pull_data_from_device("agent_y")[0]
             agent_emergency_allocation = self.cuda_data_manager.pull_data_from_device("emergency_allocation_table")[0]
-            self.agent_reward_time_list[self.timestep, :] = self.cuda_data_manager.pull_data_from_device(_REWARDS)[0]
+            self.agent_rewards_time_list[self.timestep, :] = self.cuda_data_manager.pull_data_from_device(_REWARDS)[0]
+            self.agent_actions_time_list[self.timestep, :] = self.cuda_data_manager.pull_data_from_device(_ACTIONS)[0]
             # get emergency index where the allocation table is not -1
             num_of_normal_targets = self.num_sensing_targets - self.emergency_count
             for i in range(self.num_agents):
                 emergency_index = agent_emergency_allocation[i]
                 if emergency_index != -1:
                     self.emergency_allocation_table[emergency_index - num_of_normal_targets] = i
+            self.agent_emergency_table[self.timestep] = agent_emergency_allocation
             # agent_emergency_allocation will now be the index of emergency points, where the index of
             # agent_emergency_allocation are the allocated agents.
             # agent table
@@ -892,7 +903,8 @@ class CrowdSim:
                 energy_list = self.agent_energy_timelist[:, i]
                 robot_df = self.xy_to_dataframe(aoi_list, energy_list, id_list, max_latitude,
                                                 max_longitude, timestamp_list, x_list, y_list)
-                robot_df['reward'] = self.agent_reward_time_list[:, i]
+                robot_df['reward'] = self.agent_rewards_time_list[:, i]
+                robot_df['selection'] = self.agent_actions_time_list[:, i, 1]
                 # Add reward timelist for rendering.
                 mixed_df = pd.concat([mixed_df, robot_df])
             # add emergency targets.
@@ -1044,7 +1056,7 @@ class CrowdSim:
                            f"Surveillance: {info[SURVEILLANCE_METRIC]:.2f},<br>" \
                            f"Response Delay: {info[EMERGENCY_METRIC]:.2f},<br>" \
                            f"Valid Ratio: {info[VALID_HANDLING_RATIO]:.2f},<br>" \
-                           f"Total Reward: {np.sum(self.agent_reward_time_list):.2f}"
+                           f"Total Reward: {np.sum(self.agent_rewards_time_list):.2f}"
                 # f"Overall AoI: {info[OVERALL_AOI]:.2f}"
             else:
                 info_str = f"Energy Ratio: {info[ENERGY_METRIC_NAME]:.2f}, " \
@@ -1052,7 +1064,7 @@ class CrowdSim:
                            f"Coverage: {info[COVERAGE_METRIC_NAME]:.4f},<br>" \
                            f"Mean AoI: {info[AOI_METRIC_NAME]:.2f},<br>" \
                            f"Fresh Coverage: {info[MAIN_METRIC_NAME]:.2f}" \
-                           f"Total Reward: {np.sum(self.agent_reward_time_list):.2f}"
+                           f"Total Reward: {np.sum(self.agent_rewards_time_list):.2f}"
                 # f"Data Collect: {info[DATA_METRIC_NAME]:.4f}, " \
             folium.map.Marker(
                 [self.upper_right[1], self.upper_right[0]],
@@ -1065,6 +1077,13 @@ class CrowdSim:
             my_render_map.get_root().render()
             my_render_map.get_root().save(output_file)
             logging.info(f"{output_file} saved!")
+            # write agent_emergency_table as a tsv file
+            if self.dynamic_zero_shot:
+                emergency_table = pd.DataFrame(self.agent_emergency_table)
+                # concatenate agent actual actions with emergency_table
+                emergency_table = pd.concat([emergency_table, pd.DataFrame(self.agent_actions_time_list[:, :, 1])],
+                                            axis=1)
+                emergency_table.to_csv(output_file.replace(".html", ".tsv"), sep='\t')
 
     def xy_to_dataframe(self, aoi_list, energy_list, id_list, max_latitude, max_longitude, timestamp_list, x_list,
                         y_list):
@@ -1473,6 +1492,50 @@ class RLlibCUDACrowdSim(MultiAgentEnv):
         # current_observation shape [n_envs, n_agent, dim_obs]
         next_obs = self.pull_vec_from_device_to_list(_OBSERVATIONS, self.obs_vec_dim)
         state_list = self.pull_vec_from_device_to_list(_STATE, self.env.vector_state_dim)
+
+        if self.centralized:
+            reward = np.repeat(self.env_wrapper.cuda_data_manager.pull_data_from_device(_GLOBAL_REWARD),
+                               repeats=self.num_agents).reshape(-1, self.num_agents)
+        else:
+            reward = self.env_wrapper.cuda_data_manager.pull_data_from_device(_REWARDS)
+        self.env.agent_rewards_time_list[self.env.timestep, :] = reward[0]
+        # convert observation to dict {EnvID: {AgentID: Action}...}
+        obs_list, reward_list, info_list = [], [], []
+        for env_index in range(self.num_envs):
+            one_obs, one_reward = get_rllib_obs_and_reward(self.agents, state_list[env_index],
+                                                           next_obs[env_index], reward[env_index])
+            obs_list.append(one_obs)
+            reward_list.append(one_reward)
+            info_list.append({})
+        if self.evaluate_count_down <= 0:
+            self.render()
+        if all(dones):
+            logging.debug("All OK!")
+            if self.evaluate_count_down <= 0:
+                self.evaluate_count_down = self.eval_interval
+            else:
+                self.evaluate_count_down -= 1
+            log_env_metrics(info, self.evaluate_count_down)
+            if wandb.run is not None:
+                for i in range(self.num_agents):
+                    wandb.log({"agent_reward/agent_{}".format(i): self.env.agent_rewards_time_list[:, i].sum()})
+        return obs_list, reward_list, dones, info_list
+
+    def step(
+            self, action_dict: MultiAgentDict
+    ) -> Tuple[MultiAgentDict, MultiAgentDict, MultiAgentDict, MultiAgentDict]:
+        new_dict = action_dict.copy()
+        obs_list, reward_list, dones, info_list = self.vector_step([new_dict] * self.num_envs)
+        return obs_list[0], reward_list[0], dones[0], info_list[0]
+
+    def render(self, mode=None):
+        logging.debug("render called")
+        # add datetime to trajectory
+        datetime_str = datetime.now().strftime("%Y%m%d_%H%M%S")
+        self.env.render(f'{self.render_file_name}_{datetime_str}', True, False)
+
+    def log_aoi_grid(self):
+        pass
         # logging.debug(f"aoi_grid: {next_obs[0][_IMAGE_STATE][0][0]}, emergency_grid: {next_obs[0][_IMAGE_STATE][0][1]}")
         # if wandb.run is not None and self.evaluate_count_down % 50 == 0 and self.env.timestep % 20 == 0:
         #     for i, item in enumerate(next_obs[0][_IMAGE_STATE] if self.use_2d_state else next_obs[0]):
@@ -1494,43 +1557,6 @@ class RLlibCUDACrowdSim(MultiAgentEnv):
         #     wandb.log({"grids/state_aoi": state_aoi, "grids/emergency_aoi": emergency_aoi})
         # assert np.array_equal(next_obs[0][0][20 + grid_size * grid_size:],state_list[0][self.state_vec_dim + grid_size * grid_size:])
         # assert np.array_equal(next_obs[0][0][20 + grid_size * grid_size:],next_obs[0][-1][20 + grid_size * grid_size:])
-        if self.centralized:
-            reward = np.repeat(self.env_wrapper.cuda_data_manager.pull_data_from_device(_GLOBAL_REWARD),
-                               repeats=self.num_agents).reshape(-1, self.num_agents)
-        else:
-            reward = self.env_wrapper.cuda_data_manager.pull_data_from_device(_REWARDS)
-        # convert observation to dict {EnvID: {AgentID: Action}...}
-        obs_list, reward_list, info_list = [], [], []
-        for env_index in range(self.num_envs):
-            one_obs, one_reward = get_rllib_obs_and_reward(self.agents, state_list[env_index],
-                                                           next_obs[env_index], reward[env_index])
-            obs_list.append(one_obs)
-            reward_list.append(one_reward)
-            info_list.append({})
-        if self.evaluate_count_down <= 0:
-            self.render()
-        if all(dones):
-            logging.debug("All OK!")
-            if self.evaluate_count_down <= 0:
-                self.evaluate_count_down = self.eval_interval
-            else:
-                self.evaluate_count_down -= 1
-            log_env_metrics(info, self.evaluate_count_down)
-        return obs_list, reward_list, dones, info_list
-
-    def step(
-            self, action_dict: MultiAgentDict
-    ) -> Tuple[MultiAgentDict, MultiAgentDict, MultiAgentDict, MultiAgentDict]:
-        new_dict = action_dict.copy()
-        obs_list, reward_list, dones, info_list = self.vector_step([new_dict] * self.num_envs)
-        return obs_list[0], reward_list[0], dones[0], info_list[0]
-
-    def render(self, mode=None):
-        logging.debug("render called")
-        # add datetime to trajectory
-        datetime_str = datetime.now().strftime("%Y%m%d_%H%M%S")
-        self.env.render(f'{self.render_file_name}_{datetime_str}', True, False)
-
 
 def get_rllib_multi_agent_obs(current_observation, state, agents: list[Any]) -> MultiAgentDict:
     if isinstance(current_observation, np.ndarray):

@@ -121,11 +121,14 @@ if __name__ == '__main__':
     # (in remote mode, env and learner are on different processes)
     # 'share_policy': share_policy
     if args.render or args.ckpt:
-        uuid = "68f1b"
-        time_str = "2024-01-13_13-48-43"
-        checkpoint_num = 12000
+        uuid = "483d3"
+        time_str = "2024-01-14_20-48-57"
+        checkpoint_num = 20000
         backup_str = ""
         restore_dict = get_restore_dict(args, uuid, time_str, checkpoint_num, backup_str)
+        for info in [uuid, str(checkpoint_num)]:
+            if info not in env_params['render_file_name']:
+                env_params['render_file_name'] += f"_{info}"
     else:
         restore_dict = {}
     if args.render:
