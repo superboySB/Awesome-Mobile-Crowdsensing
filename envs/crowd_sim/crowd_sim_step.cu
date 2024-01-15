@@ -537,7 +537,7 @@ extern "C" {
     const int StateFullAgentFeature = kNumAgents * AgentFeature;
     const int state_vec_features = StateFullAgentFeature;
     const int state_features = state_vec_features + total_num_grids;
-    const int obs_vec_features = AgentFeature + (kNumAgentsObserved << 2) + FeaturesInEmergencyQueue;
+    const int obs_vec_features = AgentFeature + (kNumAgentsObserved << 2) + (FeaturesInEmergencyQueue + 1) * emergency_per_gen;
     const int obs_features = obs_vec_features + total_num_grids;
     const int kThisEnvStateOffset = kEnvId * state_features;
     int * this_emergency_allocation_table = emergency_allocation_table + kThisEnvAgentsOffset;
@@ -888,29 +888,32 @@ extern "C" {
     float my_y = agent_y_arr[kThisAgentArrayIdx];
     float * my_obs_at_emergency = obs_arr + kThisAgentArrayIdx * obs_features + AgentFeature + (kNumAgentsObserved << 2);
     int my_emergency_target = emergency_allocation_table[kThisAgentArrayIdx];
-//     for(int i = 0;i < FeaturesInEmergencyQueue * emergency_per_gen;i++){
-//       my_obs_at_emergency[i] = 0.0;
-//     }
+    for(int i = 0;i < FeaturesInEmergencyQueue * emergency_per_gen;i++){
+      my_obs_at_emergency[i] = 0.0;
+    }
     if(my_emergency_target != -1){
+      int actual_index = my_emergency_target - zero_shot_start;
       float target_x = target_x_time_list[kThisTargetPositionTimeListIdxOffset + my_emergency_target];
       float target_y = target_y_time_list[kThisTargetPositionTimeListIdxOffset + my_emergency_target];
-      my_obs_at_emergency[0] = target_x / kAgentXRange;
-      my_obs_at_emergency[1] = target_y / kAgentYRange;
-      my_obs_at_emergency[2] =
+      my_obs_at_emergency[FeaturesInEmergencyQueue * actual_index + 0] = target_x / kAgentXRange;
+      my_obs_at_emergency[FeaturesInEmergencyQueue * actual_index + 1] = target_y / kAgentYRange;
+      my_obs_at_emergency[FeaturesInEmergencyQueue * actual_index + 2] =
       target_aoi_arr[kThisTargetAgeArrayIdxOffset + my_emergency_target] * invEpisodeLength;
       float delta_x = (my_x - target_x) / kAgentXRange;
       float delta_y = (my_y - target_y) / kAgentYRange;
-      my_obs_at_emergency[3] =
+      my_obs_at_emergency[FeaturesInEmergencyQueue * actual_index + 3] =
       sqrt(delta_x * delta_x + delta_y * delta_y) * target_aoi_arr[kThisTargetAgeArrayIdxOffset + my_emergency_target];
-      // print four information in a row
+//       print four information in a row
 //       printf("Agent %d in %d allocated to emergency %d, distance: %f\n", kThisAgentId, kEnvId, my_emergency_target,
 //       sqrt(delta_x * delta_x + delta_y * delta_y));
+      // one hot that identifies this emergency
+      my_obs_at_emergency[FeaturesInEmergencyQueue * emergency_per_gen + actual_index] = 1.0;
     }
-    else{
-      for(int i = 0;i < FeaturesInEmergencyQueue;i++){
-        my_obs_at_emergency[i] = 0.0;
-      }
-    }
+//     else{
+//       for(int i = 0;i < FeaturesInEmergencyQueue;i++){
+//         my_obs_at_emergency[i] = 0.0;
+//       }
+//     }
 //         // find the next generation time
 //     int emergency_start_index = -1;
 //     for(int i = 0;i < emergency_count; i += emergency_per_gen){

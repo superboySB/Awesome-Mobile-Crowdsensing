@@ -558,7 +558,7 @@ class CrowdSim:
                                                 grid_size)
 
         # TODO: this full_queue is mock, no actual prediction is provided.
-        full_queue = np.zeros((self.num_agents, self.queue_feature))
+        full_queue = np.zeros((self.num_agents, (self.queue_feature + 1) * self.emergency_slots))
         if self.dynamic_zero_shot:
             current_aoi = self.target_aoi_timelist[self.timestep]
             valid_zero_shots_mask = (current_aoi > 1) & (np.arange(self.num_sensing_targets) > self.zero_shot_start) & \
@@ -1618,7 +1618,7 @@ class RLlibCUDACrowdSimWrapper(VectorEnv):
             return reset_obs_list
 
     def reset_at(self, index: Optional[int] = None) -> EnvObsType:
-        logging.debug(f"resetting environment {index} called")
+        # logging.debug(f"resetting environment {index} called")
         if index == 0 or self.obs_at_reset is None:
             self.obs_at_reset = self.vector_reset()
         return self.obs_at_reset[index]
