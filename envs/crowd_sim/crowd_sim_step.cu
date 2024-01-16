@@ -922,8 +922,11 @@ extern "C" {
       break;
       }
     }
-    // provide current emergency points to all agents
-        for(int i = 0;i < emergency_per_gen;i++){
+    // print emergency_start_index
+//     printf("Emergency Start Index: %d\n", emergency_start_index);
+    if (emergency_start_index != -1){
+      for(int i = 0;i < emergency_per_gen;i++){
+//         printf("Emergency Idx: %d\n", emergency_start_index + zero_shot_start);
           float target_x = target_x_time_list[kThisTargetPositionTimeListIdxOffset + emergency_start_index + zero_shot_start];
           float target_y = target_y_time_list[kThisTargetPositionTimeListIdxOffset + emergency_start_index + zero_shot_start];
           my_obs_at_emergency[i * FeaturesInEmergencyQueue + 0] = target_x / kAgentXRange;
@@ -935,6 +938,11 @@ extern "C" {
           target_aoi_arr[kThisTargetAgeArrayIdxOffset + emergency_start_index + zero_shot_start];
           emergency_start_index++;
         }
+    }
+//     else{
+//       memset(my_obs_at_emergency, 0, FeaturesInEmergencyQueue * emergency_per_gen * sizeof(float));
+//     }
+    // provide current emergency points to all agents
       // energy penalty
       if (agent_energy_arr[kThisAgentArrayIdx] <= 0) {
         rewards_arr[kThisAgentArrayIdx] -= 10;
