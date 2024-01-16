@@ -463,6 +463,7 @@ extern "C" {
   float * target_x_time_list,
   float * target_y_time_list,
   int * target_aoi_arr,
+  float mean_emergency_aoi,
   float * rewards_arr,
   int * this_emergency_allocation_table,
   int kEnvId,
@@ -491,16 +492,17 @@ extern "C" {
         float target_y = target_y_time_list[emergency_allocated];
         float delta_x = (agent_x - target_x) / kAgentXRange;
         float delta_y = (agent_y - target_y) / kAgentYRange;
-        rewards_arr[kThisAgentArrayIdx] -= sqrt(delta_x * delta_x + delta_y * delta_y) * target_aoi_arr[emergency_allocated];
+        rewards_arr[kThisAgentArrayIdx] += 2 * exp(-sqrt(delta_x * delta_x + delta_y * delta_y));
+//         rewards_arr[kThisAgentArrayIdx] -= sqrt(delta_x * delta_x + delta_y * delta_y) * target_aoi_arr[emergency_allocated];
 //         printf("Distance penalty of %d: %f\n", kThisAgentId, -sqrt(delta_x * delta_x + delta_y * delta_y));
         // print agent, emergency allocated and distance
 //         printf("Agent %d in %d allocated to emergency %d, distance: %f\n", kThisAgentId, kEnvId, emergency_allocated,
 //         sqrt(delta_x * delta_x + delta_y * delta_y));
       }
-//       else{
+      else{
 // //         printf("Agent %d in %d not allocated to any emergency\n", kThisAgentId, kEnvId);
-//         rewards_arr[kThisAgentArrayIdx] -= mean_emergency_aoi;
-//       }
+        rewards_arr[kThisAgentArrayIdx] -= mean_emergency_aoi;
+      }
     }
   }
   // k: const with timesteps, arr: on current timestep, time_list: multiple timesteps
@@ -558,7 +560,7 @@ extern "C" {
     const int kEnvId = getEnvID(blockIdx.x);
     const int kThisAgentId = getAgentID(threadIdx.x, blockIdx.x, blockDim.x);
     const int emergency_count = kNumTargets - zero_shot_start;
-//     float mean_emergency_aoi = 0.0;
+    float mean_emergency_aoi = 0.0;
     // Update Timestep
     // Increment time ONCE -- only 1 thread can do this.
     if (kThisAgentId == 0) {
@@ -810,10 +812,10 @@ extern "C" {
       }
       global_rewards_arr[kEnvId] = global_reward;
 
-//         for(int i = zero_shot_start;i < kNumTargets;i++){
-//           mean_emergency_aoi += (target_aoi_arr[kThisTargetAgeArrayIdxOffset + i] - 1);
-//         }
-//         mean_emergency_aoi /= emergency_count;
+        for(int i = zero_shot_start;i < kNumTargets;i++){
+          mean_emergency_aoi += (target_aoi_arr[kThisTargetAgeArrayIdxOffset + i] - 1);
+        }
+        mean_emergency_aoi /= emergency_count;
     }
     __sync_env_threads(); // Make sure all agents have calculated the reward and updated emergency allocation
 
@@ -867,6 +869,7 @@ extern "C" {
         target_x_time_list + kThisTargetPositionTimeListIdxOffset,
         target_y_time_list + kThisTargetPositionTimeListIdxOffset,
         target_aoi_arr + kThisTargetAgeArrayIdxOffset,
+        mean_emergency_aoi,
         rewards_arr,
         this_emergency_allocation_table,
         kEnvId,
