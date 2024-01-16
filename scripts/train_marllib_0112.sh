@@ -2,8 +2,8 @@
 
 dataset_name='SanFrancisco'
 exp_name='WARP'_$dataset_name
-session_name=$exp_name
-cards=(1 1 1 0 2 3)
+session_name=$exp_name'_3'
+cards=(1 2 3)
 card_num=${#cards[@]}
 dry_run=false
 # Process command-line arguments

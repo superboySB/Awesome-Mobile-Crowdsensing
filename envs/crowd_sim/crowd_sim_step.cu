@@ -779,7 +779,8 @@ extern "C" {
     __sync_env_threads(); // Make sure all agents have calculated the reward
     // check emergency allocation and give extra reward
     if (dynamic_zero_shot && kThisAgentId < kNumAgents) {
-      if (this_emergency_allocation_table[kThisAgentId] != -1) {
+    bool current_coverage = target_coverage_arr[kThisTargetAgeArrayIdxOffset + this_emergency_allocation_table[kThisAgentId]];
+      if (this_emergency_allocation_table[kThisAgentId] != -1 && (!current_coverage)) {
         int emergency_allocated = this_emergency_allocation_table[kThisAgentId];
         // reward divide by delay
 //         rewards_arr[kThisAgentArrayIdx] /= target_aoi_arr[kThisTargetAgeArrayIdxOffset + emergency_allocated];
@@ -792,16 +793,18 @@ extern "C" {
         float target_y = target_y_time_list[kThisTargetPositionTimeListIdxOffset + emergency_allocated];
         float delta_x = (agent_x - target_x) / kAgentXRange;
         float delta_y = (agent_y - target_y) / kAgentYRange;
+        // test, calculate bonus as exp^(-3 * dist)
+//         rewards_arr[kThisAgentArrayIdx] += 5 * exp(-3 * sqrt(delta_x * delta_x + delta_y * delta_y));
         rewards_arr[kThisAgentArrayIdx] -= sqrt(delta_x * delta_x + delta_y * delta_y) * target_aoi_arr[kThisTargetAgeArrayIdxOffset + emergency_allocated];
 //         printf("Distance penalty of %d: %f\n", kThisAgentId, -sqrt(delta_x * delta_x + delta_y * delta_y));
         // print agent, emergency allocated and distance
 //         printf("Agent %d in %d allocated to emergency %d, distance: %f\n", kThisAgentId, kEnvId, emergency_allocated,
 //         sqrt(delta_x * delta_x + delta_y * delta_y));
       }
-//       else{
-// //         printf("Agent %d in %d not allocated to any emergency\n", kThisAgentId, kEnvId);
-//         rewards_arr[kThisAgentArrayIdx] -= mean_emergency_aoi;
-//       }
+      else{
+//         printf("Agent %d in %d not allocated to any emergency\n", kThisAgentId, kEnvId);
+        rewards_arr[kThisAgentArrayIdx] -= mean_emergency_aoi;
+      }
     }
     __sync_env_threads(); // Make sure all agents have calculated the reward
     // Generate State (only the first agent can generate state AoI)
@@ -911,15 +914,17 @@ extern "C" {
         my_obs_at_emergency[i] = 0.0;
       }
     }
-//         // find the next generation time
+        // find current generation time
 //     int emergency_start_index = -1;
 //     for(int i = 0;i < emergency_count; i += emergency_per_gen){
-//       if(env_timestep < aoi_schedule[i]){
+//       if(env_timestep > aoi_schedule[i]){
 //         emergency_start_index = i;
-//         break;
+//       }
+//       else{
+//       break;
 //       }
 //     }
-//     // Test, give future emergency points to all agents
+//     // Test, give current emergency points to all agents
 //         for(int i = 1;i < emergency_per_gen + 1;i++){
 //           float target_x = target_x_time_list[kThisTargetPositionTimeListIdxOffset + emergency_start_index + zero_shot_start];
 //           float target_y = target_y_time_list[kThisTargetPositionTimeListIdxOffset + emergency_start_index + zero_shot_start];
