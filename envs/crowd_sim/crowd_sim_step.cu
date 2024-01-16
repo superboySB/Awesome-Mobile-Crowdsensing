@@ -794,8 +794,8 @@ extern "C" {
         float delta_x = (agent_x - target_x) / kAgentXRange;
         float delta_y = (agent_y - target_y) / kAgentYRange;
         // test, calculate bonus as exp^(-3 * dist)
-//         rewards_arr[kThisAgentArrayIdx] += 5 * exp(-3 * sqrt(delta_x * delta_x + delta_y * delta_y));
-        rewards_arr[kThisAgentArrayIdx] -= sqrt(delta_x * delta_x + delta_y * delta_y) * target_aoi_arr[kThisTargetAgeArrayIdxOffset + emergency_allocated];
+        rewards_arr[kThisAgentArrayIdx] += 5 * exp(-3 * sqrt(delta_x * delta_x + delta_y * delta_y));
+//         rewards_arr[kThisAgentArrayIdx] -= sqrt(delta_x * delta_x + delta_y * delta_y) * target_aoi_arr[kThisTargetAgeArrayIdxOffset + emergency_allocated];
 //         printf("Distance penalty of %d: %f\n", kThisAgentId, -sqrt(delta_x * delta_x + delta_y * delta_y));
         // print agent, emergency allocated and distance
 //         printf("Agent %d in %d allocated to emergency %d, distance: %f\n", kThisAgentId, kEnvId, emergency_allocated,
