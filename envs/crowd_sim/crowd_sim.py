@@ -19,6 +19,7 @@ import pandas as pd
 from folium import DivIcon
 from folium.plugins import TimestampedGeoJson, AntPath
 from gym import spaces
+from gym.spaces import Discrete, Box, MultiDiscrete
 from ray.rllib.env import GroupAgentsWrapper
 
 from run_configs.mcs_configs_python import PROJECT_NAME
@@ -289,6 +290,36 @@ class CrowdSim:
         assert not np.isnan(self.target_theta_timelist).any()
 
         # agent infos
+        # Types and Status of vehicles
+        self.agent_types = self.int_dtype(np.ones([self.num_agents, ]))
+        self.cars = {}
+        self.drones = {}
+        for agent_id in range(self.num_agents):
+            if agent_id < self.num_cars:
+                self.agent_types[agent_id] = 0  # Car
+                self.cars[agent_id] = True
+            else:
+                self.agent_types[agent_id] = 1  # Drone
+                self.drones[agent_id] = True
+        self.drone_action_space_dx = self.float_dtype(self.config.env.drone_action_space[:, 0])
+        self.drone_action_space_dy = self.float_dtype(self.config.env.drone_action_space[:, 1])
+        self.car_action_space_dx = self.float_dtype(self.config.env.car_action_space[:, 0])
+        self.car_action_space_dy = self.float_dtype(self.config.env.car_action_space[:, 1])
+        self.action_space = spaces.Dict()
+        self.emergency_slots = self.points_per_gen
+        for agent_id in range(self.num_agents):
+            # note one action for not choosing any emergency.
+            if self.agent_types[agent_id] == 1:
+                self.action_space[agent_id] = Discrete(len(self.drone_action_space_dx))
+                # self.action_space[agent_id] = MultiDiscrete([len(self.drone_action_space_dx), self.emergency_slots + 1])
+            else:
+                self.action_space[agent_id] = Discrete(len(self.car_action_space_dx))
+                # self.action_space[agent_id] = MultiDiscrete([len(self.car_action_space_dx), self.emergency_slots + 1])
+        if isinstance(self.action_space[0], MultiDiscrete):
+            self.action_dim = self.action_space[0].nvec[0]
+        else:
+            self.action_dim = self.action_space[0].n
+
         self.timestep = 0
         self.starting_location_x = self.nlon / 2
         self.starting_location_y = self.nlat / 2
@@ -302,17 +333,6 @@ class CrowdSim:
         self.emergency_allocation_table = np.full([self.emergency_count, ], -1, dtype=self.int_dtype)
         self.agent_reward_time_list = np.zeros([self.episode_length + 1, self.num_agents], dtype=self.float_dtype)
         self.data_collection = 0
-        # Types and Status of vehicles
-        self.agent_types = self.int_dtype(np.ones([self.num_agents, ]))
-        self.cars = {}
-        self.drones = {}
-        for agent_id in range(self.num_agents):
-            if agent_id < self.num_cars:
-                self.agent_types[agent_id] = 0  # Car
-                self.cars[agent_id] = True
-            else:
-                self.agent_types[agent_id] = 1  # Drone
-                self.drones[agent_id] = True
 
         # These will be set during reset (see below)
         self.timestep = None
@@ -322,7 +342,7 @@ class CrowdSim:
         # neighbor_aoi_grids (10 * 10) = 122
         self.observation_space = None  # Note: this will be set via the env_wrapper
         # state = (type,energy,x,y) * self.num_agents + neighbor_aoi_grids (10 * 10)
-        self.vector_state_dim = self.num_agents * 8
+        self.vector_state_dim = (self.num_agents + 4) * self.num_agents + self.emergency_count * 4
         self.image_state_dim = 100
         if self.use_2d_state:
             self.global_state = {
@@ -369,7 +389,7 @@ class CrowdSim:
         random.shuffle(self.available_colors)
         # Initialize an index to keep track of the selected color
         self.selected_color_index = 0
-        self.queue_feature = 4
+        self.queue_feature = 2
         self.queue_length = 10
 
     def get_next_color(self):
@@ -553,17 +573,17 @@ class CrowdSim:
                                                     self.timestep > self.aoi_schedule]) & \
                                     (self.target_coveraged_timelist[self.timestep] == 0)
             # find valid emergencies only
-            zero_shot_aois, zero_shot_x, zero_shot_y = (current_aoi[valid_zero_shots_mask],
-                                                        self.target_x_time_list[self.timestep, valid_zero_shots_mask],
-                                                        self.target_y_time_list[self.timestep, valid_zero_shots_mask])
+            # zero_shot_aois, zero_shot_x, zero_shot_y = (current_aoi[valid_zero_shots_mask],
+            #                                             self.target_x_time_list[self.timestep, valid_zero_shots_mask],
+            #                                             self.target_y_time_list[self.timestep, valid_zero_shots_mask])
             # select the part of global distance matrix, where distances between all zero_shot points and all agents
             # are included
-            zero_shot_distance_matrix = self.global_distance_matrix[self.num_agents:][valid_zero_shots_mask,
-                                        :self.num_agents]
+            # zero_shot_distance_matrix = self.global_distance_matrix[self.num_agents:][valid_zero_shots_mask,
+            #                             :self.num_agents]
             # select the nearest agents for each zero_shot points
             # zero_shot_nearest_agents_ids = np.argsort(zero_shot_distance_matrix, axis=-1, kind='stable')
             # calculate distance of each zero_shot points to each agent and argsort
-            zero_shot_distance_to_agents = np.argsort(zero_shot_distance_matrix, axis=0, kind='stable')[:10]
+            # zero_shot_distance_to_agents = np.argsort(zero_shot_distance_matrix, axis=0, kind='stable')[:10]
             # fill the queue of each agent according to argsort result, features are listed in the order (x,y,aoi,distance)
             # for agent_id in range(self.num_agents):
             #     if len(zero_shot_distance_to_agents[:, agent_id]) > 0:
@@ -588,9 +608,17 @@ class CrowdSim:
                                                  hetero_parts.reshape(self.num_agents, -1), full_queue)))
         # Global state
         if self.use_2d_state:
+            emergency_status = np.where(self.timestep > self.aoi_schedule,
+                                        self.target_coveraged_timelist[self.timestep, self.zero_shot_start:],
+                                        -1)
+            emergency_state = np.vstack([self.target_x_time_list[self.timestep, self.zero_shot_start:] / self.nlon,
+                                         self.target_y_time_list[self.timestep, self.zero_shot_start:] / self.nlat,
+                                         self.target_aoi_timelist[self.timestep, self.zero_shot_start:],
+                                         emergency_status]).T
+            vector_state = np.concatenate([agents_state.ravel(), emergency_state.ravel()])
             self.global_state = {
-                _VECTOR_STATE: self.float_dtype(agents_state.ravel()),
-                _IMAGE_STATE: self.float_dtype(state_aoi_grid)
+                _VECTOR_STATE: self.float_dtype(vector_state),
+                _IMAGE_STATE: self.float_dtype(state_aoi_grid),
             }
             for array in self.global_state.values():
                 logging.debug("Global state shape: {}".format(array.shape))
@@ -1247,8 +1275,8 @@ def get_space(new_space: spaces.Dict, obs_example: Union[dict, np.ndarray], upda
         for key, value in obs_example.items():
             if len(value.shape) != 1:
                 # 2d or 3d observation space
-                new_space[update_key][key] = spaces.Box(low=np.full_like(value, -np.inf),
-                                                        high=np.full_like(value, np.inf))
+                new_space[update_key][key] = Box(low=np.full_like(value, -np.inf),
+                                                 high=np.full_like(value, np.inf))
             else:
                 new_space[update_key][key] = binary_search_bound(value)
         logging.debug(new_space)
@@ -1338,6 +1366,7 @@ class RLlibCUDACrowdSim(MultiAgentEnv):
                 get_space(self.observation_space, state, "state")
         except AttributeError:
             pass
+
         if "mock" not in additional_params and self.env_wrapper.env_backend == "pycuda":
             from warp_drive.cuda_managers.pycuda_function_manager import (
                 PyCUDASampler,
