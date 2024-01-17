@@ -916,7 +916,7 @@ class CrowdSim:
                 robot_df = self.xy_to_dataframe(aoi_list, energy_list, id_list, max_latitude,
                                                 max_longitude, timestamp_list, x_list, y_list)
                 robot_df['reward'] = self.agent_rewards_time_list[:, i]
-                robot_df['selection'] = self.agent_actions_time_list[:, i, 1]
+                robot_df['selection'] = self.agent_actions_time_list[:, i, 0]
                 # Add reward timelist for rendering.
                 mixed_df = pd.concat([mixed_df, robot_df])
             # add emergency targets.
