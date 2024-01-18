@@ -2,7 +2,8 @@ import argparse
 import logging
 import os
 import warnings
-
+from typing import List
+import numpy as np
 from marllib import marl
 from marllib.marl.common import algo_type_dict
 from marllib.envs.base_env import ENV_REGISTRY
@@ -12,11 +13,20 @@ import setproctitle
 from common import add_common_arguments, logging_dir, customize_experiment, is_valid_format, get_restore_dict
 from envs.crowd_sim.crowd_sim import (RLlibCUDACrowdSim, LARGE_DATASET_NAME,
                                       RLlibCUDACrowdSimWrapper, user_override_params)
+from ray.tune import Callback
 
+
+class MyCallback(Callback):
+    def on_step_end(self, iteration: int, trials: List["Trial"], **info):
+        print("test")
 # register all scenario with env class
 REGISTRY = {}
 # add nvcc path to os environment
 os.environ["PATH"] += os.pathsep + '/usr/local/cuda/bin'
+
+# ray custom callback
+
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
