@@ -749,7 +749,10 @@ extern "C" {
         float delta_x = (agent_x - target_x) / kAgentXRange;
         float delta_y = (agent_y - target_y) / kAgentYRange;
         rewards_arr[kThisAgentArrayIdx] -= sqrt(delta_x * delta_x + delta_y * delta_y) * target_aoi_arr[kThisTargetAgeArrayIdxOffset + emergency_allocated];
-//         printf("Distance penalty of %d: %f\n", kThisAgentId, -sqrt(delta_x * delta_x + delta_y * delta_y));
+        printf("%d %d Agent Location: %f, %f\n", kEnvId, kThisAgentId, agent_x, agent_y);
+        printf("%d Target Location: %f, %f\n", kEnvId, target_x, target_y);
+        printf("%d %d Distance penalty: %f\n", kEnvId, kThisAgentId, -sqrt(delta_x * delta_x + delta_y * delta_y));
+        printf("%d Target AoI: %d\n", kEnvId, target_aoi_arr[kThisTargetAgeArrayIdxOffset + emergency_allocated]);
         // print agent, emergency allocated and distance
 //         printf("Agent %d in %d allocated to emergency %d, distance: %f\n", kThisAgentId, kEnvId, emergency_allocated,
 //         sqrt(delta_x * delta_x + delta_y * delta_y));
