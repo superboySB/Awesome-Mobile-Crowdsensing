@@ -897,18 +897,14 @@ extern "C" {
     if(my_emergency_target != -1){
       float target_x = target_x_time_list[kThisTargetPositionTimeListIdxOffset + my_emergency_target];
       float target_y = target_y_time_list[kThisTargetPositionTimeListIdxOffset + my_emergency_target];
-//       my_obs_at_emergency[0] = target_x / kAgentXRange;
-//       my_obs_at_emergency[1] = target_y / kAgentYRange;
-      my_obs_at_emergency[0] = 0.0;
-      my_obs_at_emergency[1] = 0.0;
-      my_obs_at_emergency[2] = 0.0;
-      my_obs_at_emergency[3] = 0.0;
-//       my_obs_at_emergency[2] =
-//       target_aoi_arr[kThisTargetAgeArrayIdxOffset + my_emergency_target] * invEpisodeLength;
-//       float delta_x = (my_x - target_x) / kAgentXRange;
-//       float delta_y = (my_y - target_y) / kAgentYRange;
-//       my_obs_at_emergency[3] =
-//       sqrt(delta_x * delta_x + delta_y * delta_y) * target_aoi_arr[kThisTargetAgeArrayIdxOffset + my_emergency_target];
+      my_obs_at_emergency[0] = target_x / kAgentXRange;
+      my_obs_at_emergency[1] = target_y / kAgentYRange;
+      my_obs_at_emergency[2] =
+      target_aoi_arr[kThisTargetAgeArrayIdxOffset + my_emergency_target] * invEpisodeLength;
+      float delta_x = (my_x - target_x) / kAgentXRange;
+      float delta_y = (my_y - target_y) / kAgentYRange;
+      my_obs_at_emergency[3] =
+      sqrt(delta_x * delta_x + delta_y * delta_y) * target_aoi_arr[kThisTargetAgeArrayIdxOffset + my_emergency_target];
 //     // print four information in a row
 //       printf("Agent %d in %d allocated to emergency %d, distance: %f\n", kThisAgentId, kEnvId, my_emergency_target,
 //       sqrt(delta_x * delta_x + delta_y * delta_y));
