@@ -1366,7 +1366,6 @@ class RLlibCUDACrowdSim(MultiAgentEnv):
                 get_space(self.observation_space, state, "state")
         except AttributeError:
             pass
-
         if "mock" not in additional_params and self.env_wrapper.env_backend == "pycuda":
             from warp_drive.cuda_managers.pycuda_function_manager import (
                 PyCUDASampler,
