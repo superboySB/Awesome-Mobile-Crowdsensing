@@ -30,7 +30,7 @@ int* done, int feature_dim, int force_reset) {
   }
 }
 
-__global__ void reset_in_bool_when_done_2d(bool* data, const int* ref,
+__global__ void reset_in_bool_when_done_2d(bool* data, const bool* ref,
 int* done, int feature_dim, int force_reset) {
   int env_id = getEnvID(blockIdx.x);
   int tid = getAgentID(threadIdx.x, blockIdx.x, blockDim.x);

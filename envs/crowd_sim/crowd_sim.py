@@ -1521,8 +1521,11 @@ class RLlibCUDACrowdSim(MultiAgentEnv):
         else:
             reward = self.env_wrapper.cuda_data_manager.pull_data_from_device(_REWARDS)
         # convert observation to dict {EnvID: {AgentID: Action}...}
+        # rewards_all_zero = np.all(reward == 0)
         obs_list, reward_list, info_list = [], [], []
         for env_index in range(self.num_envs):
+            # if not rewards_all_zero and np.mean(reward[env_index]) == 0:
+            #     print(f"Reward all zero in env {env_index}")
             one_obs, one_reward = get_rllib_obs_and_reward(self.agents, state_list[env_index],
                                                            next_obs[env_index], reward[env_index])
             obs_list.append(one_obs)
