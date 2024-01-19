@@ -14,7 +14,7 @@ extern "C" __global__ void reset_in_int_when_done_2d(int* data,
     const int* ref, int* done, int feature_dim, int force_reset = 0);
 
 extern "C" __global__ void reset_in_bool_when_done_2d(bool* data,
-    const int* ref, int* done, int feature_dim, int force_reset = 0);
+    const bool* ref, int* done, int feature_dim, int force_reset = 0);
 
 extern "C" __global__ void reset_in_float_when_done_3d(float* data,
     const float* ref, int* done, int agent_dim, int feature_dim,
