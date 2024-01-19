@@ -49,6 +49,8 @@ if __name__ == '__main__':
     parser.add_argument("--ckpt", action='store_true', help='load checkpoint')
     parser.add_argument("--share_policy", choices=['all', 'group', 'individual'], default='all')
     parser.add_argument("--separate_render", action='store_true', help='render file will be stored separately')
+    parser.add_argument('--no_refresh', action='store_true', help='do not reset randomly generated emergency points')
+    parser.add_argument("--selector_type", type=str, default='NN', choices=['NN', 'greedy', 'oracle', 'random'])
     # parser.add_argument("--ckpt", nargs=3, type=str, help='uuid, time_str, checkpoint_num to restore')
     args = parser.parse_args()
 
@@ -60,6 +62,8 @@ if __name__ == '__main__':
     # make dir
     if args.core_arch == 'crowdsim_net':
         assert args.env == 'crowdsim', f"crowdsim_net only supports crowdsim env, got {args.env}"
+        assert args.use_2d_state and args.dynamic_zero_shot, \
+            f"crowdsim_net only supports 2d state and dynamic zero shot"
     if not os.path.exists(this_expr_dir):
         os.makedirs(this_expr_dir)
     logging.debug("experiment name: %s", expr_name)
@@ -124,8 +128,11 @@ if __name__ == '__main__':
     assert args.algo in algorithm_list, f"algorithm {args.algo} not supported, please implement your custom algorithm"
     algorithm_object: _Algo = getattr(marl.algos, args.algo)(hyperparam_source="common", **custom_algo_params)
     # customize model
-    model = marl.build_model(env, algorithm_object, {"core_arch": args.core_arch,
-                                                     "encode_layer": args.encoder_layer})
+    model_preference = {"core_arch": args.core_arch, "encode_layer": args.encoder_layer}
+    if args.env == 'crowdsim':
+        for item in ['selector_type']:
+            model_preference[item] = getattr(args, item)
+    model = marl.build_model(env, algorithm_object, model_preference)
     # start learning
     # passing logging_config to fit is for trainer Initialization
     # (in remote mode, env and learner are on different processes)

@@ -535,7 +535,8 @@ extern "C" {
     const int EmergencyQueueLength = 10;
     const int FeaturesInEmergencyQueue = 2;
     const int StateFullAgentFeature = kNumAgents * AgentFeature;
-    const int state_vec_features = StateFullAgentFeature + emergency_count * 4;
+    // add timestep to state for neural network resetting.
+    const int state_vec_features = StateFullAgentFeature + emergency_count * 4 + 1;
     const int state_features = state_vec_features + total_num_grids;
     const int obs_vec_features = AgentFeature + (kNumAgentsObserved << 2) + FeaturesInEmergencyQueue;
     const int obs_features = obs_vec_features + total_num_grids;
@@ -827,6 +828,19 @@ extern "C" {
       //       state_arr + kThisEnvStateOffset + state_vec_features + 100);
       memset(state_arr + kThisEnvStateOffset, 0, state_vec_features * sizeof(float));
       //       printf("Grid Center (%f, %f)\n", max_distance_x / 2, max_distance_y / 2);
+      // copy each emergency (x,y,aoi,coverage) status to the end of state_arr using for loop
+      for (int i = 0; i < emergency_count; i++) {
+        int emergency_idx = i + zero_shot_start;
+        float target_x = target_x_time_list[kThisTargetPositionTimeListIdxOffset + emergency_idx];
+        float target_y = target_y_time_list[kThisTargetPositionTimeListIdxOffset + emergency_idx];
+        int target_aoi = target_aoi_arr[kThisTargetAgeArrayIdxOffset + emergency_idx];
+        bool target_coverage = target_coverage_arr[kThisTargetAgeArrayIdxOffset + emergency_idx];
+        state_arr[kThisEnvStateOffset + StateFullAgentFeature + i * 4 + 0] = target_x / kAgentXRange;
+        state_arr[kThisEnvStateOffset + StateFullAgentFeature + i * 4 + 1] = target_y / kAgentYRange;
+        state_arr[kThisEnvStateOffset + StateFullAgentFeature + i * 4 + 2] = target_aoi;
+        state_arr[kThisEnvStateOffset + StateFullAgentFeature + i * 4 + 3] = env_timestep > aoi_schedule[i] ? target_coverage : -1;
+      }
+      state_arr[state_vec_features - 1] = env_timestep;
       CUDACrowdSimGenerateAoIGrid(
         state_arr + kThisEnvStateOffset + state_vec_features,
         max_distance_x >> 1,
@@ -845,18 +859,7 @@ extern "C" {
         kThisAgentId,
         kEnvId
       );
-      // copy each emergency (x,y,aoi,coverage) status to the end of state_arr using for loop
-      for (int i = 0; i < emergency_count; i++) {
-        int emergency_idx = i + zero_shot_start;
-        float target_x = target_x_time_list[kThisTargetPositionTimeListIdxOffset + emergency_idx];
-        float target_y = target_y_time_list[kThisTargetPositionTimeListIdxOffset + emergency_idx];
-        int target_aoi = target_aoi_arr[kThisTargetAgeArrayIdxOffset + emergency_idx];
-        bool target_coverage = target_coverage_arr[kThisTargetAgeArrayIdxOffset + emergency_idx];
-        state_arr[kThisEnvStateOffset + StateFullAgentFeature + i * 4 + 0] = target_x / kAgentXRange;
-        state_arr[kThisEnvStateOffset + StateFullAgentFeature + i * 4 + 1] = target_y / kAgentYRange;
-        state_arr[kThisEnvStateOffset + StateFullAgentFeature + i * 4 + 2] = target_aoi;
-        state_arr[kThisEnvStateOffset + StateFullAgentFeature + i * 4 + 3] = env_timestep > aoi_schedule[i] ? target_coverage : -1;
-      }
+
     }
     __sync_env_threads(); // Wait here until state AoI are generated (emergency AoIs are shared.)
     // -------------------------------

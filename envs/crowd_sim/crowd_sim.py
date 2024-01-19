@@ -60,7 +60,7 @@ SURVEILLANCE_METRIC = "surveillance_aoi"
 VALID_HANDLING_RATIO = "valid_handling_ratio"
 
 user_override_params = ['env_config', 'dynamic_zero_shot', 'use_2d_state', 'all_random',
-                        'num_drones', 'num_cars', 'cut_points', 'fix_target', 'gen_interval']
+                        'num_drones', 'num_cars', 'cut_points', 'fix_target', 'gen_interval', 'no_refresh']
 
 grid_size = 10
 
@@ -161,10 +161,12 @@ class CrowdSim:
             all_random=False,
             cut_points=-1,
             gen_interval=30,
+            no_refresh=False,
     ):
         self.float_dtype = np.float32
         self.single_type_agent = single_type_agent
         self.int_dtype = np.int32
+        self.no_refresh = no_refresh
         self.bool_dtype = np.bool_
         # small number to prevent indeterminate cases
         self.eps = self.float_dtype(1e-10)
@@ -236,6 +238,10 @@ class CrowdSim:
                 self.emergency_count = (self.num_centers * self.num_points_per_center)
                 self.num_sensing_targets += self.emergency_count
                 # add visualization parts of dynamic generated points.
+            else:
+                self.zero_shot_start = 0
+                self.emergency_count = 0
+                self.points_per_gen = 0
         # human infos
         unique_ids = np.arange(0, self.num_sensing_targets)  # id from 0 to 91
         unique_timestamps = np.arange(self.start_timestamp, self.end_timestamp + self.step_time, self.step_time)
@@ -330,7 +336,8 @@ class CrowdSim:
                                          fill_value=self.starting_location_x, dtype=self.float_dtype)
         self.agent_y_time_list = np.full([self.episode_length + 1, self.num_agents],
                                          fill_value=self.starting_location_y, dtype=self.float_dtype)
-        self.emergency_allocation_table = np.full([self.emergency_count, ], -1, dtype=self.int_dtype)
+        if self.dynamic_zero_shot:
+            self.emergency_allocation_table = np.full([self.emergency_count, ], -1, dtype=self.int_dtype)
         self.agent_emergency_table = np.full([self.episode_length + 1, self.num_agents], fill_value=-1,
                                              dtype=self.int_dtype)
         self.agent_actions_time_list = np.zeros([self.episode_length + 1, self.num_agents, self.action_dim],
@@ -346,7 +353,7 @@ class CrowdSim:
         # neighbor_aoi_grids (10 * 10) = 122
         self.observation_space = None  # Note: this will be set via the env_wrapper
         # state = (type,energy,x,y) * self.num_agents + neighbor_aoi_grids (10 * 10)
-        self.vector_state_dim = (self.num_agents + 4) * self.num_agents + self.emergency_count * 4
+        self.vector_state_dim = (self.num_agents + 4) * self.num_agents + self.emergency_count * 4 + 1
         self.image_state_dim = 100
         if self.use_2d_state:
             self.global_state = {
@@ -441,7 +448,8 @@ class CrowdSim:
         self.agent_x_time_list[self.timestep, :] = self.starting_location_x
         self.agent_y_time_list[self.timestep, :] = self.starting_location_y
         self.agent_energy_timelist[self.timestep, :] = self.max_uav_energy
-        self.emergency_allocation_table[:] = -1
+        if self.dynamic_zero_shot:
+            self.emergency_allocation_table[:] = -1
         # for target_id in range(self.num_sensing_targets):
         self.target_aoi_timelist = np.zeros([self.episode_length + 1, self.num_sensing_targets], dtype=np.int_)
         self.target_aoi_timelist[self.timestep, :] = 1
@@ -603,8 +611,9 @@ class CrowdSim:
                                                 grid_size)
         vector_obs = self.float_dtype(np.hstack((agents_state, homoge_parts.reshape(self.num_agents, -1),
                                                  hetero_parts.reshape(self.num_agents, -1), full_queue)))
+
         # Global state
-        if self.use_2d_state:
+        if self.dynamic_zero_shot:
             emergency_status = np.where(self.timestep > self.aoi_schedule,
                                         self.target_coveraged_timelist[self.timestep, self.zero_shot_start:],
                                         -1)
@@ -612,7 +621,10 @@ class CrowdSim:
                                          self.target_y_time_list[self.timestep, self.zero_shot_start:] / self.nlat,
                                          self.target_aoi_timelist[self.timestep, self.zero_shot_start:],
                                          emergency_status]).T
-            vector_state = np.concatenate([agents_state.ravel(), emergency_state.ravel()])
+            vector_state = np.concatenate([agents_state.ravel(), emergency_state.ravel(), np.array([self.timestep])])
+        else:
+            vector_state = np.concatenate([agents_state.ravel(), np.array([self.timestep])])
+        if self.use_2d_state:
             self.global_state = {
                 _VECTOR_STATE: self.float_dtype(vector_state),
                 _IMAGE_STATE: self.float_dtype(state_aoi_grid),
@@ -632,7 +644,7 @@ class CrowdSim:
             aoi_grids = aoi_grid_parts.reshape(self.num_agents, -1)
             observations = self.float_dtype(np.hstack((vector_obs,
                                                        aoi_grids.reshape(self.num_agents, -1))))
-            self.global_state = self.float_dtype(np.concatenate([agents_state.ravel(),
+            self.global_state = self.float_dtype(np.concatenate([vector_state,
                                                                  state_aoi_grid.ravel()]))
             observations = {agent_id: observations[agent_id] for agent_id in range(self.num_agents)}
         return observations
@@ -882,13 +894,14 @@ class CrowdSim:
             agent_emergency_allocation = self.cuda_data_manager.pull_data_from_device("emergency_allocation_table")[0]
             self.agent_rewards_time_list[self.timestep, :] = self.cuda_data_manager.pull_data_from_device(_REWARDS)[0]
             self.agent_actions_time_list[self.timestep, :] = self.cuda_data_manager.pull_data_from_device(_ACTIONS)[0]
-            # get emergency index where the allocation table is not -1
-            num_of_normal_targets = self.num_sensing_targets - self.emergency_count
-            for i in range(self.num_agents):
-                emergency_index = agent_emergency_allocation[i]
-                if emergency_index != -1:
-                    self.emergency_allocation_table[emergency_index - num_of_normal_targets] = i
-            self.agent_emergency_table[self.timestep] = agent_emergency_allocation
+            if self.dynamic_zero_shot:
+                # get emergency index where the allocation table is not -1
+                num_of_normal_targets = self.num_sensing_targets - self.emergency_count
+                for i in range(self.num_agents):
+                    emergency_index = agent_emergency_allocation[i]
+                    if emergency_index != -1:
+                        self.emergency_allocation_table[emergency_index - num_of_normal_targets] = i
+                self.agent_emergency_table[self.timestep] = agent_emergency_allocation
             # agent_emergency_allocation will now be the index of emergency points, where the index of
             # agent_emergency_allocation are the allocated agents.
             # agent table
@@ -934,7 +947,10 @@ class CrowdSim:
                     robot_df = self.xy_to_dataframe(delay_list, energy_list, id_list, max_latitude,
                                                     max_longitude, timestamp_list, x_list, y_list)
                     robot_df['creation_time'] = self.aoi_schedule[i - self.zero_shot_start]
-                    robot_df['allocation'] = int(self.emergency_allocation_table[i - self.zero_shot_start])
+                    if self.dynamic_zero_shot:
+                        robot_df['allocation'] = int(self.emergency_allocation_table[i - self.zero_shot_start])
+                    else:
+                        robot_df['allocation'] = -1
                     robot_df['episode_length'] = self.episode_length
                     mixed_df = pd.concat([mixed_df, robot_df])
             # ------------------------------------------------------------------------------------
@@ -1431,7 +1447,7 @@ class RLlibCUDACrowdSim(MultiAgentEnv):
         Reset all environments.
         """
         self.env_wrapper.reset()
-        if self.env.dynamic_zero_shot:
+        if self.env.dynamic_zero_shot and (not self.env.no_refresh):
             # One episode delays all newly generated points, that is, these points are prepared
             #  for the next episodes. But it should be fine.
             self.env.targets_regen()
