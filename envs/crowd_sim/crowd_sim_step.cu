@@ -723,31 +723,6 @@ extern "C" {
             }
             if (!is_allocated) {
               // find the last timestep in aoi_schedule that is smaller than env_timestep
-              int first_schedule = 0;
-              for (int i = 0; i < emergency_count; i += emergency_per_gen) {
-                if (env_timestep < aoi_schedule[i]) {
-                  break;
-                }
-                else{
-                  first_schedule = i;
-                }
-              }
-              // WARN: envrionment does not have access to agent virtual observation.
-              // infer agent selection from observation
-              float agent_selected_x = obs_arr[kThisAgentArrayIdx * obs_features + obs_vec_features - 2];
-              float agent_selected_y = obs_arr[kThisAgentArrayIdx * obs_features + obs_vec_features - 1];
-              // check selected_x and selected_y in all emergency_targets
-              for(int i = zero_shot_start;i < kNumTargets;i++){
-                int pos_index = kThisTargetPositionTimeListIdxOffset + i;
-                float delta_x = (target_x_time_list[pos_index] - agent_selected_x) / kAgentXRange;
-                float delta_y = (target_y_time_list[pos_index] - agent_selected_y) / kAgentYRange;
-                float dist = sqrt(delta_x * delta_x + delta_y * delta_y);
-                if(dist < 0.01){
-                  // emergency point found
-                  this_emergency_allocation_table[kThisAgentId] = i;
-                  break;
-                }
-              }
 // //               printf("Now selecting emergencies for interval > %d\n", aoi_schedule[first_schedule]);
 //           // collect agents own selection of emergency targets from action_indices_arr
 //               for(int i = 0;i < kNumAgents;i++){

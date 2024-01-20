@@ -165,7 +165,7 @@ if __name__ == '__main__':
                   'share_policy': share_policy,
                   'checkpoint_end': False, 'algo_args': {'resume': args.resume},
                   'checkpoint_freq': args.evaluation_interval,
-                  'stop': {"timesteps_total": 60000000}, 'restore_path': restore_dict,
+                  'stop': {"timesteps_total": 60000}, 'restore_path': restore_dict,
                   'evaluation_interval': False,
                   'logging_config': logging_config if args.track else None, 'remote_worker_envs': False}
         # 1 if args.local_mode else args.evaluation_interval

@@ -1545,9 +1545,9 @@ class RLlibCUDACrowdSim(MultiAgentEnv):
             else:
                 self.evaluate_count_down -= 1
             log_env_metrics(info, self.evaluate_count_down)
-            if wandb.run is not None:
-                for i in range(self.num_agents):
-                    wandb.log({"agent_reward/agent_{}".format(i): self.env.agent_rewards_time_list[:, i].sum()})
+            # if wandb.run is not None:
+            #     for i in range(self.num_agents):
+            #         wandb.log({"agent_reward/agent_{}".format(i): self.env.agent_rewards_time_list[:, i].sum()})
         return obs_list, reward_list, dones, info_list
 
     def step(
