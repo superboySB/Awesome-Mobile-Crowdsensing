@@ -3,7 +3,7 @@
 dataset_name='SanFrancisco'
 exp_name='WARP'_$dataset_name
 session_name=$exp_name'_2'
-cards=(0 2 3)
+cards=(0 1 0 1 2)
 card_num=${#cards[@]}
 dry_run=false
 # Process command-line arguments
@@ -19,8 +19,8 @@ while [[ $# -gt 0 ]]; do
             ;;
     esac
 done
+# remove NN share_policy all
 trains=(
-  "--gen_interval 30 --share_policy all --selector_type NN"
   "--gen_interval 30 --share_policy individual --selector_type NN"
   "--gen_interval 30 --share_policy all --selector_type greedy"
   "--gen_interval 30 --share_policy individual --selector_type greedy"
