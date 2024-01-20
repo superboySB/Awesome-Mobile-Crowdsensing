@@ -1106,12 +1106,12 @@ class CrowdSim:
             my_render_map.get_root().save(output_file)
             logging.info(f"{output_file} saved!")
             # write agent_emergency_table as a tsv file
-            if self.dynamic_zero_shot:
-                emergency_table = pd.DataFrame(self.agent_emergency_table)
-                # concatenate agent actual actions with emergency_table
-                emergency_table = pd.concat([emergency_table, pd.DataFrame(self.agent_actions_time_list[:, :, 1])],
-                                            axis=1)
-                emergency_table.to_csv(output_file.replace(".html", ".tsv"), sep='\t')
+            # if self.dynamic_zero_shot:
+            #     emergency_table = pd.DataFrame(self.agent_emergency_table)
+            #     # concatenate agent actual actions with emergency_table
+            #     emergency_table = pd.concat([emergency_table, pd.DataFrame(self.agent_actions_time_list[:, :, 1])],
+            #                                 axis=1)
+            #     emergency_table.to_csv(output_file.replace(".html", ".tsv"), sep='\t')
 
     def xy_to_dataframe(self, aoi_list, energy_list, id_list, max_latitude, max_longitude, timestamp_list, x_list,
                         y_list):

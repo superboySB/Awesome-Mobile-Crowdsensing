@@ -334,6 +334,9 @@ extern "C" {
     float * this_state_arr_pointer = state_arr + kThisEnvStateOffset + kThisAgentFeaturesOffset;
     float * this_obs_arr_pointer = obs_arr + kThisAgentObsOffset;
     memset(obs_arr + kThisAgentObsOffset, 0, obs_vec_features * sizeof(float));
+    for(int i = 0;i < kNumAgentsObserved;i++){
+    neighbor_agent_distances_arr[kThisDistanceArrayIdxOffset + i] = kMaxDistance;
+    }
     // ------------------------------------
     // [Part 1] self info (4 + kNumAgents, one_hot, type, energy, x, y)
     const int my_type = agent_types_arr[kThisAgentId];
@@ -354,13 +357,14 @@ extern "C" {
     // [Part 2] other agent's infos (2 * self.num_agents_observed * 2)
     // Other agents displacements are sorted by distance
     // Sort the neighbor homogeneous and heterogeneous agents as the following part of observations
-
+    int actual_index=0;
     for (int agent_idx = 0; agent_idx < kNumAgents; agent_idx++) {
       if (agent_idx != kThisAgentId) {
         float temp_x = agent_x - agent_x_arr[kThisEnvAgentsOffset + agent_idx];
         float temp_y = agent_y - agent_y_arr[kThisEnvAgentsOffset + agent_idx];
-        neighbor_agent_distances_arr[kThisDistanceArrayIdxOffset + agent_idx] = sqrt(temp_x * temp_x + temp_y * temp_y);
-        neighbor_agent_ids_sorted_by_distances_arr[kThisDistanceArrayIdxOffset + agent_idx] = agent_idx;
+        neighbor_agent_distances_arr[kThisDistanceArrayIdxOffset + actual_index] = sqrt(temp_x * temp_x + temp_y * temp_y);
+        neighbor_agent_ids_sorted_by_distances_arr[kThisDistanceArrayIdxOffset + actual_index] = agent_idx;
+        actual_index++;
       } else {
         float normalized_x = agent_x / kAgentXRange;
         float normalized_y = agent_y / kAgentYRange;
@@ -377,6 +381,14 @@ extern "C" {
       neighbor_agent_ids_sorted_by_distances_arr + kThisDistanceArrayIdxOffset,
       kNumAgentsObserved - 1
     );
+//     if(kEnvId == 0 && kThisAgentId == 0){
+//       printf("Agent %d in Env %d: ", kThisAgentId, kEnvId);
+//       for (int i = 0; i < kNumAgentsObserved; i++) {
+//         printf("%d %f,", neighbor_agent_ids_sorted_by_distances_arr[kThisDistanceArrayIdxOffset + i],
+//         neighbor_agent_distances_arr[kThisDistanceArrayIdxOffset + i]);
+//       }
+//       printf("\n");
+//     }
 
     int homoge_part_idx = 0;
     int hetero_part_idx = 0;

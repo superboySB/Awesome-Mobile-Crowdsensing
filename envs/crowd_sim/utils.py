@@ -100,6 +100,7 @@ def traj_to_timestamped_geojson(index, trajectory: movingpandas.Trajectory, car_
             radius = 8  # 125(5 units)
             opacity = 0.05
             popup_html = f'<h4> (Car) Agent {car_num + drone_num - index - 1}</h4>' + \
+                         f"<p style='font-size:14px;'>Pos: ({row.x},{row.y})</p>" + \
                          f"<p style='font-size:14px;'>Timestamp: {i}</p>" + \
                          f"<p style='font-size:14px;'>reward: {row.reward:.4f} </p>" + \
                          f"<p style='font-size:14px;'>energy: {row.energy}J </p>"
@@ -111,6 +112,7 @@ def traj_to_timestamped_geojson(index, trajectory: movingpandas.Trajectory, car_
             radius = 6  # 125(5 units)
             opacity = 1
             popup_html = f'<h4> (Drone) Agent {car_num + drone_num - index - 1}</h4>' + \
+                         f"<p style='font-size:14px;'>Pos: ({row.x},{row.y})</p>" + \
                          f"<p style='font-size:14px;'>Timestamp: {i}</p>" + \
                          f"<p style='font-size:14px;'>reward: {row.reward:.4f} </p>" + \
                          f"<p style='font-size:14px;'>energy: {row.energy}J </p>" + \

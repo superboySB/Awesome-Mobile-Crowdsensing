@@ -138,9 +138,9 @@ if __name__ == '__main__':
     # (in remote mode, env and learner are on different processes)
     # 'share_policy': share_policy
     if args.render or args.ckpt:
-        uuid = "7523b"
-        time_str = "2024-01-15_18-40-10"
-        checkpoint_num = 1000
+        uuid = "f1292"
+        time_str = "2024-01-19_19-57-38"
+        checkpoint_num = 12000
         backup_str = ""
         restore_dict = get_restore_dict(args, uuid, time_str, checkpoint_num, backup_str)
         for info in [uuid, str(checkpoint_num)]:
@@ -165,7 +165,7 @@ if __name__ == '__main__':
                   'share_policy': share_policy,
                   'checkpoint_end': False, 'algo_args': {'resume': args.resume},
                   'checkpoint_freq': args.evaluation_interval,
-                  'stop': {"timesteps_total": 60000}, 'restore_path': restore_dict,
+                  'stop': {"timesteps_total": 60000000}, 'restore_path': restore_dict,
                   'evaluation_interval': False,
                   'logging_config': logging_config if args.track else None, 'remote_worker_envs': False}
         # 1 if args.local_mode else args.evaluation_interval
