@@ -357,13 +357,14 @@ extern "C" {
     // [Part 2] other agent's infos (2 * self.num_agents_observed * 2)
     // Other agents displacements are sorted by distance
     // Sort the neighbor homogeneous and heterogeneous agents as the following part of observations
-
+    int actual_index = 0;
     for (int agent_idx = 0; agent_idx < kNumAgents; agent_idx++) {
       if (agent_idx != kThisAgentId) {
         float temp_x = agent_x - agent_x_arr[kThisEnvAgentsOffset + agent_idx];
         float temp_y = agent_y - agent_y_arr[kThisEnvAgentsOffset + agent_idx];
-        neighbor_agent_distances_arr[kThisDistanceArrayIdxOffset + agent_idx] = sqrt(temp_x * temp_x + temp_y * temp_y);
-        neighbor_agent_ids_sorted_by_distances_arr[kThisDistanceArrayIdxOffset + agent_idx] = agent_idx;
+        neighbor_agent_distances_arr[kThisDistanceArrayIdxOffset + actual_index] = sqrt(temp_x * temp_x + temp_y * temp_y);
+        neighbor_agent_ids_sorted_by_distances_arr[kThisDistanceArrayIdxOffset + actual_index] = agent_idx;
+        actual_index++;
       } else {
         float normalized_x = agent_x / kAgentXRange;
         float normalized_y = agent_y / kAgentYRange;
@@ -583,11 +584,11 @@ extern "C" {
     const int AgentFeature = 4 + kNumAgents;
     // Update on 2024.1.10, add emergency points queue
     const int EmergencyQueueLength = 10;
-    const int FeaturesInEmergencyQueue = 2;
+    const int FeaturesInEmergencyQueue = 3;
     const int StateFullAgentFeature = kNumAgents * AgentFeature;
     const int state_vec_features = StateFullAgentFeature + emergency_count * 4;
     const int state_features = state_vec_features + total_num_grids;
-    const int obs_vec_features = AgentFeature + (kNumAgentsObserved << 2) + FeaturesInEmergencyQueue;
+    const int obs_vec_features = AgentFeature + (kNumAgentsObserved << 2) + FeaturesInEmergencyQueue * emergency_per_gen;
     const int obs_features = obs_vec_features + total_num_grids;
     const int kThisEnvStateOffset = kEnvId * state_features;
     int * this_emergency_allocation_table = emergency_allocation_table + kThisEnvAgentsOffset;
@@ -929,43 +930,51 @@ extern "C" {
     // add emergency to each agent.
     if (kThisAgentId < kNumAgents) {
     float * my_obs_at_emergency = obs_arr + kThisAgentArrayIdx * obs_features + AgentFeature + (kNumAgentsObserved << 2);
-    int my_emergency_target = emergency_allocation_table[kThisAgentArrayIdx];
-    if(my_emergency_target != -1){
-      float target_x = target_x_time_list[kThisTargetPositionTimeListIdxOffset + my_emergency_target];
-      float target_y = target_y_time_list[kThisTargetPositionTimeListIdxOffset + my_emergency_target];
-      my_obs_at_emergency[0] = target_x / kAgentXRange;
-      my_obs_at_emergency[1] = target_y / kAgentYRange;
-    }
-    else{
-      for(int i = 0;i < FeaturesInEmergencyQueue;i++){
-        my_obs_at_emergency[i] = 0.0;
-      }
-    }
-//         // find the next generation time
-//     int emergency_start_index = -1;
-//     for(int i = 0;i < emergency_count; i += emergency_per_gen){
-//       if(env_timestep > aoi_schedule[i]){
-//         emergency_start_index = i;
-//       }
-//       else{
-//       break;
-//       }
-//     }
-//     // print emergency_start_index
-// //     printf("Emergency Start Index: %d\n", emergency_start_index);
-//     if (emergency_start_index != -1){
-//       for(int i = 0;i < emergency_per_gen;i++){
-// //         printf("Emergency Idx: %d\n", emergency_start_index + zero_shot_start);
-//           float target_x = target_x_time_list[kThisTargetPositionTimeListIdxOffset + emergency_start_index + zero_shot_start];
-//           float target_y = target_y_time_list[kThisTargetPositionTimeListIdxOffset + emergency_start_index + zero_shot_start];
-//           my_obs_at_emergency[i * FeaturesInEmergencyQueue + 0] = target_x / kAgentXRange;
-//           my_obs_at_emergency[i * FeaturesInEmergencyQueue + 1] = target_y / kAgentYRange;
-//           emergency_start_index++;
-//         }
+    int my_emergency_target = this_emergency_allocation_table[kThisAgentId];
+    // print agent Id, my emergency target
+//     printf("Agent %d in %d allocated to emergency %d\n", kThisAgentId, kEnvId, my_emergency_target);
+//     if(my_emergency_target != -1){
+//       float target_x = target_x_time_list[kThisTargetPositionTimeListIdxOffset + my_emergency_target];
+//       float target_y = target_y_time_list[kThisTargetPositionTimeListIdxOffset + my_emergency_target];
+//       my_obs_at_emergency[0] = target_x / kAgentXRange;
+//       my_obs_at_emergency[1] = target_y / kAgentYRange;
 //     }
 //     else{
-//       memset(my_obs_at_emergency, 0, FeaturesInEmergencyQueue * emergency_per_gen * sizeof(float));
+//       for(int i = 0;i < FeaturesInEmergencyQueue;i++){
+//         my_obs_at_emergency[i] = 0.0;
+//       }
 //     }
+        // find current generation time
+    int emergency_start_index = -1;
+    for(int i = 0;i < emergency_count; i += emergency_per_gen){
+      if(env_timestep > aoi_schedule[i]){
+        emergency_start_index = i;
+      }
+      else{
+      break;
+      }
+    }
+    // print emergency_start_index
+//     printf("Emergency Start Index: %d\n", emergency_start_index);
+    if (emergency_start_index != -1){
+      for(int i = 0;i < emergency_per_gen;i++){
+//         printf("Emergency Idx: %d\n", emergency_start_index + zero_shot_start);
+          float target_x = target_x_time_list[kThisTargetPositionTimeListIdxOffset + emergency_start_index + zero_shot_start];
+          float target_y = target_y_time_list[kThisTargetPositionTimeListIdxOffset + emergency_start_index + zero_shot_start];
+          my_obs_at_emergency[i * FeaturesInEmergencyQueue + 0] = target_x / kAgentXRange;
+          my_obs_at_emergency[i * FeaturesInEmergencyQueue + 1] = target_y / kAgentYRange;
+          if (my_emergency_target == emergency_start_index + zero_shot_start){
+            my_obs_at_emergency[i * FeaturesInEmergencyQueue + 2] = 1;
+          }
+          else{
+            my_obs_at_emergency[i * FeaturesInEmergencyQueue + 2] = 0;
+          }
+          emergency_start_index++;
+        }
+    }
+    else{
+      memset(my_obs_at_emergency, 0, FeaturesInEmergencyQueue * emergency_per_gen * sizeof(float));
+    }
     // provide current emergency points to all agents
       // energy penalty
       if (agent_energy_arr[kThisAgentArrayIdx] <= 0) {

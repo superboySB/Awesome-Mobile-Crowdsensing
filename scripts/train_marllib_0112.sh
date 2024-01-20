@@ -2,8 +2,8 @@
 
 dataset_name='SanFrancisco'
 exp_name='WARP'_$dataset_name
-session_name=$exp_name'_3'
-cards=(0 1 2 2 2 2)
+session_name=$exp_name
+cards=(1)
 card_num=${#cards[@]}
 dry_run=false
 # Process command-line arguments
@@ -61,7 +61,7 @@ for ((i = 0; i < train_num; i++)); do
   # shellcheck disable=SC2004
   # if want to add $PATH, remember to add / before $
   command="python warp_drive/marllib_warpdrive_run.py --track\
-  --num_drones 4 --num_cars 0 --group auto_allocation --tag small_gamma minus_dist --dataset '$dataset_name'\
+  --num_drones 4 --num_cars 0 --group auto_allocation --tag restore_full_obs --dataset '$dataset_name'\
   --gpu_id ${cards[card_id]} ${trains[i]}"
   echo "$command"
   if [ "$dry_run" = "false" ] && [ "$choice" != "n" ]
