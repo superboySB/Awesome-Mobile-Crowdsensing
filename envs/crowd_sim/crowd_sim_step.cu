@@ -492,17 +492,17 @@ extern "C" {
         float target_y = target_y_time_list[emergency_allocated];
         float delta_x = (agent_x - target_x) / kAgentXRange;
         float delta_y = (agent_y - target_y) / kAgentYRange;
-        rewards_arr[kThisAgentArrayIdx] += 2 * exp(-sqrt(delta_x * delta_x + delta_y * delta_y));
-//         rewards_arr[kThisAgentArrayIdx] -= sqrt(delta_x * delta_x + delta_y * delta_y) * target_aoi_arr[emergency_allocated];
+//         rewards_arr[kThisAgentArrayIdx] += 2 * exp(-sqrt(delta_x * delta_x + delta_y * delta_y));
+        rewards_arr[kThisAgentArrayIdx] -= sqrt(delta_x * delta_x + delta_y * delta_y) * target_aoi_arr[emergency_allocated];
 //         printf("Distance penalty of %d: %f\n", kThisAgentId, -sqrt(delta_x * delta_x + delta_y * delta_y));
         // print agent, emergency allocated and distance
 //         printf("Agent %d in %d allocated to emergency %d, distance: %f\n", kThisAgentId, kEnvId, emergency_allocated,
 //         sqrt(delta_x * delta_x + delta_y * delta_y));
       }
-      else{
+//       else{
 // //         printf("Agent %d in %d not allocated to any emergency\n", kThisAgentId, kEnvId);
-        rewards_arr[kThisAgentArrayIdx] -= mean_emergency_aoi;
-      }
+//         rewards_arr[kThisAgentArrayIdx] -= mean_emergency_aoi;
+//       }
     }
   }
   // k: const with timesteps, arr: on current timestep, time_list: multiple timesteps
