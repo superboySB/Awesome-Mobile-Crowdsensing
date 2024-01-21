@@ -2,8 +2,8 @@
 
 dataset_name='SanFrancisco'
 exp_name='WARP'_$dataset_name
-session_name=$exp_name'_2'
-cards=(0 1 0 1 2)
+session_name=$exp_name
+cards=(1 1 1 1 3 3)
 card_num=${#cards[@]}
 dry_run=false
 # Process command-line arguments
@@ -21,6 +21,7 @@ while [[ $# -gt 0 ]]; do
 done
 # remove NN share_policy all
 trains=(
+  "--gen_interval 30 --share_policy all --selector_type NN"
   "--gen_interval 30 --share_policy individual --selector_type NN"
   "--gen_interval 30 --share_policy all --selector_type greedy"
   "--gen_interval 30 --share_policy individual --selector_type greedy"
@@ -61,7 +62,7 @@ for ((i = 0; i < train_num; i++)); do
   # shellcheck disable=SC2004
   # if want to add $PATH, remember to add / before $
   command="python warp_drive/marllib_warpdrive_run.py --track --core_arch crowdsim_net --dynamic_zero_shot\
-  --num_drones 4 --num_cars 0 --group auto_allocation --algo ippo --tag collision_detection --dataset '$dataset_name'\
+  --num_drones 4 --num_cars 0 --group auto_allocation --algo trafficppo --tag large_reward --dataset '$dataset_name'\
   --gpu_id ${cards[card_id]} ${trains[i]} --use_2d_state"
   echo "$command"
   if [ "$dry_run" = "false" ] && [ "$choice" != "n" ]

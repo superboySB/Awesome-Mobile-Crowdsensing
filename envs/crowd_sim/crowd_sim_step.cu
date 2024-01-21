@@ -671,10 +671,13 @@ extern "C" {
           kNumAgents
         );
         int reward_increment = (target_aoi - 1);
-        if (is_dyn_point) {
-          reward_increment *= 5;
-        }
-        float reward_update = reward_increment * invEpisodeLength;
+        float reward_update;
+         if(is_dyn_point){
+          reward_update = 10.0;
+         }
+         else{
+          reward_update = reward_increment * invEpisodeLength;
+         }
         // print target point x,y, agent_id and reward amount
 
         //         if(is_dyn_point && (!target_coverage))
