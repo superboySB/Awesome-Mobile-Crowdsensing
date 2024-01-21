@@ -931,34 +931,28 @@ extern "C" {
     if (kThisAgentId < kNumAgents) {
     float * my_obs_at_emergency = obs_arr + kThisAgentArrayIdx * obs_features + AgentFeature + (kNumAgentsObserved << 2);
     int my_emergency_target = emergency_allocation_table[kThisAgentArrayIdx];
-    if(my_emergency_target != -1){
-      int emergency_loc = (my_emergency_target - zero_shot_start - 1) * FeaturesInEmergencyQueue;
-      float target_x = target_x_time_list[kThisTargetPositionTimeListIdxOffset + my_emergency_target];
-      float target_y = target_y_time_list[kThisTargetPositionTimeListIdxOffset + my_emergency_target];
+    // copy all emergency to agent observation
+    for(int i = 0;i < emergency_count;i++){
+      int emergency_loc = i * FeaturesInEmergencyQueue;
+      float target_x = target_x_time_list[kThisTargetPositionTimeListIdxOffset + i + zero_shot_start];
+      float target_y = target_y_time_list[kThisTargetPositionTimeListIdxOffset + i + zero_shot_start];
       my_obs_at_emergency[emergency_loc + 0] = target_x / kAgentXRange;
       my_obs_at_emergency[emergency_loc + 1] = target_y / kAgentYRange;
     }
-    else{
-      for(int i = 0;i < FeaturesInEmergencyQueue;i++){
-        my_obs_at_emergency[i] = 0.0;
-      }
-    }
-// copy only allocated emergency to obs
-//     int my_emergency_target = this_emergency_allocation_table[kThisAgentId];
-//     memset(my_obs_at_emergency, 0, FeaturesInEmergencyQueue * emergency_count * sizeof(float));
-//     int emergency_loc = (my_emergency_target - zero_shot_start) * FeaturesInEmergencyQueue;
-//     if (my_emergency_target != -1) {
+//     if(my_emergency_target != -1){
+//       int emergency_loc = (my_emergency_target - zero_shot_start) * FeaturesInEmergencyQueue;
 //       float target_x = target_x_time_list[kThisTargetPositionTimeListIdxOffset + my_emergency_target];
 //       float target_y = target_y_time_list[kThisTargetPositionTimeListIdxOffset + my_emergency_target];
 //       my_obs_at_emergency[emergency_loc + 0] = target_x / kAgentXRange;
 //       my_obs_at_emergency[emergency_loc + 1] = target_y / kAgentYRange;
-//       my_obs_at_emergency[emergency_loc + 2] = target_aoi_arr[kThisTargetAgeArrayIdxOffset + my_emergency_target];
-//       my_obs_at_emergency[emergency_loc + 3] = env_timestep > aoi_schedule[my_emergency_target] ? target_coverage_arr[kThisTargetAgeArrayIdxOffset + my_emergency_target] : -1;
 //     }
-    // copy emergency state to the last part of obs_arr
-//     int total_length = emergency_count * FeaturesInEmergencyQueue;
-//     memcpy(my_obs_at_emergency, state_arr + kThisEnvStateOffset + StateFullAgentFeature,
-//     total_length * sizeof(float));
+//     else{
+//       for(int i = 0;i < FeaturesInEmergencyQueue;i++){
+//         my_obs_at_emergency[i] = 0.0;
+//       }
+//     }
+
+
     // energy penalty
       if (agent_energy_arr[kThisAgentArrayIdx] <= 0) {
         rewards_arr[kThisAgentArrayIdx] -= 10;
