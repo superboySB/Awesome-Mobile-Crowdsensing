@@ -389,7 +389,7 @@ class CrowdSim:
         random.shuffle(self.available_colors)
         # Initialize an index to keep track of the selected color
         self.selected_color_index = 0
-        self.queue_feature = 3
+        self.queue_feature = 4
         self.queue_length = 10
 
     def get_next_color(self):
@@ -565,7 +565,7 @@ class CrowdSim:
                                                 grid_size)
 
         # TODO: this full_queue is mock, no actual prediction is provided.
-        full_queue = np.zeros((self.num_agents, self.queue_feature * self.emergency_slots))
+        full_queue = np.zeros((self.num_agents, self.queue_feature * self.emergency_count))
         if self.dynamic_zero_shot:
             current_aoi = self.target_aoi_timelist[self.timestep]
             valid_zero_shots_mask = (current_aoi > 1) & (np.arange(self.num_sensing_targets) > self.zero_shot_start) & \
