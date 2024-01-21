@@ -60,10 +60,9 @@ if __name__ == '__main__':
     this_expr_dir = os.path.join(logging_dir, 'trajectories', '_'.join([args.algo, args.core_arch, args.dataset]),
                                  expr_name)
     # make dir
-    if args.core_arch == 'crowdsim_net':
-        assert args.env == 'crowdsim', f"crowdsim_net only supports crowdsim env, got {args.env}"
-        assert args.use_2d_state and args.dynamic_zero_shot, \
-            f"crowdsim_net only supports 2d state and dynamic zero shot"
+    if args.algo == 'trafficppo':
+        assert args.env == 'crowdsim' and args.core_arch == 'crowdsim_net', \
+            f"trafficppo only supports crowdsim env and crowdsim_net core_arch, got {args.env} and {args.core_arch}"
     if not os.path.exists(this_expr_dir):
         os.makedirs(this_expr_dir)
     logging.debug("experiment name: %s", expr_name)
@@ -125,14 +124,15 @@ if __name__ == '__main__':
     algorithm_list = dir(marl.algos)
     # filter all strings in the list with prefix "_"
     algorithm_list = list(filter(lambda x: not x.startswith("_"), algorithm_list))
+    algorithm_list.remove('register_algo')
     assert args.algo in algorithm_list, f"algorithm {args.algo} not supported, please implement your custom algorithm"
-    algorithm_object: _Algo = getattr(marl.algos, args.algo)(hyperparam_source="common", **custom_algo_params)
+    my_algorithm: _Algo = getattr(marl.algos, args.algo)(hyperparam_source="common", **custom_algo_params)
     # customize model
     model_preference = {"core_arch": args.core_arch, "encode_layer": args.encoder_layer}
     if args.env == 'crowdsim':
         for item in ['selector_type']:
             model_preference[item] = getattr(args, item)
-    model = marl.build_model(env, algorithm_object, model_preference)
+    model = marl.build_model(env, my_algorithm, model_preference)
     # start learning
     # passing logging_config to fit is for trainer Initialization
     # (in remote mode, env and learner are on different processes)
@@ -159,7 +159,7 @@ if __name__ == '__main__':
         if args.env == 'crowdsim':
             kwargs['custom_vector_env'] = RLlibCUDACrowdSimWrapper
         # figure out how to let evaluation program call "render", set lr=0
-        algorithm_object.render(env, model, **kwargs)
+        my_algorithm.render(env, model, **kwargs)
     else:
         kwargs = {'local_mode': args.local_mode, 'num_gpus': 1, 'num_workers': args.num_workers,
                   'share_policy': share_policy,
@@ -171,7 +171,7 @@ if __name__ == '__main__':
         # 1 if args.local_mode else args.evaluation_interval
         if args.env == 'crowdsim':
             kwargs['custom_vector_env'] = RLlibCUDACrowdSimWrapper
-        algorithm_object.fit(env, model, **kwargs)
+        my_algorithm.fit(env, model, **kwargs)
 '''
            --algo qmix --env mpe --dataset simple_spread --num_workers 1
 '''
