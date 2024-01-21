@@ -6,6 +6,7 @@ from typing import List
 import numpy as np
 from marllib import marl
 from marllib.marl.common import algo_type_dict
+from marllib.marl.algos.scripts.coma import restore_ignore_params
 from marllib.envs.base_env import ENV_REGISTRY
 from marllib.envs.global_reward_env import COOP_ENV_REGISTRY
 from marllib.marl import _Algo
@@ -127,20 +128,10 @@ if __name__ == '__main__':
     algorithm_list.remove('register_algo')
     assert args.algo in algorithm_list, f"algorithm {args.algo} not supported, please implement your custom algorithm"
     my_algorithm: _Algo = getattr(marl.algos, args.algo)(hyperparam_source="common", **custom_algo_params)
-    # customize model
-    model_preference = {"core_arch": args.core_arch, "encode_layer": args.encoder_layer}
-    if args.env == 'crowdsim':
-        for item in ['selector_type']:
-            model_preference[item] = getattr(args, item)
-    model = marl.build_model(env, my_algorithm, model_preference)
-    # start learning
-    # passing logging_config to fit is for trainer Initialization
-    # (in remote mode, env and learner are on different processes)
-    # 'share_policy': share_policy
     if args.render or args.ckpt:
-        uuid = "f1292"
-        time_str = "2024-01-19_19-57-38"
-        checkpoint_num = 12000
+        uuid = "f6381"
+        time_str = "2024-01-20_22-34-05"
+        checkpoint_num = 15000
         backup_str = ""
         restore_dict = get_restore_dict(args, uuid, time_str, checkpoint_num, backup_str)
         for info in [uuid, str(checkpoint_num)]:
@@ -148,6 +139,16 @@ if __name__ == '__main__':
                 env_params['render_file_name'] += f"_{info}"
     else:
         restore_dict = {}
+    # customize model
+    model_preference = {"core_arch": args.core_arch, "encode_layer": args.encoder_layer}
+    if args.env == 'crowdsim':
+        for item in ['selector_type'] + restore_ignore_params:
+            model_preference[item] = getattr(args, item)
+    model = marl.build_model(env, my_algorithm, model_preference)
+    # start learning
+    # passing logging_config to fit is for trainer Initialization
+    # (in remote mode, env and learner are on different processes)
+    # 'share_policy': share_policy
     if args.render:
         # adjust to latest update!
         kwargs = {
