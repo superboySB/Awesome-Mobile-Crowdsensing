@@ -40,6 +40,8 @@ if __name__ == '__main__':
     parser.add_argument("--ckpt", action='store_true', help='load checkpoint')
     parser.add_argument("--share_policy", choices=['all', 'group', 'individual'], default='all')
     parser.add_argument("--separate_render", action='store_true', help='render file will be stored separately')
+    parser.add_argument('--no_refresh', action='store_true', help='do not reset randomly generated emergency points')
+    parser.add_argument("--selector_type", type=str, default='NN', choices=['NN', 'greedy', 'oracle', 'random'])
     # parser.add_argument("--ckpt", nargs=3, type=str, help='uuid, time_str, checkpoint_num to restore')
     args = parser.parse_args()
 
@@ -48,6 +50,8 @@ if __name__ == '__main__':
     expr_name = customize_experiment(args)
     this_expr_dir = os.path.join(logging_dir, 'trajectories', '_'.join([args.algo, args.core_arch, args.dataset]),
                                  expr_name)
+    if args.core_arch == 'crowdsim_net':
+        warnings.warn("encoder_layer is ignored for crowdsim_net separate encoder")
     # make dir
     if args.algo == 'trafficppo':
         assert args.env == 'crowdsim' and args.core_arch == 'crowdsim_net', \
@@ -116,21 +120,28 @@ if __name__ == '__main__':
     algorithm_list.remove('register_algo')
     assert args.algo in algorithm_list, f"algorithm {args.algo} not supported, please implement your custom algorithm"
     my_algorithm: _Algo = getattr(marl.algos, args.algo)(hyperparam_source="common", **custom_algo_params)
-    # customize model
-    model = marl.build_model(env, my_algorithm, {"core_arch": args.core_arch,
-                                                     "encode_layer": args.encoder_layer})
-    # start learning
-    # passing logging_config to fit is for trainer Initialization
-    # (in remote mode, env and learner are on different processes)
-    # 'share_policy': share_policy
     if args.render or args.ckpt:
         uuid = "68f1b"
         time_str = "2024-01-13_13-48-43"
         checkpoint_num = 12000
         backup_str = ""
         restore_dict = get_restore_dict(args, uuid, time_str, checkpoint_num, backup_str)
+        for info in [uuid, str(checkpoint_num)]:
+            if info not in env_params['render_file_name']:
+                env_params['render_file_name'] += f"_{info}"
     else:
         restore_dict = {}
+    # customize model
+    model_preference = {"core_arch": args.core_arch, "encode_layer": args.encoder_layer}
+
+    if args.env == 'crowdsim':
+        for item in ['selector_type'] + restore_ignore_params:
+            model_preference[item] = getattr(args, item)
+    model = marl.build_model(env, my_algorithm, model_preference)
+    # start learning
+    # passing logging_config to fit is for trainer Initialization
+    # (in remote mode, env and learner are on different processes)
+    # 'share_policy': share_policy
     if args.render:
         # adjust to latest update!
         kwargs = {

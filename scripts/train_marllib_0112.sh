@@ -61,8 +61,8 @@ for ((i = 0; i < train_num; i++)); do
   # shellcheck disable=SC2004
   # if want to add $PATH, remember to add / before $
   command="python warp_drive/marllib_warpdrive_run.py --track\
-  --num_drones 4 --num_cars 0 --group auto_allocation --tag restore_full_obs --dataset '$dataset_name'\
-  --gpu_id ${cards[card_id]} ${trains[i]}"
+  --num_drones 4 --num_cars 0 --group auto_allocation --tag separate_encoder --dataset '$dataset_name'\
+  --gpu_id ${cards[card_id]} ${trains[i]} --core_arch crowdsim_net"
   echo "$command"
   if [ "$dry_run" = "false" ] && [ "$choice" != "n" ]
   then
