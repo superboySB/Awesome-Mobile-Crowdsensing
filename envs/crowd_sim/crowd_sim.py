@@ -389,7 +389,7 @@ class CrowdSim:
         random.shuffle(self.available_colors)
         # Initialize an index to keep track of the selected color
         self.selected_color_index = 0
-        self.queue_feature = 4
+        self.queue_feature = 2
         self.queue_length = 10
 
     def get_next_color(self):

@@ -584,7 +584,7 @@ extern "C" {
     const int AgentFeature = 4 + kNumAgents;
     // Update on 2024.1.10, add emergency points queue
     const int EmergencyQueueLength = 10;
-    const int FeaturesInEmergencyQueue = 4;
+    const int FeaturesInEmergencyQueue = 2;
     const int StateFullAgentFeature = kNumAgents * AgentFeature;
     const int state_vec_features = StateFullAgentFeature + emergency_count * 4;
     const int state_features = state_vec_features + total_num_grids;
@@ -930,20 +930,19 @@ extern "C" {
     // add emergency to each agent.
     if (kThisAgentId < kNumAgents) {
     float * my_obs_at_emergency = obs_arr + kThisAgentArrayIdx * obs_features + AgentFeature + (kNumAgentsObserved << 2);
-
-    // print agent Id, my emergency target
-//     printf("Agent %d in %d allocated to emergency %d\n", kThisAgentId, kEnvId, my_emergency_target);
-//     if(my_emergency_target != -1){
-//       float target_x = target_x_time_list[kThisTargetPositionTimeListIdxOffset + my_emergency_target];
-//       float target_y = target_y_time_list[kThisTargetPositionTimeListIdxOffset + my_emergency_target];
-//       my_obs_at_emergency[0] = target_x / kAgentXRange;
-//       my_obs_at_emergency[1] = target_y / kAgentYRange;
-//     }
-//     else{
-//       for(int i = 0;i < FeaturesInEmergencyQueue;i++){
-//         my_obs_at_emergency[i] = 0.0;
-//       }
-//     }
+    int my_emergency_target = emergency_allocation_table[kThisAgentArrayIdx];
+    if(my_emergency_target != -1){
+      int emergency_loc = (my_emergency_target - zero_shot_start - 1) * FeaturesInEmergencyQueue;
+      float target_x = target_x_time_list[kThisTargetPositionTimeListIdxOffset + my_emergency_target];
+      float target_y = target_y_time_list[kThisTargetPositionTimeListIdxOffset + my_emergency_target];
+      my_obs_at_emergency[emergency_loc + 0] = target_x / kAgentXRange;
+      my_obs_at_emergency[emergency_loc + 1] = target_y / kAgentYRange;
+    }
+    else{
+      for(int i = 0;i < FeaturesInEmergencyQueue;i++){
+        my_obs_at_emergency[i] = 0.0;
+      }
+    }
 // copy only allocated emergency to obs
 //     int my_emergency_target = this_emergency_allocation_table[kThisAgentId];
 //     memset(my_obs_at_emergency, 0, FeaturesInEmergencyQueue * emergency_count * sizeof(float));
@@ -957,9 +956,9 @@ extern "C" {
 //       my_obs_at_emergency[emergency_loc + 3] = env_timestep > aoi_schedule[my_emergency_target] ? target_coverage_arr[kThisTargetAgeArrayIdxOffset + my_emergency_target] : -1;
 //     }
     // copy emergency state to the last part of obs_arr
-    int total_length = emergency_count * FeaturesInEmergencyQueue;
-    memcpy(my_obs_at_emergency, state_arr + kThisEnvStateOffset + StateFullAgentFeature,
-    total_length * sizeof(float));
+//     int total_length = emergency_count * FeaturesInEmergencyQueue;
+//     memcpy(my_obs_at_emergency, state_arr + kThisEnvStateOffset + StateFullAgentFeature,
+//     total_length * sizeof(float));
     // energy penalty
       if (agent_energy_arr[kThisAgentArrayIdx] <= 0) {
         rewards_arr[kThisAgentArrayIdx] -= 10;

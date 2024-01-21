@@ -5,6 +5,7 @@ import warnings
 
 from marllib import marl
 from marllib.marl.common import algo_type_dict
+from marllib.marl.algos.scripts.coma import restore_ignore_params
 from marllib.envs.base_env import ENV_REGISTRY
 from marllib.envs.global_reward_env import COOP_ENV_REGISTRY
 from marllib.marl import _Algo
