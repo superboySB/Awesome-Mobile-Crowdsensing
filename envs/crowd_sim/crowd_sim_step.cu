@@ -866,23 +866,23 @@ extern "C" {
     //     printf("GenObs: %d %d\n", kEnvId, kThisAgentId);
     if (kThisAgentId < kNumAgents) {
           // check emergency allocation and give extra reward
-      CudaCrowdSimIntrinsicReward(
-        agent_x_arr,
-        agent_y_arr,
-        target_x_time_list + kThisTargetPositionTimeListIdxOffset,
-        target_y_time_list + kThisTargetPositionTimeListIdxOffset,
-        target_aoi_arr + kThisTargetAgeArrayIdxOffset,
-        mean_emergency_aoi,
-        rewards_arr,
-        this_emergency_allocation_table,
-        kEnvId,
-        kThisAgentId,
-        kThisAgentArrayIdx,
-        kNumAgents,
-        kAgentXRange,
-        kAgentYRange,
-        dynamic_zero_shot
-      );
+//       CudaCrowdSimIntrinsicReward(
+//         agent_x_arr,
+//         agent_y_arr,
+//         target_x_time_list + kThisTargetPositionTimeListIdxOffset,
+//         target_y_time_list + kThisTargetPositionTimeListIdxOffset,
+//         target_aoi_arr + kThisTargetAgeArrayIdxOffset,
+//         mean_emergency_aoi,
+//         rewards_arr,
+//         this_emergency_allocation_table,
+//         kEnvId,
+//         kThisAgentId,
+//         kThisAgentArrayIdx,
+//         kNumAgents,
+//         kAgentXRange,
+//         kAgentYRange,
+//         dynamic_zero_shot
+//       );
       CudaCrowdSimGenerateObservation(
         state_arr,
         obs_arr,
