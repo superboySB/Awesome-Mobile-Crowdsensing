@@ -224,7 +224,7 @@ class CrowdSim:
             self.points_per_gen = 0
         else:
             self.zero_shot_start = self.num_sensing_targets
-            self.points_per_gen = self.num_agents - 1
+            self.points_per_gen = self.num_agents - 1 if self.num_agents > 1 else 1
             self.aoi_schedule = np.repeat(np.arange(self.gen_interval, self.episode_length, self.gen_interval),
                                           repeats=self.points_per_gen)
             logging.debug(f"AoI Schedule: {self.aoi_schedule}")

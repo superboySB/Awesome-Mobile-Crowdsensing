@@ -757,7 +757,12 @@ extern "C" {
           if (!(is_dyn_point && target_coverage)) {
 //           printf("Target %d Pos: %f, %f, AoI: %d agent %d receives reward %f\n", target_idx, target_x, target_y,
 //           target_aoi_arr[kThisTargetAgeArrayIdxOffset + target_idx], nearest_agent_id, reward_update);
-            rewards_arr[kThisEnvAgentsOffset + nearest_agent_id] += reward_update;
+            if(this_emergency_allocation_table[nearest_agent_id] == target_idx){
+              rewards_arr[kThisEnvAgentsOffset + nearest_agent_id] += reward_update;
+            }
+            else{
+              rewards_arr[kThisEnvAgentsOffset + nearest_agent_id] += reward_increment * invEpisodeLength;
+            }
             if (is_drone && !single_type_agent) {
               int drone_nearest_car_id = neighbor_agent_ids_arr[kThisEnvAgentsOffset + nearest_agent_id];
               rewards_arr[kThisEnvAgentsOffset + drone_nearest_car_id] += reward_update;
@@ -934,7 +939,8 @@ extern "C" {
     float * my_obs_at_emergency = obs_arr + kThisAgentArrayIdx * obs_features + AgentFeature + (kNumAgentsObserved << 2);
     int my_emergency_target = emergency_allocation_table[kThisAgentArrayIdx];
     if(my_emergency_target != -1){
-      int emergency_loc = (my_emergency_target - zero_shot_start) * FeaturesInEmergencyQueue;
+//       int emergency_loc = (my_emergency_target - zero_shot_start) * FeaturesInEmergencyQueue;
+      int emergency_loc = 0;
       float target_x = target_x_time_list[kThisTargetPositionTimeListIdxOffset + my_emergency_target];
       float target_y = target_y_time_list[kThisTargetPositionTimeListIdxOffset + my_emergency_target];
       my_obs_at_emergency[emergency_loc + 0] = target_x / kAgentXRange;
