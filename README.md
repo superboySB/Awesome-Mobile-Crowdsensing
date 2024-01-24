@@ -93,16 +93,6 @@ Note, we should consider several things before running and debugging with the co
 # set your own log and checkpoints storage here, please set your program's logging dir as well
 # replace your favorite port here with any thing larger than 1024
 # ray support to set shm-size, 30% of the RAM is recommended
-sudo docker run -itd \
---gpus=all \
---name=mcs \
--p <your-favorite-port>:22 \
--v /etc/localtime:/etc/localtime:ro \
--v /home/liuchi/.ssh:/root/.ssh \
--v /tmp/docker:/tmp \
--v /data2/saved_data:/workspace/saved_data \
---shm-size=221gb \
-aequatiospace/linc_image:v1.2.3
 
 # enter the docker with terminal
 sudo docker exec -it mcs /bin/zsh

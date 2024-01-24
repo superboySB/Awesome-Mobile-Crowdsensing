@@ -2,7 +2,8 @@ import argparse
 import logging
 import os
 import warnings
-
+from typing import List
+import numpy as np
 from marllib import marl
 from marllib.marl.common import algo_type_dict
 from marllib.marl.algos.scripts.coma import restore_ignore_params
@@ -13,11 +14,20 @@ import setproctitle
 from common import add_common_arguments, logging_dir, customize_experiment, is_valid_format, get_restore_dict
 from envs.crowd_sim.crowd_sim import (RLlibCUDACrowdSim, LARGE_DATASET_NAME,
                                       RLlibCUDACrowdSimWrapper, user_override_params)
+from ray.tune import Callback
 
+
+class MyCallback(Callback):
+    def on_step_end(self, iteration: int, trials: List["Trial"], **info):
+        print("test")
 # register all scenario with env class
 REGISTRY = {}
 # add nvcc path to os environment
 os.environ["PATH"] += os.pathsep + '/usr/local/cuda/bin'
+
+# ray custom callback
+
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
@@ -121,9 +131,9 @@ if __name__ == '__main__':
     assert args.algo in algorithm_list, f"algorithm {args.algo} not supported, please implement your custom algorithm"
     my_algorithm: _Algo = getattr(marl.algos, args.algo)(hyperparam_source="common", **custom_algo_params)
     if args.render or args.ckpt:
-        uuid = "68f1b"
-        time_str = "2024-01-13_13-48-43"
-        checkpoint_num = 12000
+        uuid = "f6381"
+        time_str = "2024-01-20_22-34-05"
+        checkpoint_num = 15000
         backup_str = ""
         restore_dict = get_restore_dict(args, uuid, time_str, checkpoint_num, backup_str)
         for info in [uuid, str(checkpoint_num)]:

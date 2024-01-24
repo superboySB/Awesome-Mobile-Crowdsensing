@@ -344,6 +344,17 @@ class CrowdSim:
                                                 dtype=self.int_dtype)
         self.agent_rewards_time_list = np.zeros([self.episode_length + 1, self.num_agents], dtype=self.float_dtype)
         self.data_collection = 0
+        # Types and Status of vehicles
+        self.agent_types = self.int_dtype(np.ones([self.num_agents, ]))
+        self.cars = {}
+        self.drones = {}
+        for agent_id in range(self.num_agents):
+            if agent_id < self.num_cars:
+                self.agent_types[agent_id] = 0  # Car
+                self.cars[agent_id] = True
+            else:
+                self.agent_types[agent_id] = 1  # Drone
+                self.drones[agent_id] = True
 
         # These will be set during reset (see below)
         self.timestep = None
@@ -363,16 +374,7 @@ class CrowdSim:
         else:
             self.global_state = np.zeros((self.vector_state_dim + self.image_state_dim,),
                                          dtype=self.float_dtype)
-        self.drone_action_space_dx = self.float_dtype(self.config.env.drone_action_space[:, 0])
-        self.drone_action_space_dy = self.float_dtype(self.config.env.drone_action_space[:, 1])
-        self.car_action_space_dx = self.float_dtype(self.config.env.car_action_space[:, 0])
-        self.car_action_space_dy = self.float_dtype(self.config.env.car_action_space[:, 1])
-        self.action_space = spaces.Dict({
-            agent_id: spaces.Discrete(len(self.drone_action_space_dx))
-            if self.agent_types[agent_id] == 1
-            else spaces.Discrete(len(self.car_action_space_dx))
-            for agent_id in range(self.num_agents)
-        })
+
         # Used in generate_observation()
         # When use_full_observation is True, then all the agents will have info of
         # all the other agents, otherwise, each agent will only have info of
@@ -1114,6 +1116,13 @@ class CrowdSim:
             my_render_map.get_root().render()
             my_render_map.get_root().save(output_file)
             logging.info(f"{output_file} saved!")
+            # write agent_emergency_table as a tsv file
+            # if self.dynamic_zero_shot:
+            #     emergency_table = pd.DataFrame(self.agent_emergency_table)
+            #     # concatenate agent actual actions with emergency_table
+            #     emergency_table = pd.concat([emergency_table, pd.DataFrame(self.agent_actions_time_list[:, :, 1])],
+            #                                 axis=1)
+            #     emergency_table.to_csv(output_file.replace(".html", ".tsv"), sep='\t')
 
     def xy_to_dataframe(self, aoi_list, energy_list, id_list, max_latitude, max_longitude, timestamp_list, x_list,
                         y_list):
@@ -1529,6 +1538,7 @@ class RLlibCUDACrowdSim(MultiAgentEnv):
                                repeats=self.num_agents).reshape(-1, self.num_agents)
         else:
             reward = self.env_wrapper.cuda_data_manager.pull_data_from_device(_REWARDS)
+        self.env.agent_rewards_time_list[self.env.timestep, :] = reward[0]
         # convert observation to dict {EnvID: {AgentID: Action}...}
         # rewards_all_zero = np.all(reward == 0)
         obs_list, reward_list, info_list = [], [], []
@@ -1549,6 +1559,9 @@ class RLlibCUDACrowdSim(MultiAgentEnv):
             else:
                 self.evaluate_count_down -= 1
             log_env_metrics(info, self.evaluate_count_down)
+            # if wandb.run is not None:
+            #     for i in range(self.num_agents):
+            #         wandb.log({"agent_reward/agent_{}".format(i): self.env.agent_rewards_time_list[:, i].sum()})
         return obs_list, reward_list, dones, info_list
 
     def step(
@@ -1649,7 +1662,7 @@ class RLlibCUDACrowdSimWrapper(VectorEnv):
             return reset_obs_list
 
     def reset_at(self, index: Optional[int] = None) -> EnvObsType:
-        logging.debug(f"resetting environment {index} called")
+        # logging.debug(f"resetting environment {index} called")
         if index == 0 or self.obs_at_reset is None:
             self.obs_at_reset = self.vector_reset()
         return self.obs_at_reset[index]
@@ -1663,17 +1676,17 @@ class RLlibCUDACrowdSimWrapper(VectorEnv):
         pass
 
 
-def binary_search_bound(array: np.ndarray) -> spaces.Box:
+def binary_search_bound(array: np.ndarray) -> Box:
     """
     :param array: reference observation
     """
     x = float(BIG_NUMBER)
-    box = spaces.Box(low=-x, high=x, shape=array.shape, dtype=array.dtype)
+    box = Box(low=-x, high=x, shape=array.shape, dtype=array.dtype)
     low_high_valid = (box.low < 0).all() and (box.high > 0).all()
     # This loop avoids issues with overflow to make sure low/high are good.
     while not low_high_valid:
         x //= 2
-        box = spaces.Box(low=-x, high=x, shape=array.shape, dtype=array.dtype)
+        box = Box(low=-x, high=x, shape=array.shape, dtype=array.dtype)
         low_high_valid = (box.low < 0).all() and (box.high > 0).all()
     return box
 

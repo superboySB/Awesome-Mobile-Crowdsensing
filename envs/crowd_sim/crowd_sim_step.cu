@@ -337,6 +337,9 @@ extern "C" {
     float * this_state_arr_pointer = state_arr + kThisEnvStateOffset + kThisAgentFeaturesOffset;
     float * this_obs_arr_pointer = obs_arr + kThisAgentObsOffset;
     memset(obs_arr + kThisAgentObsOffset, 0, obs_vec_features * sizeof(float));
+    for(int i = 0;i < kNumAgentsObserved;i++){
+    neighbor_agent_distances_arr[kThisDistanceArrayIdxOffset + i] = kMaxDistance;
+    }
     // ------------------------------------
     // [Part 1] self info (4 + kNumAgents, one_hot, type, energy, x, y)
     const int my_type = agent_types_arr[kThisAgentId];
@@ -381,6 +384,14 @@ extern "C" {
       neighbor_agent_ids_sorted_by_distances_arr + kThisDistanceArrayIdxOffset,
       kNumAgentsObserved - 1
     );
+//     if(kEnvId == 0 && kThisAgentId == 0){
+//       printf("Agent %d in Env %d: ", kThisAgentId, kEnvId);
+//       for (int i = 0; i < kNumAgentsObserved; i++) {
+//         printf("%d %f,", neighbor_agent_ids_sorted_by_distances_arr[kThisDistanceArrayIdxOffset + i],
+//         neighbor_agent_distances_arr[kThisDistanceArrayIdxOffset + i]);
+//       }
+//       printf("\n");
+//     }
 
     int homoge_part_idx = 0;
     int hetero_part_idx = 0;
@@ -586,14 +597,15 @@ extern "C" {
     const int EmergencyQueueLength = 10;
     const int FeaturesInEmergencyQueue = 2;
     const int StateFullAgentFeature = kNumAgents * AgentFeature;
+    // add timestep to state for neural network resetting.
     const int state_vec_features = StateFullAgentFeature + emergency_count * 4 + 1;
     const int state_features = state_vec_features + total_num_grids;
     const int obs_vec_features = AgentFeature + (kNumAgentsObserved << 2) + FeaturesInEmergencyQueue;
     const int obs_features = obs_vec_features + total_num_grids;
     const int kThisEnvStateOffset = kEnvId * state_features;
     int * this_emergency_allocation_table = emergency_allocation_table + kThisEnvAgentsOffset;
-    int * this_emergency_dis_to_target_index = emergency_dis_to_target_index + kThisEnvAgentsOffset;
-    float * this_emergency_dis_to_target = emergency_dis_to_target + kThisEnvAgentsOffset;
+//     int * this_emergency_dis_to_target_index = emergency_dis_to_target_index + kThisEnvAgentsOffset;
+//     float * this_emergency_dis_to_target = emergency_dis_to_target + kThisEnvAgentsOffset;
 
     //     printf("Drone Sensing Range: %f\n", kDroneSensingRange);
     //     printf("features: %d, obs: %d\n", state_features, obs_features);
