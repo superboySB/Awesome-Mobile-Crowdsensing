@@ -586,9 +586,9 @@ extern "C" {
     const int EmergencyQueueLength = 10;
     const int FeaturesInEmergencyQueue = 2;
     const int StateFullAgentFeature = kNumAgents * AgentFeature;
-    const int state_vec_features = StateFullAgentFeature + emergency_count * 4;
+    const int state_vec_features = StateFullAgentFeature + emergency_count * 4 + 1;
     const int state_features = state_vec_features + total_num_grids;
-    const int obs_vec_features = AgentFeature + (kNumAgentsObserved << 2) + FeaturesInEmergencyQueue * emergency_count;
+    const int obs_vec_features = AgentFeature + (kNumAgentsObserved << 2) + FeaturesInEmergencyQueue;
     const int obs_features = obs_vec_features + total_num_grids;
     const int kThisEnvStateOffset = kEnvId * state_features;
     int * this_emergency_allocation_table = emergency_allocation_table + kThisEnvAgentsOffset;
@@ -757,12 +757,13 @@ extern "C" {
           if (!(is_dyn_point && target_coverage)) {
 //           printf("Target %d Pos: %f, %f, AoI: %d agent %d receives reward %f\n", target_idx, target_x, target_y,
 //           target_aoi_arr[kThisTargetAgeArrayIdxOffset + target_idx], nearest_agent_id, reward_update);
-            if(this_emergency_allocation_table[nearest_agent_id] == target_idx){
-              rewards_arr[kThisEnvAgentsOffset + nearest_agent_id] += reward_update;
-            }
-            else{
-              rewards_arr[kThisEnvAgentsOffset + nearest_agent_id] += reward_increment * invEpisodeLength;
-            }
+//             if(this_emergency_allocation_table[nearest_agent_id] == target_idx){
+//               rewards_arr[kThisEnvAgentsOffset + nearest_agent_id] += reward_update;
+//             }
+//             else{
+//               rewards_arr[kThisEnvAgentsOffset + nearest_agent_id] += reward_increment * invEpisodeLength;
+//             }
+            rewards_arr[kThisEnvAgentsOffset + nearest_agent_id] += reward_update;
             if (is_drone && !single_type_agent) {
               int drone_nearest_car_id = neighbor_agent_ids_arr[kThisEnvAgentsOffset + nearest_agent_id];
               rewards_arr[kThisEnvAgentsOffset + drone_nearest_car_id] += reward_update;
@@ -797,14 +798,14 @@ extern "C" {
                 break;
               }
             }
-            if (!is_allocated) {
-            CudaCrowdSimGreedyAllocation(agent_x_arr, agent_y_arr, target_x, target_y,
-                                         target_idx, this_emergency_dis_to_target,
-                                         this_emergency_dis_to_target_index,
-                                         this_emergency_allocation_table,
-                                         kNumAgents, kThisEnvAgentsOffset, kEnvId, env_timestep);
-
-            }
+//             if (!is_allocated) {
+//             CudaCrowdSimGreedyAllocation(agent_x_arr, agent_y_arr, target_x, target_y,
+//                                          target_idx, this_emergency_dis_to_target,
+//                                          this_emergency_dis_to_target_index,
+//                                          this_emergency_allocation_table,
+//                                          kNumAgents, kThisEnvAgentsOffset, kEnvId, env_timestep);
+//
+//             }
           }
           global_reward -= is_dyn_point ? 5 * invEpisodeLength : invEpisodeLength;
         }
@@ -864,6 +865,7 @@ extern "C" {
         state_arr[kThisEnvStateOffset + StateFullAgentFeature + i * 4 + 2] = target_aoi;
         state_arr[kThisEnvStateOffset + StateFullAgentFeature + i * 4 + 3] = env_timestep > aoi_schedule[i] ? target_coverage : -1;
       }
+      state_arr[state_vec_features - 1] = env_timestep;
     }
     __sync_env_threads(); // Wait here until state AoI are generated (emergency AoIs are shared.)
     // -------------------------------

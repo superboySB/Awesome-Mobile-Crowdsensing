@@ -60,7 +60,7 @@ SURVEILLANCE_METRIC = "surveillance_aoi"
 VALID_HANDLING_RATIO = "valid_handling_ratio"
 
 user_override_params = ['env_config', 'dynamic_zero_shot', 'use_2d_state', 'all_random',
-                        'num_drones', 'num_cars', 'cut_points', 'fix_target', 'gen_interval']
+                        'num_drones', 'num_cars', 'cut_points', 'fix_target', 'gen_interval', 'no_refresh']
 
 grid_size = 10
 
@@ -161,10 +161,12 @@ class CrowdSim:
             all_random=False,
             cut_points=-1,
             gen_interval=30,
+            no_refresh=False,
     ):
         self.float_dtype = np.float32
         self.single_type_agent = single_type_agent
         self.int_dtype = np.int32
+        self.no_refresh = no_refresh
         self.bool_dtype = np.bool_
         # small number to prevent indeterminate cases
         self.eps = self.float_dtype(1e-10)
@@ -236,6 +238,10 @@ class CrowdSim:
                 self.emergency_count = (self.num_centers * self.num_points_per_center)
                 self.num_sensing_targets += self.emergency_count
                 # add visualization parts of dynamic generated points.
+            else:
+                self.zero_shot_start = 0
+                self.emergency_count = 0
+                self.points_per_gen = 0
         # human infos
         unique_ids = np.arange(0, self.num_sensing_targets)  # id from 0 to 91
         unique_timestamps = np.arange(self.start_timestamp, self.end_timestamp + self.step_time, self.step_time)
@@ -330,8 +336,13 @@ class CrowdSim:
                                          fill_value=self.starting_location_x, dtype=self.float_dtype)
         self.agent_y_time_list = np.full([self.episode_length + 1, self.num_agents],
                                          fill_value=self.starting_location_y, dtype=self.float_dtype)
-        self.emergency_allocation_table = np.full([self.emergency_count, ], -1, dtype=self.int_dtype)
-        self.agent_reward_time_list = np.zeros([self.episode_length + 1, self.num_agents], dtype=self.float_dtype)
+        if self.dynamic_zero_shot:
+            self.emergency_allocation_table = np.full([self.emergency_count, ], -1, dtype=self.int_dtype)
+        self.agent_emergency_table = np.full([self.episode_length + 1, self.num_agents], fill_value=-1,
+                                             dtype=self.int_dtype)
+        self.agent_actions_time_list = np.zeros([self.episode_length + 1, self.num_agents, self.action_dim],
+                                                dtype=self.int_dtype)
+        self.agent_rewards_time_list = np.zeros([self.episode_length + 1, self.num_agents], dtype=self.float_dtype)
         self.data_collection = 0
 
         # These will be set during reset (see below)
@@ -342,7 +353,7 @@ class CrowdSim:
         # neighbor_aoi_grids (10 * 10) = 122
         self.observation_space = None  # Note: this will be set via the env_wrapper
         # state = (type,energy,x,y) * self.num_agents + neighbor_aoi_grids (10 * 10)
-        self.vector_state_dim = (self.num_agents + 4) * self.num_agents + self.emergency_count * 4
+        self.vector_state_dim = (self.num_agents + 4) * self.num_agents + self.emergency_count * 4 + 1
         self.image_state_dim = 100
         if self.use_2d_state:
             self.global_state = {
@@ -383,7 +394,8 @@ class CrowdSim:
         # [may not necessary] Copy drones dict for applying at reset (with limited energy reserve)
         # self.drones_at_reset = copy.deepcopy(self.drones)
         # List of available colors excluding orange and red
-        self.available_colors = ["blue", "green", "yellow", "purple", "cyan", "magenta", "teal", "lime", "brown"]
+        self.available_colors = ['blue', "darkgreen", "darkred", "purple", 'black', "magenta", 'darkblue', "teal",
+                                 "brown", 'gray']
 
         # Shuffle the list of available colors
         random.shuffle(self.available_colors)
@@ -445,6 +457,8 @@ class CrowdSim:
         self.agent_x_time_list[self.timestep, :] = self.starting_location_x
         self.agent_y_time_list[self.timestep, :] = self.starting_location_y
         self.agent_energy_timelist[self.timestep, :] = self.max_uav_energy
+        if self.dynamic_zero_shot:
+            self.emergency_allocation_table[:] = -1
         # for target_id in range(self.num_sensing_targets):
         self.target_aoi_timelist = np.zeros([self.episode_length + 1, self.num_sensing_targets], dtype=np.int_)
         self.target_aoi_timelist[self.timestep, :] = 1
@@ -565,7 +579,7 @@ class CrowdSim:
                                                 grid_size)
 
         # TODO: this full_queue is mock, no actual prediction is provided.
-        full_queue = np.zeros((self.num_agents, self.queue_feature * self.emergency_count))
+        full_queue = np.zeros((self.num_agents, self.queue_feature))
         if self.dynamic_zero_shot:
             current_aoi = self.target_aoi_timelist[self.timestep]
             valid_zero_shots_mask = (current_aoi > 1) & (np.arange(self.num_sensing_targets) > self.zero_shot_start) & \
@@ -606,8 +620,9 @@ class CrowdSim:
                                                 grid_size)
         vector_obs = self.float_dtype(np.hstack((agents_state, homoge_parts.reshape(self.num_agents, -1),
                                                  hetero_parts.reshape(self.num_agents, -1), full_queue)))
+
         # Global state
-        if self.use_2d_state:
+        if self.dynamic_zero_shot:
             emergency_status = np.where(self.timestep > self.aoi_schedule,
                                         self.target_coveraged_timelist[self.timestep, self.zero_shot_start:],
                                         -1)
@@ -615,7 +630,10 @@ class CrowdSim:
                                          self.target_y_time_list[self.timestep, self.zero_shot_start:] / self.nlat,
                                          self.target_aoi_timelist[self.timestep, self.zero_shot_start:],
                                          emergency_status]).T
-            vector_state = np.concatenate([agents_state.ravel(), emergency_state.ravel()])
+            vector_state = np.concatenate([agents_state.ravel(), emergency_state.ravel(), np.array([self.timestep])])
+        else:
+            vector_state = np.concatenate([agents_state.ravel(), np.array([self.timestep])])
+        if self.use_2d_state:
             self.global_state = {
                 _VECTOR_STATE: self.float_dtype(vector_state),
                 _IMAGE_STATE: self.float_dtype(state_aoi_grid),
@@ -635,7 +653,7 @@ class CrowdSim:
             aoi_grids = aoi_grid_parts.reshape(self.num_agents, -1)
             observations = self.float_dtype(np.hstack((vector_obs,
                                                        aoi_grids.reshape(self.num_agents, -1))))
-            self.global_state = self.float_dtype(np.concatenate([agents_state.ravel(),
+            self.global_state = self.float_dtype(np.concatenate([vector_state,
                                                                  state_aoi_grid.ravel()]))
             observations = {agent_id: observations[agent_id] for agent_id in range(self.num_agents)}
         return observations
@@ -883,13 +901,16 @@ class CrowdSim:
             self.agent_x_time_list[self.timestep, :] = self.cuda_data_manager.pull_data_from_device("agent_x")[0]
             self.agent_y_time_list[self.timestep, :] = self.cuda_data_manager.pull_data_from_device("agent_y")[0]
             agent_emergency_allocation = self.cuda_data_manager.pull_data_from_device("emergency_allocation_table")[0]
-            self.agent_reward_time_list[self.timestep, :] = self.cuda_data_manager.pull_data_from_device(_REWARDS)[0]
-            # get emergency index where the allocation table is not -1
-            num_of_normal_targets = self.num_sensing_targets - self.emergency_count
-            for i in range(self.num_agents):
-                emergency_index = agent_emergency_allocation[i]
-                if emergency_index != -1:
-                    self.emergency_allocation_table[emergency_index - num_of_normal_targets] = i
+            self.agent_rewards_time_list[self.timestep, :] = self.cuda_data_manager.pull_data_from_device(_REWARDS)[0]
+            self.agent_actions_time_list[self.timestep, :] = self.cuda_data_manager.pull_data_from_device(_ACTIONS)[0]
+            if self.dynamic_zero_shot:
+                # get emergency index where the allocation table is not -1
+                num_of_normal_targets = self.num_sensing_targets - self.emergency_count
+                for i in range(self.num_agents):
+                    emergency_index = agent_emergency_allocation[i]
+                    if emergency_index != -1:
+                        self.emergency_allocation_table[emergency_index - num_of_normal_targets] = i
+                self.agent_emergency_table[self.timestep] = agent_emergency_allocation
             # agent_emergency_allocation will now be the index of emergency points, where the index of
             # agent_emergency_allocation are the allocated agents.
             # agent table
@@ -916,7 +937,8 @@ class CrowdSim:
                 energy_list = self.agent_energy_timelist[:, i]
                 robot_df = self.xy_to_dataframe(aoi_list, energy_list, id_list, max_latitude,
                                                 max_longitude, timestamp_list, x_list, y_list)
-                robot_df['reward'] = self.agent_reward_time_list[:, i]
+                robot_df['reward'] = self.agent_rewards_time_list[:, i]
+                robot_df['selection'] = self.agent_actions_time_list[:, i, 0]
                 # Add reward timelist for rendering.
                 mixed_df = pd.concat([mixed_df, robot_df])
             # add emergency targets.
@@ -934,7 +956,10 @@ class CrowdSim:
                     robot_df = self.xy_to_dataframe(delay_list, energy_list, id_list, max_latitude,
                                                     max_longitude, timestamp_list, x_list, y_list)
                     robot_df['creation_time'] = self.aoi_schedule[i - self.zero_shot_start]
-                    robot_df['allocation'] = int(self.emergency_allocation_table[i - self.zero_shot_start])
+                    if self.dynamic_zero_shot:
+                        robot_df['allocation'] = int(self.emergency_allocation_table[i - self.zero_shot_start])
+                    else:
+                        robot_df['allocation'] = -1
                     robot_df['episode_length'] = self.episode_length
                     mixed_df = pd.concat([mixed_df, robot_df])
             # ------------------------------------------------------------------------------------
@@ -1068,7 +1093,7 @@ class CrowdSim:
                            f"Surveillance: {info[SURVEILLANCE_METRIC]:.2f},<br>" \
                            f"Response Delay: {info[EMERGENCY_METRIC]:.2f},<br>" \
                            f"Valid Ratio: {info[VALID_HANDLING_RATIO]:.2f},<br>" \
-                           f"Total Reward: {np.sum(self.agent_reward_time_list):.2f}"
+                           f"Total Reward: {np.sum(self.agent_rewards_time_list):.2f}"
                 # f"Overall AoI: {info[OVERALL_AOI]:.2f}"
             else:
                 info_str = f"Energy Ratio: {info[ENERGY_METRIC_NAME]:.2f}, " \
@@ -1076,7 +1101,7 @@ class CrowdSim:
                            f"Coverage: {info[COVERAGE_METRIC_NAME]:.4f},<br>" \
                            f"Mean AoI: {info[AOI_METRIC_NAME]:.2f},<br>" \
                            f"Fresh Coverage: {info[MAIN_METRIC_NAME]:.2f}" \
-                           f"Total Reward: {np.sum(self.agent_reward_time_list):.2f}"
+                           f"Total Reward: {np.sum(self.agent_rewards_time_list):.2f}"
                 # f"Data Collect: {info[DATA_METRIC_NAME]:.4f}, " \
             folium.map.Marker(
                 [self.upper_right[1], self.upper_right[0]],
@@ -1253,7 +1278,7 @@ class CUDACrowdSim(CrowdSim, CUDAEnvironmentContext):
         # Update environment state (note self.global_state is vectorized for RLlib)
         dones = self.bool_dtype(self.cuda_data_manager.pull_data_from_device("_done_"))
         # self.global_state = self.float_dtype(self.cuda_data_manager.pull_data_from_device(_STATE))
-        self.timestep = int(self.cuda_data_manager.pull_data_from_device("_timestep_").mean())
+        self.timestep = int(self.cuda_data_manager.pull_data_from_device("_timestep_")[0])
         logging.debug(f"Timestep in CUDACrowdSim {self.timestep}")
         logging.debug(f"Dones in CUDACrowdSim {dones[:5]}")
         if not self.dynamic_zero_shot:
@@ -1366,6 +1391,7 @@ class RLlibCUDACrowdSim(MultiAgentEnv):
                 get_space(self.observation_space, state, "state")
         except AttributeError:
             pass
+
         if "mock" not in additional_params and self.env_wrapper.env_backend == "pycuda":
             from warp_drive.cuda_managers.pycuda_function_manager import (
                 PyCUDASampler,
@@ -1423,7 +1449,7 @@ class RLlibCUDACrowdSim(MultiAgentEnv):
         Reset all environments.
         """
         self.env_wrapper.reset()
-        if self.env.dynamic_zero_shot:
+        if self.env.dynamic_zero_shot and (not self.env.no_refresh):
             # One episode delays all newly generated points, that is, these points are prepared
             #  for the next episodes. But it should be fine.
             self.env.targets_regen()
@@ -1483,8 +1509,11 @@ class RLlibCUDACrowdSim(MultiAgentEnv):
         step all cuda environments at the same time.
         """
         # convert MultiAgentDict to an ndarray with shape [num_agent, action_index]
-        vectorized_actions = np.expand_dims(np.vstack([np.array(list(action_dict.values()))
-                                                       for action_dict in actions]), axis=-1)
+        if isinstance(self.action_space, MultiDiscrete):
+            vectorized_actions = np.stack([np.array(list(action_dict.values())) for action_dict in actions])
+        else:
+            vectorized_actions = np.expand_dims(np.vstack([np.array(list(action_dict.values()))
+                                                           for action_dict in actions]), axis=-1)
         # np.asarray(list(map(int, {1: 2, 2: 5, 3: 8}.values()))), 30% faster than
         # actions_ls = [int(actions[agent_id]) for agent_id in actions.keys()]
         # upload actions to device
@@ -1494,27 +1523,7 @@ class RLlibCUDACrowdSim(MultiAgentEnv):
         # current_observation shape [n_envs, n_agent, dim_obs]
         next_obs = self.pull_vec_from_device_to_list(_OBSERVATIONS, self.obs_vec_dim)
         state_list = self.pull_vec_from_device_to_list(_STATE, self.env.vector_state_dim)
-        # logging.debug(f"aoi_grid: {next_obs[0][_IMAGE_STATE][0][0]}, emergency_grid: {next_obs[0][_IMAGE_STATE][0][1]}")
-        # if wandb.run is not None and self.evaluate_count_down % 50 == 0 and self.env.timestep % 20 == 0:
-        #     for i, item in enumerate(next_obs[0][_IMAGE_STATE] if self.use_2d_state else next_obs[0]):
-        #         if self.use_2d_state:
-        #             aoi_grid = wandb.Image(item[0], caption=aoi_caption)
-        #         else:
-        #             aoi_grid = wandb.Image(item[self.obs_vec_dim: self.obs_vec_dim + grid_size * grid_size
-        #                         ].reshape(1, grid_size, grid_size), caption=aoi_caption)
-        #         wandb.log({f"grids/aoi_agent_{i}": aoi_grid})
-        #     first_state = state_list[0]
-        #     if self.use_2d_state:
-        #         state_aoi = wandb.Image(first_state[_IMAGE_STATE][0], caption=state_aoi_caption)
-        #         emergency_aoi = wandb.Image(first_state[_IMAGE_STATE][1], caption=emergency_caption)
-        #     else:
-        #         state_aoi = wandb.Image(first_state[self.state_vec_dim:self.state_vec_dim + grid_size * grid_size
-        #                                 ].reshape(grid_size, grid_size), caption=state_aoi_caption)
-        #         emergency_aoi = wandb.Image(first_state[self.state_vec_dim + grid_size * grid_size:
-        #                                   ].reshape(grid_size, grid_size), caption=emergency_caption)
-        #     wandb.log({"grids/state_aoi": state_aoi, "grids/emergency_aoi": emergency_aoi})
-        # assert np.array_equal(next_obs[0][0][20 + grid_size * grid_size:],state_list[0][self.state_vec_dim + grid_size * grid_size:])
-        # assert np.array_equal(next_obs[0][0][20 + grid_size * grid_size:],next_obs[0][-1][20 + grid_size * grid_size:])
+
         if self.centralized:
             reward = np.repeat(self.env_wrapper.cuda_data_manager.pull_data_from_device(_GLOBAL_REWARD),
                                repeats=self.num_agents).reshape(-1, self.num_agents)
@@ -1554,6 +1563,30 @@ class RLlibCUDACrowdSim(MultiAgentEnv):
         # add datetime to trajectory
         datetime_str = datetime.now().strftime("%Y%m%d_%H%M%S")
         self.env.render(f'{self.render_file_name}_{datetime_str}', True, False)
+
+    def log_aoi_grid(self):
+        pass
+        # logging.debug(f"aoi_grid: {next_obs[0][_IMAGE_STATE][0][0]}, emergency_grid: {next_obs[0][_IMAGE_STATE][0][1]}")
+        # if wandb.run is not None and self.evaluate_count_down % 50 == 0 and self.env.timestep % 20 == 0:
+        #     for i, item in enumerate(next_obs[0][_IMAGE_STATE] if self.use_2d_state else next_obs[0]):
+        #         if self.use_2d_state:
+        #             aoi_grid = wandb.Image(item[0], caption=aoi_caption)
+        #         else:
+        #             aoi_grid = wandb.Image(item[self.obs_vec_dim: self.obs_vec_dim + grid_size * grid_size
+        #                         ].reshape(1, grid_size, grid_size), caption=aoi_caption)
+        #         wandb.log({f"grids/aoi_agent_{i}": aoi_grid})
+        #     first_state = state_list[0]
+        #     if self.use_2d_state:
+        #         state_aoi = wandb.Image(first_state[_IMAGE_STATE][0], caption=state_aoi_caption)
+        #         emergency_aoi = wandb.Image(first_state[_IMAGE_STATE][1], caption=emergency_caption)
+        #     else:
+        #         state_aoi = wandb.Image(first_state[self.state_vec_dim:self.state_vec_dim + grid_size * grid_size
+        #                                 ].reshape(grid_size, grid_size), caption=state_aoi_caption)
+        #         emergency_aoi = wandb.Image(first_state[self.state_vec_dim + grid_size * grid_size:
+        #                                   ].reshape(grid_size, grid_size), caption=emergency_caption)
+        #     wandb.log({"grids/state_aoi": state_aoi, "grids/emergency_aoi": emergency_aoi})
+        # assert np.array_equal(next_obs[0][0][20 + grid_size * grid_size:],state_list[0][self.state_vec_dim + grid_size * grid_size:])
+        # assert np.array_equal(next_obs[0][0][20 + grid_size * grid_size:],next_obs[0][-1][20 + grid_size * grid_size:])
 
 
 def get_rllib_multi_agent_obs(current_observation, state, agents: list[Any]) -> MultiAgentDict:
