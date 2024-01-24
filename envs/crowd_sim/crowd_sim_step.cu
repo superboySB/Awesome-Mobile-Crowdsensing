@@ -337,9 +337,9 @@ extern "C" {
     float * this_state_arr_pointer = state_arr + kThisEnvStateOffset + kThisAgentFeaturesOffset;
     float * this_obs_arr_pointer = obs_arr + kThisAgentObsOffset;
     memset(obs_arr + kThisAgentObsOffset, 0, obs_vec_features * sizeof(float));
-    for(int i = 0;i < kNumAgentsObserved;i++){
-    neighbor_agent_distances_arr[kThisDistanceArrayIdxOffset + i] = kMaxDistance;
-    }
+//     for(int i = 0;i < kNumAgentsObserved;i++){
+//     neighbor_agent_distances_arr[kThisDistanceArrayIdxOffset + i] = kMaxDistance;
+//     }
     // ------------------------------------
     // [Part 1] self info (4 + kNumAgents, one_hot, type, energy, x, y)
     const int my_type = agent_types_arr[kThisAgentId];
