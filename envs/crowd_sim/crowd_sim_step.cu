@@ -604,8 +604,8 @@ extern "C" {
     const int obs_features = obs_vec_features + total_num_grids;
     const int kThisEnvStateOffset = kEnvId * state_features;
     int * this_emergency_allocation_table = emergency_allocation_table + kThisEnvAgentsOffset;
-//     int * this_emergency_dis_to_target_index = emergency_dis_to_target_index + kThisEnvAgentsOffset;
-//     float * this_emergency_dis_to_target = emergency_dis_to_target + kThisEnvAgentsOffset;
+    int * this_emergency_dis_to_target_index = emergency_dis_to_target_index + kThisEnvAgentsOffset;
+    float * this_emergency_dis_to_target = emergency_dis_to_target + kThisEnvAgentsOffset;
 
     //     printf("Drone Sensing Range: %f\n", kDroneSensingRange);
     //     printf("features: %d, obs: %d\n", state_features, obs_features);

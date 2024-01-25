@@ -131,9 +131,9 @@ if __name__ == '__main__':
     assert args.algo in algorithm_list, f"algorithm {args.algo} not supported, please implement your custom algorithm"
     my_algorithm: _Algo = getattr(marl.algos, args.algo)(hyperparam_source="common", **custom_algo_params)
     if args.render or args.ckpt:
-        uuid = "f6381"
-        time_str = "2024-01-20_22-34-05"
-        checkpoint_num = 15000
+        uuid = "a152c"
+        time_str = "2024-01-19_19-19-37"
+        checkpoint_num = 25000
         backup_str = ""
         restore_dict = get_restore_dict(args, uuid, time_str, checkpoint_num, backup_str)
         for info in [uuid, str(checkpoint_num)]:
@@ -145,7 +145,7 @@ if __name__ == '__main__':
     model_preference = {"core_arch": args.core_arch, "encode_layer": args.encoder_layer}
 
     if args.env == 'crowdsim':
-        for item in ['selector_type'] + restore_ignore_params:
+        for item in ['selector_type', 'gen_interval'] + restore_ignore_params:
             model_preference[item] = getattr(args, item)
     model = marl.build_model(env, my_algorithm, model_preference)
     # start learning
