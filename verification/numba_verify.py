@@ -37,7 +37,7 @@ if __name__ == '__main__':
     in_place = np.ones((5, 9))
     modify(in_place)
     print(in_place)
-    a = return_numpy_array(test_array).reshape(-1, 3)
+    a = return_numpy_array(np.array([])).reshape(-1, 3)
     print(a)
     b = return_dict()
     print(b)
