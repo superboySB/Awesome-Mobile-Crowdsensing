@@ -24,6 +24,7 @@ def return_numpy_array(test_array: np.ndarray):
 @njit
 def modify(array):
     array[0] = 2
+    array[..., 0] = 0
     return array
 
 

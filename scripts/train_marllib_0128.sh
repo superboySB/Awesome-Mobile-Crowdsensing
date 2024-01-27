@@ -2,8 +2,8 @@
 
 dataset_name='SanFrancisco'
 exp_name='WARP'_$dataset_name
-session_name=$exp_name'_3'
-cards=(1 2)
+session_name=$exp_name
+cards=(0 2 1)
 card_num=${#cards[@]}
 dry_run=false
 # Process command-line arguments
@@ -19,17 +19,10 @@ while [[ $# -gt 0 ]]; do
             ;;
     esac
 done
-# remove NN share_policy all
 trains=(
-  "--gen_interval 30 --share_policy all --selector_type NN"
-  "--gen_interval 30 --share_policy all --selector_type greedy"
-  "--gen_interval 30 --share_policy all --selector_type random"
-  "--gen_interval 15 --share_policy all --selector_type NN"
-  "--gen_interval 15 --share_policy all --selector_type greedy"
-  "--gen_interval 15 --share_policy all --selector_type random"
-  "--gen_interval 10 --share_policy all --selector_type NN"
-  "--gen_interval 10 --share_policy all --selector_type greedy"
-  "--gen_interval 10 --share_policy all --selector_type random"
+  "--gen_interval 30 --share_policy all --selector_type NN --with_programming_optimization"
+  "--gen_interval 15 --share_policy all --selector_type NN --with_programming_optimization"
+  "--gen_interval 10 --share_policy all --selector_type NN --with_programming_optimization"
 )
 
 
@@ -65,8 +58,8 @@ for ((i = 0; i < train_num; i++)); do
   # shellcheck disable=SC2004
   # if want to add $PATH, remember to add / before $
   command="python warp_drive/marllib_warpdrive_run.py --track --core_arch crowdsim_net --dynamic_zero_shot\
-  --num_drones 4 --num_cars 0 --group auto_allocation --algo trafficppo --dataset '$dataset_name'\
-  --gpu_id ${cards[card_id]} ${trains[i]} --use_2d_state --with_programming_optimization"
+  --num_drones 4 --num_cars 0 --group auto_allocation --algo trafficppo --tag bootstrap_reward --dataset '$dataset_name'\
+  --gpu_id ${cards[card_id]} ${trains[i]} --use_2d_state"
   echo "$command"
   if [ "$dry_run" = "false" ] && [ "$choice" != "n" ]
   then
