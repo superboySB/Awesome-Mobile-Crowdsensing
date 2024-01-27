@@ -7,6 +7,8 @@ import os
 import pprint
 import warnings
 import random
+
+import ray
 from tqdm import tqdm
 from typing import Optional, Tuple, Dict, List, Any, Union
 
