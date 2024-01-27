@@ -1,9 +1,11 @@
 import os
-
+import seaborn as sns
 import pandas as pd
 import numpy as np
 import time
 from typing import Optional
+
+from matplotlib import pyplot as plt
 from tqdm import tqdm
 
 final_csv_header = ['vehicle_id', 'time', 'longitude', 'latitude', 'timestamp', 'x', 'y']
@@ -352,12 +354,11 @@ class VehicleTrajectoriesAnalyst(object):
         print("Analysing trajectories...")
         for vehicle_id in tqdm(vehicle_ids):
             new_df = df[df['vehicle_id'] == vehicle_id]
-            vehicle_dwell_time = 0.0
-            for row in new_df.itertuples():
-                distance = np.sqrt((row.x - 1500) ** 2 + (row.y - 1500) ** 2)
-                if distance <= 1500:
-                    vehicle_dwell_time += 1.0
-                    number_of_vehicles_in_seconds[int(row.time)] += 1
+            distances = np.sqrt((new_df['x'] - 1500) ** 2 + (new_df['y'] - 1500) ** 2)
+            # find places where distance <= 1500
+            new_df = new_df[distances <= 1500]
+            vehicle_dwell_time = len(new_df)
+            number_of_vehicles_in_seconds[new_df['time']] += 1
             vehicle_dwell_times.append(vehicle_dwell_time)
 
         assert len(vehicle_dwell_times) == len(vehicle_ids)
@@ -375,6 +376,45 @@ class VehicleTrajectoriesAnalyst(object):
         vehicle_speeds = []
         df = pd.read_csv(self._trajectories_file_name_with_no_fill,
                          names=final_csv_header, header=0)
+
+        # Group by (x, y) and count occurrences
+        coordinates_counts = df.groupby(['x', 'y']).size().reset_index(name='count')
+
+        # Sort by frequency in descending order
+        sorted_coordinates_counts = coordinates_counts.sort_values(by='count', ascending=False)
+
+        vehicle_unique_counts = df.groupby(['time', 'x', 'y'])['vehicle_id'].nunique().reset_index(name='unique_count')
+
+        # Define the number of bins
+        num_bins = 10
+
+        # Create bins for x and y coordinates
+        df['x_bin'] = pd.cut(df['x'], bins=num_bins, labels=False)
+        df['y_bin'] = pd.cut(df['y'], bins=num_bins, labels=False)
+
+        # Define the threshold percentage
+        threshold_percentage = 200
+
+        # Group by time, x_bin, and y_bin to count the number of cars in each sub-region at each timestep
+        grouped_counts = df.groupby(['time', 'x_bin', 'y_bin']).size().reset_index(name='car_count')
+
+        # Pivot the table for visualization
+        heatmap_data = grouped_counts.pivot_table(values='car_count', index='y_bin', columns='x_bin', fill_value=0)
+        # Create a heatmap using seaborn
+        # plt.figure(figsize=(10, 8))
+        # sns.heatmap(heatmap_data, cmap='viridis', annot=True, fmt='.2g', linewidths=.5, cbar_kws={'label': 'Car Counts'})
+        # plt.title(f'Heatmap of Car Counts in {num_bins}x{num_bins} Sub-regions at Each Timestep')
+        # plt.show()
+
+        average_car_count = heatmap_data.stack()
+        average_car_count.rename("average_car_count", inplace=True)
+        # Merge the counts back into the original DataFrame
+        grouped_counts = pd.merge(grouped_counts, average_car_count, on=['x_bin', 'y_bin'], how='inner')
+
+        # Identify timestamps where traffic flow exceeds the threshold
+        unusual_traffic_time_loc = grouped_counts[grouped_counts['car_count'] > (1 + threshold_percentage / 100) *
+                                                  grouped_counts['average_car_count']]
+
         vehicle_ids = df['vehicle_id'].unique()
 
         for vehicle_id in vehicle_ids:
@@ -410,11 +450,11 @@ parent_dir_name = os.path.join("/workspace", "saved_data", 'datasets', 'Chengdu_
 trajectory_file_name: str = os.path.join(parent_dir_name, 'gps_20161116')
 longitude_min: float = 104.04565967220308
 latitude_min: float = 30.654605745741608
-start_hour = 22
+start_hour = 9
 start_minute = 0
 start_second = 0
-end_hour = 22
-end_minute = 5
+end_hour = 9
+end_minute = 30
 end_second = 0
 padded_start_hour = str(start_hour).zfill(2)
 padded_start_minute = str(start_minute).zfill(2)

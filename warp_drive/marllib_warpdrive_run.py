@@ -50,6 +50,7 @@ if __name__ == '__main__':
     parser.add_argument("--ckpt", action='store_true', help='load checkpoint')
     parser.add_argument("--share_policy", choices=['all', 'group', 'individual'], default='all')
     parser.add_argument("--separate_render", action='store_true', help='render file will be stored separately')
+    parser.add_argument("--with_programming_optimization", action='store_true')
     parser.add_argument('--no_refresh', action='store_true', help='do not reset randomly generated emergency points')
     parser.add_argument("--selector_type", type=str, default='NN', choices=['NN', 'greedy', 'oracle', 'random'])
     # parser.add_argument("--ckpt", nargs=3, type=str, help='uuid, time_str, checkpoint_num to restore')
@@ -60,6 +61,9 @@ if __name__ == '__main__':
     expr_name = customize_experiment(args)
     this_expr_dir = os.path.join(logging_dir, 'trajectories', '_'.join([args.algo, args.core_arch, args.dataset]),
                                  expr_name)
+    if args.selector_type == 'oracle':
+        assert args.share_policy != 'individual' and args.env == 'crowdsim', \
+            f"selector_type {args.selector_type} only works with crowdsim env and share_policy != individual"
     if args.core_arch == 'crowdsim_net':
         warnings.warn("encoder_layer is ignored for crowdsim_net separate encoder")
     # make dir
@@ -76,6 +80,7 @@ if __name__ == '__main__':
     else:
         if args.local_mode:
             logging.getLogger().setLevel(logging.DEBUG)
+            # os.environ['NUMBA_DISABLE_JIT'] = '1'
         else:
             logging.getLogger().setLevel(logging.WARN)
     setproctitle.setproctitle(expr_name)
@@ -145,7 +150,7 @@ if __name__ == '__main__':
     model_preference = {"core_arch": args.core_arch, "encode_layer": args.encoder_layer}
 
     if args.env == 'crowdsim':
-        for item in ['selector_type', 'gen_interval'] + restore_ignore_params:
+        for item in ['selector_type', 'gen_interval', 'with_programming_optimization'] + restore_ignore_params:
             model_preference[item] = getattr(args, item)
     model = marl.build_model(env, my_algorithm, model_preference)
     # start learning
