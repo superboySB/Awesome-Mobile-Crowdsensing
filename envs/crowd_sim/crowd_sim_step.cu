@@ -4,7 +4,6 @@
 // For full license text, see the LICENSE file in the repo root
 // or https://opensource.org/licenses/BSD-3-Clause
 #include <stdio.h>
-
 #include <math.h>
 
 __constant__ float kTwoPi = 6.28318530718;
@@ -572,19 +571,34 @@ extern "C" {
     const int kEnvId = getEnvID(blockIdx.x);
     const int kThisAgentId = getAgentID(threadIdx.x, blockIdx.x, blockDim.x);
     const int emergency_count = kNumTargets - zero_shot_start;
+    // print kNumTargets and emergencies
+//         if (kThisAgentId == 0){
+//           printf("kNumTargets: %d, zero_shot_start: %d, emergency_count: %d\n", kNumTargets, zero_shot_start, emergency_count);
+//         }
     float mean_emergency_aoi = 0.0;
     // Update Timestep
     // Increment time ONCE -- only 1 thread can do this.
     if (kThisAgentId == 0) {
+
       int original = env_timestep_arr[kEnvId]++;
       if (original > kEpisodeLength) {
         env_timestep_arr[kEnvId] = 0;
       }
+//       printf("new timestep: %d\n", original);
     }
     __sync_env_threads(); // Wait here until timestep has been updated
-    const int env_timestep = env_timestep_arr[kEnvId];
+    int env_timestep = env_timestep_arr[kEnvId];
+//     printf("env_timestep: %d\n", env_timestep);
+    // print target_x and target_y (first 5 targets) at timestep larger than 117
     //     printf("Agent %d receive timestep: %d\n", kThisAgentId, env_timestep);
     assert(env_timestep > 0 && env_timestep <= kEpisodeLength);
+//           if (kEnvId == 0){
+//         if (env_timestep > 117){
+//           for (int i = 0; i < 5; i++){
+//             printf("target %d: %f, %f\n", i, target_x_time_list[env_timestep * kNumTargets + i], target_y_time_list[env_timestep * kNumTargets + i]);
+//           }
+//         }
+//       }
     const int kThisEnvAgentsOffset = kEnvId * kNumAgents;
     const int kThisAgentArrayIdx = kThisEnvAgentsOffset + kThisAgentId;
     const int kNumActionDim = 1; // use Discrete instead of MultiDiscrete
@@ -700,6 +714,7 @@ extern "C" {
       //     int emergency_cover_num = 0;
       //     int valid_emergency_count = 0;
       for (int target_idx = 0; target_idx < kNumTargets; target_idx++) {
+//         bool debug_condition = target_idx < 10 && env_timestep >= 117;
         float target_x = target_x_time_list[kThisTargetPositionTimeListIdxOffset + target_idx];
         float target_y = target_y_time_list[kThisTargetPositionTimeListIdxOffset + target_idx];
         int is_dyn_point = dynamic_zero_shot && target_idx >= zero_shot_start;
@@ -721,6 +736,10 @@ extern "C" {
 
         int target_aoi = target_aoi_arr[kThisTargetAgeArrayIdxOffset + target_idx];
         float min_dist;
+//         if (debug_condition){
+//         // print all agent locations and target x,y
+//         printf("Target %d Pos: %f, %f\n", target_idx, target_x, target_y);
+//         }
         int nearest_agent_id = GetNearestAgentId(
           valid_status_arr + kThisEnvAgentsOffset,
           target_x,
@@ -748,6 +767,10 @@ extern "C" {
         //         }
         bool dyn_point_covered = is_dyn_point && (target_coverage || ((min_dist <= kDroneSensingRange / 2) && (nearest_agent_id != -1)));
         bool regular_point_covered = !is_dyn_point && (min_dist <= kDroneSensingRange && nearest_agent_id != -1);
+//         if (debug_condition){
+//         printf("%d min_dist: %f nearest_agent: %d\n", kEnvId, min_dist, nearest_agent_id);
+//         }
+
         if (dyn_point_covered || regular_point_covered) {
           // Covered Emergency or Covered Surveillance
           bool is_drone = agent_types_arr[nearest_agent_id];
@@ -755,6 +778,7 @@ extern "C" {
             // Only Surveillance Points have AoI reset.
             target_aoi = 1;
           } else {
+
             //               emergency_cover_num++;
             // clear this emergency point in the allocation this_emergency_allocation_table
             for (int i = 0; i < kNumAgents; i++) {
@@ -787,6 +811,10 @@ extern "C" {
           // Uncovered Emergency and Uncovered Surveillance, both require AoI increasing.
           // Note Emergency Points Before Schedule are skipped in prior logic.
           target_aoi++;
+          // print aoi increment for first 10 points
+//                       if (target_idx < 10 && env_timestep > 118){
+//                         printf("target %d aoi is %d, coverage arr %d\n", target_idx, target_aoi, target_coverage_arr[kThisTargetAgeArrayIdxOffset + target_idx]);
+//                       }
           if (is_dyn_point) {
             // scan the this_emergency_allocation_table and confirm this point is not allocated
             int is_allocated = false;
@@ -944,21 +972,21 @@ extern "C" {
 
     // add emergency to each agent.
     if (kThisAgentId < kNumAgents) {
-    float * my_obs_at_emergency = obs_arr + kThisAgentArrayIdx * obs_features + AgentFeature + (kNumAgentsObserved << 2);
-    int my_emergency_target = emergency_allocation_table[kThisAgentArrayIdx];
-    if(my_emergency_target != -1){
+//     float * my_obs_at_emergency = obs_arr + kThisAgentArrayIdx * obs_features + AgentFeature + (kNumAgentsObserved << 2);
+//     int my_emergency_target = emergency_allocation_table[kThisAgentArrayIdx];
+//     if(my_emergency_target != -1){
 //       int emergency_loc = (my_emergency_target - zero_shot_start) * FeaturesInEmergencyQueue;
-      int emergency_loc = 0;
-      float target_x = target_x_time_list[kThisTargetPositionTimeListIdxOffset + my_emergency_target];
-      float target_y = target_y_time_list[kThisTargetPositionTimeListIdxOffset + my_emergency_target];
-      my_obs_at_emergency[emergency_loc + 0] = target_x / kAgentXRange;
-      my_obs_at_emergency[emergency_loc + 1] = target_y / kAgentYRange;
-    }
-    else{
-      for(int i = 0;i < FeaturesInEmergencyQueue;i++){
-        my_obs_at_emergency[i] = 0.0;
-      }
-    }
+//       int emergency_loc = 0;
+//       float target_x = target_x_time_list[kThisTargetPositionTimeListIdxOffset + my_emergency_target];
+//       float target_y = target_y_time_list[kThisTargetPositionTimeListIdxOffset + my_emergency_target];
+//       my_obs_at_emergency[emergency_loc + 0] = target_x / kAgentXRange;
+//       my_obs_at_emergency[emergency_loc + 1] = target_y / kAgentYRange;
+//     }
+//     else{
+//       for(int i = 0;i < FeaturesInEmergencyQueue;i++){
+//         my_obs_at_emergency[i] = 0.0;
+//       }
+//     }
 // copy only allocated emergency to obs
 //     int my_emergency_target = this_emergency_allocation_table[kThisAgentId];
 //     memset(my_obs_at_emergency, 0, FeaturesInEmergencyQueue * emergency_count * sizeof(float));
@@ -989,6 +1017,15 @@ extern "C" {
 //             if (kEnvId >= 120 && kEnvId < 128 && env_timestep > 30){
 //                 printf("%d Agent 0 Reward at %d: %f\n", kEnvId, rewards_arr[kThisEnvAgentsOffset], env_timestep);
 //             }
+  // print target_x and target_y of first 5 targets after timestep 117
+
+//       if (kEnvId == 0 && env_timestep > 117){
+//       printf("End Target x,y at %d\n", env_timestep);
+//         for (int i = 0; i < 5; i++){
+//           printf("Target %d Pos: %f, %f\n", i, target_x_time_list[kThisTargetPositionTimeListIdxOffset + i],
+//           target_y_time_list[kThisTargetPositionTimeListIdxOffset + i]);
+//         }
+//       }
       bool no_energy = false;
       // run for loop for agents and check agent_energy_arr
       for (int agent_idx = 0; agent_idx < kNumAgents; agent_idx++) {

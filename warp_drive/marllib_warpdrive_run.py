@@ -2,8 +2,6 @@ import argparse
 import logging
 import os
 import warnings
-from typing import List
-import numpy as np
 from marllib import marl
 from marllib.marl.common import algo_type_dict
 from marllib.marl.algos.scripts.coma import restore_ignore_params
@@ -14,19 +12,6 @@ import setproctitle
 from common import add_common_arguments, logging_dir, customize_experiment, is_valid_format, get_restore_dict
 from envs.crowd_sim.crowd_sim import (RLlibCUDACrowdSim, LARGE_DATASET_NAME,
                                       RLlibCUDACrowdSimWrapper, user_override_params)
-from ray.tune import Callback
-
-
-class MyCallback(Callback):
-    def on_step_end(self, iteration: int, trials: List["Trial"], **info):
-        print("test")
-# register all scenario with env class
-REGISTRY = {}
-# add nvcc path to os environment
-os.environ["PATH"] += os.pathsep + '/usr/local/cuda/bin'
-
-# ray custom callback
-
 
 
 if __name__ == '__main__':
@@ -46,7 +31,7 @@ if __name__ == '__main__':
     parser.add_argument('--local_mode', action='store_true', help='run in local mode')
     parser.add_argument('--all_random', action='store_true', help='PoIs in the environment '
                                                                   'are completely random')
-    parser.add_argument("--cut_points", type=int, default=200, help='number of points allowed')
+
     parser.add_argument("--ckpt", action='store_true', help='load checkpoint')
     parser.add_argument("--share_policy", choices=['all', 'group', 'individual'], default='all')
     parser.add_argument("--separate_render", action='store_true', help='render file will be stored separately')
@@ -82,7 +67,7 @@ if __name__ == '__main__':
             logging.getLogger().setLevel(logging.DEBUG)
             # os.environ['NUMBA_DISABLE_JIT'] = '1'
         else:
-            logging.getLogger().setLevel(logging.WARN)
+            logging.getLogger().setLevel(logging.DEBUG)
     setproctitle.setproctitle(expr_name)
     # initialize crowdsim configuration
     if args.env == 'crowdsim':
@@ -92,8 +77,12 @@ if __name__ == '__main__':
         share_policy = args.share_policy
         if args.dataset == LARGE_DATASET_NAME:
             from datasets.Sanfrancisco.env_config import BaseEnvConfig
-        else:
+        elif args.dataset == 'KAIST':
             from datasets.KAIST.env_config import BaseEnvConfig
+        elif args.dataset == 'Chengdu':
+            from datasets.Chengdu.env_config import BaseEnvConfig
+        else:
+            raise NotImplementedError(f"dataset {args.dataset} not supported")
         env_params = {'env_config': BaseEnvConfig}
         # env_params['env_registrar'] = env_registrar
         if args.track:
@@ -126,6 +115,7 @@ if __name__ == '__main__':
             share_policy = 'group'
         env = marl.make_env(environment_name=args.env, map_name=args.dataset)
         logging_config = None
+        env_params = {}
 
     # filter all string in tags not in format "key=value"
     custom_algo_params = dict(filter(lambda x: "=" in x, args.tag if args.tag is not None else []))
@@ -136,21 +126,24 @@ if __name__ == '__main__':
     assert args.algo in algorithm_list, f"algorithm {args.algo} not supported, please implement your custom algorithm"
     my_algorithm: _Algo = getattr(marl.algos, args.algo)(hyperparam_source="common", **custom_algo_params)
     if args.render or args.ckpt:
-        uuid = "a152c"
-        time_str = "2024-01-19_19-19-37"
-        checkpoint_num = 25000
-        backup_str = ""
+        uuid = "f794d"
+        time_str = "2024-01-29_17-37-07"
+        checkpoint_num = 1000
+        backup_str = "2024-01-29_17-37-06"
         restore_dict = get_restore_dict(args, uuid, time_str, checkpoint_num, backup_str)
         for info in [uuid, str(checkpoint_num)]:
             if info not in env_params['render_file_name']:
                 env_params['render_file_name'] += f"_{info}"
+        for path in restore_dict.values():
+            assert os.path.exists(path), f"checkpoint path {path} does not exist"
     else:
         restore_dict = {}
     # customize model
     model_preference = {"core_arch": args.core_arch, "encode_layer": args.encoder_layer}
 
     if args.env == 'crowdsim':
-        for item in ['selector_type', 'gen_interval', 'with_programming_optimization'] + restore_ignore_params:
+        for item in ['selector_type', 'gen_interval', 'with_programming_optimization',
+                     'dataset'] + restore_ignore_params:
             model_preference[item] = getattr(args, item)
     model = marl.build_model(env, my_algorithm, model_preference)
     # start learning

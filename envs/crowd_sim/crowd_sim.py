@@ -7,7 +7,7 @@ import os
 import pprint
 import warnings
 import random
-
+from movingpandas.geometry_utils import measure_distance_geodesic
 import ray
 from tqdm import tqdm
 from typing import Optional, Tuple, Dict, List, Any, Union
@@ -89,6 +89,7 @@ map_dict = {
 policy_mapping_dict = {
     "SanFrancisco": map_dict,
     "KAIST": map_dict,
+    "Chengdu": map_dict,
 }
 excluded_keys = {"trainer", "env_params", "map_name"}
 logging.getLogger().setLevel(logging.WARN)
@@ -185,9 +186,7 @@ class CrowdSim:
         self.num_cars = num_cars
         self.num_agents = self.num_drones + self.num_cars
         self.gen_interval = gen_interval
-        self.num_sensing_targets = self.config.env.human_num
-        if cut_points != -1:
-            self.num_sensing_targets = min(self.num_sensing_targets, cut_points)
+
         self.aoi_threshold = self.config.env.aoi_threshold
         self.emergency_threshold = self.config.env.emergency_threshold
         self.num_agents_observed = self.num_agents - 1
@@ -196,21 +195,22 @@ class CrowdSim:
         self.step_time = self.config.env.step_time
         self.start_timestamp = self.config.env.start_timestamp
         self.end_timestamp = self.config.env.end_timestamp
+        self.dataset_name = self.config.env.dataset_name
+        self.human_df: pd.DataFrame = pd.read_csv(self.config.env.dataset_dir)
+        logging.debug("Finished reading {} rows".format(len(self.human_df)))
+        self.lower_left = [self.human_df['longitude'].min(), self.human_df['latitude'].min()]
+        self.upper_right = [self.human_df['longitude'].max(), self.human_df['latitude'].max()]
+        self.nlon = (self.upper_right[0] - self.lower_left[0]) / 1e-5
+        self.nlat = (self.upper_right[1] - self.lower_left[1]) / 1e-5
 
-        self.nlon = self.config.env.nlon
-        self.nlat = self.config.env.nlat
-        self.lower_left = self.config.env.lower_left
-        self.upper_right = self.config.env.upper_right
-        from movingpandas.geometry_utils import measure_distance_geodesic
         self.max_distance_x: float = measure_distance_geodesic(Point(self.lower_left[0], self.lower_left[1]),
                                                                Point(self.upper_right[0], self.lower_left[1]))
         self.max_distance_y: float = measure_distance_geodesic(Point(self.lower_left[0], self.lower_left[1]),
                                                                Point(self.lower_left[0], self.upper_right[1]))
-        self.human_df: pd.DataFrame = pd.read_csv(self.config.env.dataset_dir)
-        logging.debug("Finished reading {} rows".format(len(self.human_df)))
         # Hack, reduce points for better effect.
         if cut_points != -1:
             self.human_df = self.human_df[self.human_df['id'] < cut_points]
+        self.num_sensing_targets = self.human_df.shape[0] // self.episode_length
         self.human_df['t'] = pd.to_datetime(self.human_df['timestamp'], unit='s')  # s表示时间戳转换
         self.human_df['aoi'] = -1  # 加入aoi记录aoi
         self.human_df['energy'] = -1  # 加入energy记录energy
@@ -227,23 +227,46 @@ class CrowdSim:
             self.emergency_count = 0
             self.points_per_gen = 0
         else:
-            self.zero_shot_start = self.num_sensing_targets
-            self.points_per_gen = self.num_agents - 1 if self.num_agents > 1 else 1
-            self.aoi_schedule = np.repeat(np.arange(self.gen_interval, self.episode_length, self.gen_interval),
-                                          repeats=self.points_per_gen)
-            logging.debug(f"AoI Schedule: {self.aoi_schedule}")
-            generation_time = int(self.aoi_schedule.shape[0] / self.points_per_gen)
-            if self.dynamic_zero_shot:
-                self.num_centers = generation_time * self.points_per_gen
-                self.num_points_per_center = 1
-                points_x, points_y = self.generate_emergency(self.num_centers, self.num_points_per_center)
-                self.emergency_count = (self.num_centers * self.num_points_per_center)
+            emergency_path = os.path.join(get_project_root(), 'datasets', self.dataset_name, 'emergency_time_loc.csv')
+            if os.path.exists(emergency_path):
+                emergency_df = pd.read_csv(emergency_path)
+                self.emergency_count = emergency_df.shape[0]
                 self.num_sensing_targets += self.emergency_count
-                # add visualization parts of dynamic generated points.
+                self.zero_shot_start = self.num_sensing_targets - self.emergency_count
+                self.points_per_gen = self.emergency_count
+                self.aoi_schedule = emergency_df['time'].values
+                self.num_centers = emergency_df.shape[0]
+                self.num_points_per_center = 1
+                self.num_bins = 20
+                # make sure num_bins is consistent with generated bins
+                self.emergency_centers_x = (emergency_df['x_bin'].values / self.num_bins * self.max_distance_x).astype(
+                    int)
+                self.emergency_centers_y = (emergency_df['y_bin'].values / self.num_bins * self.max_distance_y).astype(
+                    int)
+                points_x, points_y = self.generate_emergency(self.num_centers, self.num_points_per_center,
+                                                             self.emergency_centers_x, self.emergency_centers_y)
+                logging.debug(f"Emergency points: {self.num_centers}, {self.num_points_per_center}")
             else:
-                self.zero_shot_start = 0
-                self.emergency_count = 0
-                self.points_per_gen = 0
+                self.emergency_centers_x = None
+                self.emergency_centers_y = None
+                if self.dynamic_zero_shot:
+                    self.zero_shot_start = self.num_sensing_targets
+                    self.points_per_gen = self.num_agents - 1 if self.num_agents > 1 else 1
+                    self.aoi_schedule = np.repeat(np.arange(self.gen_interval, self.episode_length, self.gen_interval),
+                                                  repeats=self.points_per_gen)
+                    logging.debug(f"AoI Schedule: {self.aoi_schedule}")
+                    generation_time = int(self.aoi_schedule.shape[0] / self.points_per_gen)
+                    self.num_centers = generation_time * self.points_per_gen
+                    self.num_points_per_center = 1
+                    points_x, points_y = self.generate_emergency(self.num_centers, self.num_points_per_center)
+                    self.emergency_count = (self.num_centers * self.num_points_per_center)
+                    self.num_sensing_targets += self.emergency_count
+                    # add visualization parts of dynamic generated points.
+                else:
+                    self.zero_shot_start = 0
+                    self.emergency_count = 0
+                    self.points_per_gen = 0
+                    self.aoi_schedule = np.zeros(0)
         # human infos
         unique_ids = np.arange(0, self.num_sensing_targets)  # id from 0 to 91
         unique_timestamps = np.arange(self.start_timestamp, self.end_timestamp + self.step_time, self.step_time)
@@ -390,8 +413,7 @@ class CrowdSim:
         self.global_distance_matrix = np.full((self.num_agents, self.num_agents + self.num_sensing_targets), np.nan)
 
         # Rewards and penalties
-        self.energy_factor = self.config.env.energy_factor
-
+        # self.energy_factor = self.config.env.energy_factor
         # These will also be set via the env_wrapper
         self.env_backend = env_backend
 
@@ -419,14 +441,20 @@ class CrowdSim:
         self.selected_color_index += 1
         return next_color
 
-    def generate_emergency(self, num_centers, num_points_per_center):
+    def generate_emergency(self, num_centers, num_points_per_center, centers_x=None, centers_y=None):
         max_distance_from_center = 10
         max_distance_x = self.max_distance_x
         max_distance_y = self.max_distance_y
 
         # Generate random center coordinates
-        centers_x = self.np_random.randint(0, int(max_distance_x), (num_centers,))
-        centers_y = self.np_random.randint(0, int(max_distance_y), (num_centers,))
+        if centers_x is None:
+            centers_x = self.np_random.randint(0, int(max_distance_x), (num_centers,))
+        else:
+            assert len(centers_x) == num_centers
+        if centers_y is None:
+            centers_y = self.np_random.randint(0, int(max_distance_y), (num_centers,))
+        else:
+            assert len(centers_y) == num_centers
 
         # Generate random relative offsets for all points
         offsets_x = self.np_random.randint(-max_distance_from_center, max_distance_from_center + 1,
@@ -481,9 +509,14 @@ class CrowdSim:
         return self.generate_observation_and_update_state()
 
     def targets_regen(self):
+        logging.debug("Target regen is called")
         if self.dynamic_zero_shot and not self.all_random:
             logging.debug("Emergency points reset completed!")
-            points_x, points_y = self.generate_emergency(self.num_centers, self.num_points_per_center)
+            if self.emergency_centers_y is not None and self.emergency_centers_x is not None:
+                points_x, points_y = self.generate_emergency(self.num_centers, self.num_points_per_center,
+                                                             self.emergency_centers_x, self.emergency_centers_y)
+            else:
+                points_x, points_y = self.generate_emergency(self.num_centers, self.num_points_per_center)
             self.target_x_time_list[:, self.zero_shot_start:] = points_x
             self.target_y_time_list[:, self.zero_shot_start:] = points_y
         elif self.all_random:
@@ -924,7 +957,7 @@ class CrowdSim:
             # 200 201 202 203
             # 2 0 1 3
 
-        if self.timestep == self.config.env.num_timestep:
+        if self.timestep == self.config.env.num_timestep - 1:
             # output final trajectory
             # 可将机器人traj，可以载入到human的dataframe中，id从-1开始递减
             import geopandas as gpd
@@ -934,22 +967,25 @@ class CrowdSim:
             timestamp_list = [self.start_timestamp + t * self.step_time for t in range(self.episode_length + 1)]
             max_longitude = abs(self.lower_left[0] - self.upper_right[0])
             max_latitude = abs(self.lower_left[1] - self.upper_right[1])
+            robot_dfs = []
             for i in range(self.num_agents):
                 x_list = self.agent_x_time_list[:, i]
                 y_list = self.agent_y_time_list[:, i]
                 id_list = np.full_like(x_list, -i - 1)
                 energy_list = self.agent_energy_timelist[:, i]
-                robot_df = self.xy_to_dataframe(aoi_list, energy_list, id_list, max_latitude,
+                emergency_df = self.xy_to_dataframe(aoi_list, energy_list, id_list, max_latitude,
                                                 max_longitude, timestamp_list, x_list, y_list)
-                robot_df['reward'] = self.agent_rewards_time_list[:, i]
-                robot_df['selection'] = self.agent_actions_time_list[:, i, 0]
+                emergency_df['reward'] = self.agent_rewards_time_list[:, i]
+                emergency_df['selection'] = self.agent_actions_time_list[:, i, 0]
                 # Add reward timelist for rendering.
-                mixed_df = pd.concat([mixed_df, robot_df])
+                robot_dfs.append(emergency_df)
+            mixed_df = pd.concat([mixed_df, *robot_dfs])
             # add emergency targets.
             # pull emergency coordinates from device to host, since points in host are already refreshed
             all_zero_shot_x = self.cuda_data_manager.pull_data_from_device("target_x")[0][:, self.zero_shot_start:]
             all_zero_shot_y = self.cuda_data_manager.pull_data_from_device("target_y")[0][:, self.zero_shot_start:]
             if self.dynamic_zero_shot:
+                emergencies_dfs = []
                 for i in range(self.zero_shot_start, self.num_sensing_targets):
                     logging.debug(f"Creation Time: {self.aoi_schedule[i - self.zero_shot_start]}")
                     delay_list = np.full_like(self.target_aoi_timelist[:, i], self.target_aoi_timelist[:, i][-1])
@@ -957,15 +993,16 @@ class CrowdSim:
                     y_list = all_zero_shot_y[:, i - self.zero_shot_start]
                     id_list = np.full_like(x_list, i)
                     energy_list = np.zeros_like(x_list)
-                    robot_df = self.xy_to_dataframe(delay_list, energy_list, id_list, max_latitude,
+                    emergency_df = self.xy_to_dataframe(delay_list, energy_list, id_list, max_latitude,
                                                     max_longitude, timestamp_list, x_list, y_list)
-                    robot_df['creation_time'] = self.aoi_schedule[i - self.zero_shot_start]
+                    emergency_df['creation_time'] = self.aoi_schedule[i - self.zero_shot_start]
                     if self.dynamic_zero_shot:
-                        robot_df['allocation'] = int(self.emergency_allocation_table[i - self.zero_shot_start])
+                        emergency_df['allocation'] = int(self.emergency_allocation_table[i - self.zero_shot_start])
                     else:
-                        robot_df['allocation'] = -1
-                    robot_df['episode_length'] = self.episode_length
-                    mixed_df = pd.concat([mixed_df, robot_df])
+                        emergency_df['allocation'] = -1
+                    emergency_df['episode_length'] = self.episode_length
+                    emergencies_dfs.append(emergency_df)
+                mixed_df = pd.concat([mixed_df, *emergencies_dfs])
             # ------------------------------------------------------------------------------------
             # 建立moving pandas轨迹，也可以选择调用高级API继续清洗轨迹。
             mixed_gdf = gpd.GeoDataFrame(mixed_df, geometry=gpd.points_from_xy(mixed_df.longitude, mixed_df.latitude),
@@ -1289,7 +1326,6 @@ class CUDACrowdSim(CrowdSim, CUDAEnvironmentContext):
         # Update environment state (note self.global_state is vectorized for RLlib)
         dones = self.bool_dtype(self.cuda_data_manager.pull_data_from_device("_done_"))
         # self.global_state = self.float_dtype(self.cuda_data_manager.pull_data_from_device(_STATE))
-        self.timestep = int(self.cuda_data_manager.pull_data_from_device("_timestep_")[0])
         logging.debug(f"Timestep in CUDACrowdSim {self.timestep}")
         logging.debug(f"Dones in CUDACrowdSim {dones[:5]}")
         if not self.dynamic_zero_shot:
@@ -1300,6 +1336,7 @@ class CUDACrowdSim(CrowdSim, CUDAEnvironmentContext):
         self.agent_energy_timelist[self.timestep, :] = self.cuda_data_manager.pull_data_from_device(
             _AGENT_ENERGY)[0]
         info = self.collect_info() if all(dones) else {}
+        self.timestep = int(self.cuda_data_manager.pull_data_from_device("_timestep_")[0])
         return dones, info
 
 

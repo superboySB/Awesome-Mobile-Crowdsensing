@@ -9,8 +9,9 @@ import argparse
 from envs.crowd_sim.crowd_sim import LARGE_DATASET_NAME
 
 # 'encoder_layer', 'core_arch', 'cut_points', 'fix_target', 'num_drones', 'num_cars',
-display_tags = {'gen_interval', 'share_policy', 'selector_type'}
+display_tags = {'gen_interval', 'share_policy', 'selector_type', 'dataset_name'}
 logging_dir = os.path.join("/workspace", "saved_data")
+
 
 def add_common_arguments(parser: ArgumentParser):
     """
@@ -25,7 +26,7 @@ def add_common_arguments(parser: ArgumentParser):
         '--group', type=str, default='debug', help="group name for wandb project"
     )
     parser.add_argument(
-        '--dataset', type=str, default=LARGE_DATASET_NAME, help="KAIST or SanFrancisco"
+        '--dataset', type=str, default=LARGE_DATASET_NAME, help="The map chosen to deploy"
     )
     parser.add_argument(
         '--tag',
@@ -55,8 +56,10 @@ def add_common_arguments(parser: ArgumentParser):
     # parser.add_argument("--num_envs", type=int, default=500, help='number of environments to sample')
     parser.add_argument('--fix_target', action='store_true', default=True, help='fix target')
     parser.add_argument('--gen_interval', type=int, default=30, help='time interval between '
-                                                           'two generations of emergencies')
+                                                                     'two generations of emergencies')
     parser.add_argument('--evaluation_interval', type=int, default=1000, help='evaluation interval')
+    parser.add_argument("--cut_points", type=int, default=-1, help='number of points allowed')
+
 
 def customize_experiment(args: argparse.Namespace, run_config: dict = None, yaml_config_path: str = None, ):
     """

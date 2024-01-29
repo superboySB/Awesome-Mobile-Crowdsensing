@@ -749,6 +749,13 @@ class PyCUDAEnvironmentReset(CUDAEnvironmentReset):
                     reset_func = self.reset_func_in_bool_2d
                 else:
                     raise Exception(f"unknown dtype: {dtype}")
+                # print reset parameters
+                # logging.debug("reset_func_in_2d parameters:")
+                # logging.debug(f"name: {name}")
+                # logging.debug(f"feature_dim: {feature_dim}")
+                # logging.debug(f"force_reset: {force_reset}")
+                # logging.debug(f"block: {(int((feature_dim - 1) // self._blocks_per_env + 1), 1, 1)}")
+                # logging.debug(f"grid: {self._grid}")
                 reset_func(
                     data_manager.device_data(name),
                     data_manager.device_data(f"{name}_at_reset"),

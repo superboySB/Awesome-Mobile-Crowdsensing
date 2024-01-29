@@ -5,11 +5,13 @@
 // or https://opensource.org/licenses/BSD-3-Clause
 
 #include "reset.h"
+// #include <stdio.h>
 
 __global__ void reset_in_float_when_done_2d(float* data, const float* ref,
   int* done, int feature_dim, int force_reset) {
   int env_id = getEnvID(blockIdx.x);
   int tid = getAgentID(threadIdx.x, blockIdx.x, blockDim.x);
+//   printf("resetting env %d, force_reset %d, done %d\n", env_id, force_reset, done[env_id]);
   if (force_reset > 0.5 || done[env_id] > 0.5) {
     if (tid < feature_dim) {
       int data_index = env_id * feature_dim + tid;

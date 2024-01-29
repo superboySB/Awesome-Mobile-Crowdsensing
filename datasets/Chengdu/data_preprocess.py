@@ -1,4 +1,6 @@
 import os
+
+import math
 import seaborn as sns
 import pandas as pd
 import numpy as np
@@ -79,37 +81,17 @@ def generate_rows(old_row, new_row, add_number, no_long_lat=False):
     return list_of_rows
 
 
-def get_longitude_and_latitude_max(longitude_min, latitude_min, map_width) -> tuple:
-    longitude_max = longitude_min
-    latitude_max = latitude_min
-    precision = 5 * 1e-1
-    """
-    += 1e-2 add 1467 meters
-    += 1e-3 add 147 meters
-    += 1e-4 add 15 meters
-    += 1e-5 add 1 meter
-    += 1e-6 add 0.25 meters
-    """
-    length = np.sqrt(2) * map_width
-    while True:
-        distance = get_distance(longitude_min, latitude_min, longitude_max, latitude_max)
-        if np.fabs(distance - length) < precision:
-            break
-        if np.fabs(distance - length) > 2000.0:
-            longitude_max += 1e-2
-            latitude_max += 1e-2
-        if 150.0 < np.fabs(distance - length) <= 2000.0:
-            longitude_max += 1e-3
-            latitude_max += 1e-3
-        if 15.0 < np.fabs(distance - length) <= 150.0:
-            longitude_max += 1e-4
-            latitude_max += 1e-4
-        if np.fabs(distance - length) > 1.0 and np.fabs(distance - length) <= 15.0:
-            longitude_max += 1e-5
-            latitude_max += 1e-5
-        if np.fabs(distance - length) <= 1.0:
-            longitude_max += 1e-6
-            latitude_max += 1e-6
+def get_longitude_and_latitude_max(longitude_min, latitude_min, map_width):
+    # Radius of the Earth in meters
+    earth_radius = 6371000.0
+
+    # Convert map width from meters to degrees using Haversine formula
+    width_deg = (map_width / earth_radius) * (180.0 / math.pi)
+
+    # Calculate maximum longitude and latitude
+    longitude_max = longitude_min + width_deg
+    latitude_max = latitude_min + width_deg
+
     return longitude_max, latitude_max
 
 
@@ -268,23 +250,7 @@ class VehicleTrajectoriesProcessor(object):
             df = pd.read_csv(out_file + "_without_fill" + ".csv", header=0)
         if not os.path.exists(out_file + ".csv"):
             print("Filling data...")
-            old_row = None
-            all_list_of_rows = []
-            for row in tqdm(df.itertuples(index=False), total=len(df)):
-                new_row = row
-                if old_row:
-                    list_of_rows = self.process_row(old_row, new_row)
-                    old_row = new_row
-                else:
-                    if int(new_row.time) > 0:
-                        list_of_rows = construct_dataframe_for_time_larger_than_0(new_row)
-                    else:
-                        list_of_rows = []
-                    old_row = new_row
-                all_list_of_rows.extend(list_of_rows)
-            # jesus, you should cat df, not that original_df...
-            df = pd.concat([df, pd.DataFrame(all_list_of_rows)], axis=0, ignore_index=True)
-            df.sort_values(by=['vehicle_id', 'time'], inplace=True, ignore_index=True)
+            df = self.fill_trajectory(df)
             df.to_csv(out_file + ".csv")
 
         if self._output_analysis:
@@ -292,8 +258,30 @@ class VehicleTrajectoriesProcessor(object):
                 trajectories_file_name=out_file + ".csv",
                 trajectories_file_name_with_no_fill=out_file + "_without_fill" + ".csv",
                 during_time=self._time_end_int - self._time_start_int,
+                start_time=self._time_start_int,
+                map_width=self._map_width
             )
             analyst.output_characteristics()
+
+    def fill_trajectory(self, df):
+        old_row = None
+        all_list_of_rows = []
+        for row in tqdm(df.itertuples(index=False), total=len(df)):
+            new_row = row
+            if old_row:
+                list_of_rows = self.process_row(old_row, new_row)
+                old_row = new_row
+            else:
+                if int(new_row.time) > 0:
+                    list_of_rows = construct_dataframe_for_time_larger_than_0(new_row)
+                else:
+                    list_of_rows = []
+                old_row = new_row
+            all_list_of_rows.extend(list_of_rows)
+        # jesus, you should cat df, not that original_df...
+        df = pd.concat([df, pd.DataFrame(all_list_of_rows)], axis=0, ignore_index=True)
+        df.sort_values(by=['vehicle_id', 'time'], inplace=True, ignore_index=True)
+        return df
 
     def modify_data(self, latitude_min, longitude_min, row, vehicle_number):
         row['vehicle_id'] = vehicle_number
@@ -321,6 +309,9 @@ class VehicleTrajectoriesProcessor(object):
     def get_latitude_max(self) -> float:
         return self._latitude_max
 
+    def get_map_width(self) -> float:
+        return self._map_width
+
 
 class VehicleTrajectoriesAnalyst(object):
     def __init__(
@@ -328,6 +319,8 @@ class VehicleTrajectoriesAnalyst(object):
             trajectories_file_name: str,
             trajectories_file_name_with_no_fill: str,
             during_time: int,
+            start_time: int,
+            map_width: int,
     ) -> None:
         """Output the analysis of vehicular trajcetories, including
             average dwell time (s) of vehicles: ADT
@@ -345,6 +338,8 @@ class VehicleTrajectoriesAnalyst(object):
         self._trajectories_file_name = trajectories_file_name
         self._trajectories_file_name_with_no_fill = trajectories_file_name_with_no_fill
         self._during_time = during_time
+        self._start_time = start_time
+        self._map_width = map_width
 
     def output_characteristics(self):
         df = pd.read_csv(self._trajectories_file_name, names=final_csv_header, header=0)
@@ -378,25 +373,34 @@ class VehicleTrajectoriesAnalyst(object):
                          names=final_csv_header, header=0)
 
         # Group by (x, y) and count occurrences
-        coordinates_counts = df.groupby(['x', 'y']).size().reset_index(name='count')
+        coordinates_counts = df.groupby(['x', 'y', 'longitude', 'latitude']).size().reset_index(name='count')
 
         # Sort by frequency in descending order
         sorted_coordinates_counts = coordinates_counts.sort_values(by='count', ascending=False)
-
-        vehicle_unique_counts = df.groupby(['time', 'x', 'y'])['vehicle_id'].nunique().reset_index(name='unique_count')
-
+        sorted_coordinates_counts.reset_index(drop=True, inplace=True)
+        sorted_coordinates_counts['id'] = sorted_coordinates_counts.index
+        # output top 1% of the coordinates as csv
+        sorted_coordinates_counts = sorted_coordinates_counts[:int(len(sorted_coordinates_counts) * 0.002)]
+        # create a single dataframe with timestamps from start to end, with interval=15
+        step_time = 15
+        timestamp_frame = pd.DataFrame(
+            {'timestamp': np.arange(self._start_time, self._start_time + self._during_time + step_time, step_time)})
+        sorted_coordinates_counts = sorted_coordinates_counts.merge(timestamp_frame, how='cross')
+        # output csv
+        sorted_coordinates_counts.to_csv("ground_trajs.csv")
         # Define the number of bins
-        num_bins = 10
+        num_bins = 20
+        # https://web.archive.org/web/20170110153824/http://www.indevelopment.nl/PDFfiles/CapacityOfRroads.pdf
+        # breakdown vehicle density, >67 vehicles per mile are considered a jam
+        # increase to 80 vehicles to simulate a more severe jam
+        breakdown_threshold = 81 / 1.60934 * (self._map_width / num_bins / 1000)
 
         # Create bins for x and y coordinates
         df['x_bin'] = pd.cut(df['x'], bins=num_bins, labels=False)
         df['y_bin'] = pd.cut(df['y'], bins=num_bins, labels=False)
 
-        # Define the threshold percentage
-        threshold_percentage = 200
-
         # Group by time, x_bin, and y_bin to count the number of cars in each sub-region at each timestep
-        grouped_counts = df.groupby(['time', 'x_bin', 'y_bin']).size().reset_index(name='car_count')
+        grouped_counts = df.groupby(['timestamp', 'x_bin', 'y_bin']).size().reset_index(name='car_count')
 
         # Pivot the table for visualization
         heatmap_data = grouped_counts.pivot_table(values='car_count', index='y_bin', columns='x_bin', fill_value=0)
@@ -412,8 +416,10 @@ class VehicleTrajectoriesAnalyst(object):
         grouped_counts = pd.merge(grouped_counts, average_car_count, on=['x_bin', 'y_bin'], how='inner')
 
         # Identify timestamps where traffic flow exceeds the threshold
-        unusual_traffic_time_loc = grouped_counts[grouped_counts['car_count'] > (1 + threshold_percentage / 100) *
-                                                  grouped_counts['average_car_count']]
+        unusual_traffic_time_loc = grouped_counts[grouped_counts['car_count'] > breakdown_threshold]
+        unusual_traffic_time_loc['time'] = pd.cut(unusual_traffic_time_loc['timestamp'], bins=120, labels=False)
+        # output all emergencies points as csv
+        unusual_traffic_time_loc.to_csv("emergency_time_loc.csv")
 
         vehicle_ids = df['vehicle_id'].unique()
 
@@ -472,12 +478,12 @@ trajectories_out_file_name: str = os.path.join(parent_dir_name,
 
 if __name__ == "__main__":
     """Vehicle Trajectories Processor related."""
- 
+    pd.options.mode.copy_on_write = True
     processor = VehicleTrajectoriesProcessor(
         file_name=trajectory_file_name,
         longitude_min=longitude_min,
         latitude_min=latitude_min,
-        map_width=2000.0,
+        map_width=6000.0,
         time_start=trajectories_time_start,
         time_end=trajectories_time_end,
         out_file=trajectories_out_file_name,

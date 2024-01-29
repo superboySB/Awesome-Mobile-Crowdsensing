@@ -14,6 +14,7 @@ class Config(object):
 
 class BaseEnvConfig(object):
     env = Config()
+    env.dataset_name = 'Sanfrancisco'
     env.aoi_threshold = 30
     env.emergency_threshold = 15
     env.num_timestep = 120  # num_timestep x step_time = 1800s = 30min

@@ -12,6 +12,7 @@ class Config(object):
 
 class BaseEnvConfig(object):
     env = Config()
+    env.dataset_name = 'KAIST'
     env.aoi_threshold = 10
     env.num_timestep = 120  # 120x15=1800s=30min
     env.step_time = 15  # second per step
