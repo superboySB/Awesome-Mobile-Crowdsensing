@@ -68,3 +68,12 @@ restore_dict = {
 # IPPO fix_target CNN
 #         uuid = "3a0b0"
 #         time_str = "2024-01-04_22-54-57"
+
+# greedy interval=30
+#         uuid = "67ba0"
+#         time_str = "2024-01-27_22-57-35"
+#         checkpoint_num = 40000
+# oracle old version
+# uuid = "eca47"
+#         time_str = "2024-01-19_19-57-31"
+#         checkpoint_num = 27000

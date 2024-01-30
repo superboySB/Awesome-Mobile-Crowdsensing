@@ -124,7 +124,11 @@ def traj_to_timestamped_geojson(index, trajectory: movingpandas.Trajectory, car_
         else:
             if is_emergency:
                 radius = 32
-                opacity = min(1, row.creation_time / row.episode_length)
+                handle_time = row.creation_time + row.aoi
+                if row.creation_time < i < handle_time:
+                    opacity = 0.5
+                else:
+                    opacity = 0
             else:
                 radius = 6
                 opacity = 1
@@ -140,12 +144,12 @@ def traj_to_timestamped_geojson(index, trajectory: movingpandas.Trajectory, car_
         if connect_line:
             feature_dict = create_linestring_feature([previous_point_coordinates, current_point_coordinates],
                                                      [previous_time[0], current_time[0]],
-                                                     color=color, caption=popup_html)
+                                                     color=color, caption=popup_html, opacity=opacity, radius=radius)
         else:
             feature_dict = create_point_feature(color, current_point_coordinates, current_time, opacity,
                                                 popup_html, radius)
         features.append(feature_dict)
-        if fix_target and not connect_line:
+        if fix_target and not connect_line and not is_emergency:
             break
     return features
 
@@ -166,7 +170,7 @@ def create_point_feature(color, current_point_coordinates, current_time, opacity
                         'fillOpacity': opacity,  # 透明度
                         'stroke': 'true',
                         'radius': radius,
-                        'weight': 1,
+                        'weight': 1 if opacity == 1 else 0
                     },
 
                     "style": {  # line
@@ -178,7 +182,7 @@ def create_point_feature(color, current_point_coordinates, current_time, opacity
     return feature_dict
 
 
-def create_linestring_feature(coordinates, dates, color, caption=None):
+def create_linestring_feature(coordinates, dates, color, caption=None, opacity=1, radius=5):
     feature_dict = {
         "type": "Feature",
         "geometry": {
@@ -190,10 +194,10 @@ def create_linestring_feature(coordinates, dates, color, caption=None):
             "icon": 'circle',  # point
             "iconstyle": {
                 'fillColor': color,
-                'fillOpacity': 1,  # 透明度
+                'fillOpacity': opacity,  # 透明度
                 'stroke': 'true',
-                'radius': 5,
-                'weight': 1,
+                'radius': radius,
+                'weight': 1 if opacity > 0 else 0,
             },
 
             "style": {  # line

@@ -126,10 +126,10 @@ if __name__ == '__main__':
     assert args.algo in algorithm_list, f"algorithm {args.algo} not supported, please implement your custom algorithm"
     my_algorithm: _Algo = getattr(marl.algos, args.algo)(hyperparam_source="common", **custom_algo_params)
     if args.render or args.ckpt:
-        uuid = "f794d"
-        time_str = "2024-01-29_17-37-07"
-        checkpoint_num = 1000
-        backup_str = "2024-01-29_17-37-06"
+        uuid = "9a55f"
+        time_str = "2024-01-27_16-18-08"
+        checkpoint_num = 27000
+        backup_str = ""
         restore_dict = get_restore_dict(args, uuid, time_str, checkpoint_num, backup_str)
         for info in [uuid, str(checkpoint_num)]:
             if info not in env_params['render_file_name']:

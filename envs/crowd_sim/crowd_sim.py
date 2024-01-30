@@ -145,6 +145,7 @@ class CrowdSim:
     """
     The Mobile Crowdsensing Environment
     """
+    num_agents: int
 
     name = "CrowdSim"
 
@@ -210,7 +211,7 @@ class CrowdSim:
         # Hack, reduce points for better effect.
         if cut_points != -1:
             self.human_df = self.human_df[self.human_df['id'] < cut_points]
-        self.num_sensing_targets = self.human_df.shape[0] // self.episode_length
+        self.num_sensing_targets = self.human_df.shape[0] // (self.episode_length + 1)
         self.human_df['t'] = pd.to_datetime(self.human_df['timestamp'], unit='s')  # s表示时间戳转换
         self.human_df['aoi'] = -1  # 加入aoi记录aoi
         self.human_df['energy'] = -1  # 加入energy记录energy
@@ -442,7 +443,7 @@ class CrowdSim:
         return next_color
 
     def generate_emergency(self, num_centers, num_points_per_center, centers_x=None, centers_y=None):
-        max_distance_from_center = 10
+        max_distance_from_center = 200
         max_distance_x = self.max_distance_x
         max_distance_y = self.max_distance_y
 
@@ -957,7 +958,7 @@ class CrowdSim:
             # 200 201 202 203
             # 2 0 1 3
 
-        if self.timestep == self.config.env.num_timestep - 1:
+        if self.timestep == self.config.env.num_timestep:
             # output final trajectory
             # 可将机器人traj，可以载入到human的dataframe中，id从-1开始递减
             import geopandas as gpd
@@ -973,12 +974,12 @@ class CrowdSim:
                 y_list = self.agent_y_time_list[:, i]
                 id_list = np.full_like(x_list, -i - 1)
                 energy_list = self.agent_energy_timelist[:, i]
-                emergency_df = self.xy_to_dataframe(aoi_list, energy_list, id_list, max_latitude,
+                robot_df = self.xy_to_dataframe(aoi_list, energy_list, id_list, max_latitude,
                                                 max_longitude, timestamp_list, x_list, y_list)
-                emergency_df['reward'] = self.agent_rewards_time_list[:, i]
-                emergency_df['selection'] = self.agent_actions_time_list[:, i, 0]
+                robot_df['reward'] = self.agent_rewards_time_list[:, i]
+                robot_df['selection'] = self.agent_actions_time_list[:, i, 0]
                 # Add reward timelist for rendering.
-                robot_dfs.append(emergency_df)
+                robot_dfs.append(robot_df)
             mixed_df = pd.concat([mixed_df, *robot_dfs])
             # add emergency targets.
             # pull emergency coordinates from device to host, since points in host are already refreshed
@@ -1048,21 +1049,21 @@ class CrowdSim:
             my_render_map.add_child(border)
             all_features = []
             for index, traj in tqdm(enumerate(trajectories)):
-                is_car = 0 > traj.df['id'].iloc[0] >= (-self.num_cars)
-                is_drone = traj.df['id'].iloc[0] < (-self.num_cars)
+                traj_id = traj.df['id'].iloc[0]
+                is_car = 0 > traj_id >= (-self.num_cars)
+                is_drone = traj_id < (-self.num_cars)
                 if is_car:
                     name = f"Agent {self.num_agents - index - 1} (Car)"
                 elif is_drone:
                     name = f"Agent {self.num_agents - index - 1} (Drone)"
                 else:
-                    name = f"PoI {traj.df['id'].iloc[0]}"
+                    name = f"PoI {traj_id}"
 
                 # Define your color logic here
                 if self.dynamic_zero_shot:
                     if index < self.num_agents:
                         color = self.get_next_color()
-                    elif (self.dynamic_zero_shot and self.num_agents <= index < self.num_agents +
-                          self.zero_shot_start):
+                    elif self.num_agents <= index < self.num_agents + self.zero_shot_start:
                         color = "orange"
                     else:
                         # emergency targets
@@ -1079,10 +1080,10 @@ class CrowdSim:
                                                        self.num_cars,
                                                        self.num_drones,
                                                        color,
-                                                       index < self.num_agents,
+                                                       index < self.num_agents or color == 'red',
                                                        self.fix_target,
                                                        color == 'red')
-                if is_car or is_drone:
+                if is_car or is_drone or color == 'red':
                     # create a feature group
                     TimestampedGeoJson(
                         {
@@ -1328,6 +1329,7 @@ class CUDACrowdSim(CrowdSim, CUDAEnvironmentContext):
         # self.global_state = self.float_dtype(self.cuda_data_manager.pull_data_from_device(_STATE))
         logging.debug(f"Timestep in CUDACrowdSim {self.timestep}")
         logging.debug(f"Dones in CUDACrowdSim {dones[:5]}")
+        self.timestep = int(self.cuda_data_manager.pull_data_from_device("_timestep_")[0])
         if not self.dynamic_zero_shot:
             self.target_coveraged_timelist[self.timestep, :] = self.cuda_data_manager.pull_data_from_device(
                 "target_coverage")[0]
@@ -1336,7 +1338,6 @@ class CUDACrowdSim(CrowdSim, CUDAEnvironmentContext):
         self.agent_energy_timelist[self.timestep, :] = self.cuda_data_manager.pull_data_from_device(
             _AGENT_ENERGY)[0]
         info = self.collect_info() if all(dones) else {}
-        self.timestep = int(self.cuda_data_manager.pull_data_from_device("_timestep_")[0])
         return dones, info
 
 
