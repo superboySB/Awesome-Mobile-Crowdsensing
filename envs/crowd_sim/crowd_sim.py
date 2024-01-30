@@ -1052,6 +1052,7 @@ class CrowdSim:
                 traj_id = traj.df['id'].iloc[0]
                 is_car = 0 > traj_id >= (-self.num_cars)
                 is_drone = traj_id < (-self.num_cars)
+                is_emergency = traj_id >= self.zero_shot_start
                 if is_car:
                     name = f"Agent {self.num_agents - index - 1} (Car)"
                 elif is_drone:
@@ -1059,17 +1060,15 @@ class CrowdSim:
                 else:
                     name = f"PoI {traj_id}"
 
-                # Define your color logic here
                 if self.dynamic_zero_shot:
-                    if index < self.num_agents:
+                    if is_car or is_drone:
                         color = self.get_next_color()
-                    elif self.num_agents <= index < self.num_agents + self.zero_shot_start:
-                        color = "orange"
-                    else:
-                        # emergency targets
+                    elif is_emergency:
                         color = "red"
+                    else:
+                        color = "orange"
                 else:
-                    if index < self.num_agents:
+                    if is_car or is_drone:
                         color = self.get_next_color()
                     else:
                         color = "orange"
@@ -1080,10 +1079,10 @@ class CrowdSim:
                                                        self.num_cars,
                                                        self.num_drones,
                                                        color,
-                                                       index < self.num_agents or color == 'red',
+                                                       index < self.num_agents,
                                                        self.fix_target,
                                                        color == 'red')
-                if is_car or is_drone or color == 'red':
+                if is_car or is_drone:
                     # create a feature group
                     TimestampedGeoJson(
                         {

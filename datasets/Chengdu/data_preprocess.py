@@ -259,7 +259,7 @@ class VehicleTrajectoriesProcessor(object):
                 trajectories_file_name_with_no_fill=out_file + "_without_fill" + ".csv",
                 during_time=self._time_end_int - self._time_start_int,
                 start_time=self._time_start_int,
-                map_width=self._map_width
+                map_width=self._map_width,
             )
             analyst.output_characteristics()
 
@@ -393,7 +393,7 @@ class VehicleTrajectoriesAnalyst(object):
         # https://web.archive.org/web/20170110153824/http://www.indevelopment.nl/PDFfiles/CapacityOfRroads.pdf
         # breakdown vehicle density, >67 vehicles per mile are considered a jam
         # increase to 80 vehicles to simulate a more severe jam
-        breakdown_threshold = 81 / 1.60934 * (self._map_width / num_bins / 1000)
+        breakdown_threshold = 67 / 1.60934 * (self._map_width / num_bins / 1000)
 
         # Create bins for x and y coordinates
         df['x_bin'] = pd.cut(df['x'], bins=num_bins, labels=False)
@@ -419,7 +419,7 @@ class VehicleTrajectoriesAnalyst(object):
         unusual_traffic_time_loc = grouped_counts[grouped_counts['car_count'] > breakdown_threshold]
         unusual_traffic_time_loc['time'] = pd.cut(unusual_traffic_time_loc['timestamp'], bins=120, labels=False)
         # output all emergencies points as csv
-        unusual_traffic_time_loc.to_csv("emergency_time_loc.csv")
+        unusual_traffic_time_loc.to_csv(self._trajectories_file_name + "_emergency_time_loc_" + ".csv")
 
         vehicle_ids = df['vehicle_id'].unique()
 
@@ -456,10 +456,10 @@ parent_dir_name = os.path.join("/workspace", "saved_data", 'datasets', 'Chengdu_
 trajectory_file_name: str = os.path.join(parent_dir_name, 'gps_20161116')
 longitude_min: float = 104.04565967220308
 latitude_min: float = 30.654605745741608
-start_hour = 9
+start_hour = 20
 start_minute = 0
 start_second = 0
-end_hour = 9
+end_hour = 20
 end_minute = 30
 end_second = 0
 padded_start_hour = str(start_hour).zfill(2)

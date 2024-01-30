@@ -124,11 +124,11 @@ def traj_to_timestamped_geojson(index, trajectory: movingpandas.Trajectory, car_
         else:
             if is_emergency:
                 radius = 32
-                handle_time = row.creation_time + row.aoi
-                if row.creation_time < i < handle_time:
-                    opacity = 0.5
-                else:
-                    opacity = 0
+                # handle_time = row.creation_time + row.aoi
+                # if row.creation_time < i < handle_time:
+                opacity = min(1, row.creation_time / row.episode_length)
+                # else:
+                #     opacity = 0
             else:
                 radius = 6
                 opacity = 1
@@ -149,7 +149,7 @@ def traj_to_timestamped_geojson(index, trajectory: movingpandas.Trajectory, car_
             feature_dict = create_point_feature(color, current_point_coordinates, current_time, opacity,
                                                 popup_html, radius)
         features.append(feature_dict)
-        if fix_target and not connect_line and not is_emergency:
+        if fix_target and not connect_line:
             break
     return features
 

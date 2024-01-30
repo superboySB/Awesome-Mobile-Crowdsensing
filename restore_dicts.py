@@ -70,10 +70,14 @@ restore_dict = {
 #         time_str = "2024-01-04_22-54-57"
 
 # greedy interval=30
-#         uuid = "67ba0"
-#         time_str = "2024-01-27_22-57-35"
-#         checkpoint_num = 40000
+uuid = "67ba0"
+time_str = "2024-01-27_22-57-35"
+checkpoint_num = 40000
 # oracle old version
-# uuid = "eca47"
-#         time_str = "2024-01-19_19-57-31"
-#         checkpoint_num = 27000
+uuid = "eca47"
+time_str = "2024-01-19_19-57-31"
+checkpoint_num = 27000
+# oracle traffic ppo version
+uuid = "9a55f"
+time_str = "2024-01-27_16-18-08"
+checkpoint_num = 27000
