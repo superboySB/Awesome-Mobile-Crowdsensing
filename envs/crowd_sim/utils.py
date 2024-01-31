@@ -170,7 +170,7 @@ def create_point_feature(color, current_point_coordinates, current_time, opacity
                         'fillOpacity': opacity,  # 透明度
                         'stroke': 'true',
                         'radius': radius,
-                        'weight': 1 if opacity == 1 else 0
+                        'weight': 1 if opacity > 0 else 0
                     },
 
                     "style": {  # line

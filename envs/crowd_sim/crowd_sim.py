@@ -62,7 +62,8 @@ SURVEILLANCE_METRIC = "surveillance_aoi"
 VALID_HANDLING_RATIO = "valid_handling_ratio"
 
 user_override_params = ['env_config', 'dynamic_zero_shot', 'use_2d_state', 'all_random',
-                        'num_drones', 'num_cars', 'cut_points', 'fix_target', 'gen_interval', 'no_refresh']
+                        'num_drones', 'num_cars', 'cut_points', 'fix_target', 'gen_interval',
+                        'no_refresh', 'emergency_threshold']
 
 grid_size = 10
 
@@ -166,6 +167,7 @@ class CrowdSim:
             cut_points=-1,
             gen_interval=30,
             no_refresh=False,
+            emergency_threshold=15,
     ):
         self.float_dtype = np.float32
         self.single_type_agent = single_type_agent
@@ -189,11 +191,12 @@ class CrowdSim:
         self.gen_interval = gen_interval
 
         self.aoi_threshold = self.config.env.aoi_threshold
-        self.emergency_threshold = self.config.env.emergency_threshold
+        self.emergency_threshold = emergency_threshold
         self.num_agents_observed = self.num_agents - 1
         self.all_random = all_random
         self.episode_length = self.config.env.num_timestep
         self.step_time = self.config.env.step_time
+        # when changed to multi dataset, rewrite the hardcoded values into feching dataframe min max.
         self.start_timestamp = self.config.env.start_timestamp
         self.end_timestamp = self.config.env.end_timestamp
         self.dataset_name = self.config.env.dataset_name

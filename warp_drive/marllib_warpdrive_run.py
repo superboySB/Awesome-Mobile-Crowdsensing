@@ -143,7 +143,7 @@ if __name__ == '__main__':
 
     if args.env == 'crowdsim':
         for item in ['selector_type', 'gen_interval', 'with_programming_optimization',
-                     'dataset'] + restore_ignore_params:
+                     'dataset', 'emergency_threshold'] + restore_ignore_params:
             model_preference[item] = getattr(args, item)
     model = marl.build_model(env, my_algorithm, model_preference)
     # start learning
