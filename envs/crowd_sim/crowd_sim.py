@@ -197,13 +197,13 @@ class CrowdSim:
         self.episode_length = self.config.env.num_timestep
         self.step_time = self.config.env.step_time
         # when changed to multi dataset, rewrite the hardcoded values into feching dataframe min max.
-        self.start_timestamp = self.config.env.start_timestamp
-        self.end_timestamp = self.config.env.end_timestamp
         self.dataset_name = self.config.env.dataset_name
         self.human_df: pd.DataFrame = pd.read_csv(self.config.env.dataset_dir)
         logging.debug("Finished reading {} rows".format(len(self.human_df)))
         self.lower_left = [self.human_df['longitude'].min(), self.human_df['latitude'].min()]
         self.upper_right = [self.human_df['longitude'].max(), self.human_df['latitude'].max()]
+        self.start_timestamp = self.human_df['timestamp'].min()
+        self.end_timestamp = self.human_df['timestamp'].max()
         self.nlon = (self.upper_right[0] - self.lower_left[0]) / 1e-5
         self.nlat = (self.upper_right[1] - self.lower_left[1]) / 1e-5
 
@@ -231,25 +231,28 @@ class CrowdSim:
             self.emergency_count = 0
             self.points_per_gen = 0
         else:
-            emergency_path = os.path.join(get_project_root(), 'datasets', self.dataset_name, 'emergency_time_loc.csv')
+            emergency_path = os.path.join(get_project_root(), 'datasets', self.dataset_name,
+                                          'emergency_time_loc_0900_0930.csv')
             if os.path.exists(emergency_path):
-                emergency_df = pd.read_csv(emergency_path)
-                self.emergency_count = emergency_df.shape[0]
+                unique_emergencies = pd.read_csv(emergency_path)
+                self.emergency_count = unique_emergencies.shape[0]
                 self.num_sensing_targets += self.emergency_count
                 self.zero_shot_start = self.num_sensing_targets - self.emergency_count
                 self.points_per_gen = self.emergency_count
-                self.aoi_schedule = emergency_df['time'].values
-                self.num_centers = emergency_df.shape[0]
+                self.aoi_schedule = unique_emergencies['time'].values
+                self.num_centers = self.emergency_count
                 self.num_points_per_center = 1
                 self.num_bins = 20
                 # make sure num_bins is consistent with generated bins
-                self.emergency_centers_x = (emergency_df['x_bin'].values / self.num_bins * self.max_distance_x).astype(
+                self.emergency_centers_x = (
+                            unique_emergencies['x_bin'].values / self.num_bins * self.max_distance_x).astype(
                     int)
-                self.emergency_centers_y = (emergency_df['y_bin'].values / self.num_bins * self.max_distance_y).astype(
+                self.emergency_centers_y = (
+                            unique_emergencies['y_bin'].values / self.num_bins * self.max_distance_y).astype(
                     int)
                 points_x, points_y = self.generate_emergency(self.num_centers, self.num_points_per_center,
                                                              self.emergency_centers_x, self.emergency_centers_y)
-                logging.debug(f"Emergency points: {self.num_centers}, {self.num_points_per_center}")
+                logging.debug(f"Emergency points: {self.num_centers}")
             else:
                 self.emergency_centers_x = None
                 self.emergency_centers_y = None
@@ -394,12 +397,14 @@ class CrowdSim:
         self.observation_space = None  # Note: this will be set via the env_wrapper
         # state = (type,energy,x,y) * self.num_agents + neighbor_aoi_grids (10 * 10)
         self.vector_state_dim = (self.num_agents + 4) * self.num_agents + self.emergency_count * 4 + 1
-        self.image_state_dim = 100
+        self.image_state_dim = 0
         if self.use_2d_state:
             self.global_state = {
-                _IMAGE_STATE: np.zeros(self.image_state_dim).reshape(-1, grid_size, grid_size),
                 _VECTOR_STATE: np.zeros(self.vector_state_dim),
             }
+            if self.image_state_dim > 0:
+                self.global_state.update(
+                    {_IMAGE_STATE: np.zeros(self.image_state_dim).reshape(-1, grid_size, grid_size), })
         else:
             self.global_state = np.zeros((self.vector_state_dim + self.image_state_dim,),
                                          dtype=self.float_dtype)
@@ -446,7 +451,7 @@ class CrowdSim:
         return next_color
 
     def generate_emergency(self, num_centers, num_points_per_center, centers_x=None, centers_y=None):
-        max_distance_from_center = 200
+        max_distance_from_center = 100
         max_distance_x = self.max_distance_x
         max_distance_y = self.max_distance_y
 
@@ -677,7 +682,7 @@ class CrowdSim:
         if self.use_2d_state:
             self.global_state = {
                 _VECTOR_STATE: self.float_dtype(vector_state),
-                _IMAGE_STATE: self.float_dtype(state_aoi_grid),
+                # _IMAGE_STATE: self.float_dtype(state_aoi_grid),
             }
             for array in self.global_state.values():
                 logging.debug("Global state shape: {}".format(array.shape))
@@ -1267,7 +1272,7 @@ class CUDACrowdSim(CrowdSim, CUDAEnvironmentContext):
 
     def step(self, actions=None) -> Tuple[Dict, Dict]:
         args = [
-            _STATE,
+            _STATE + '_' + _VECTOR_STATE if self.use_vector_state else _STATE,
             _OBSERVATIONS,
             _ACTIONS,
             _REWARDS,
@@ -1440,6 +1445,8 @@ class RLlibCUDACrowdSim(MultiAgentEnv):
             if self.global_state is not None:
                 state = self.global_state
                 get_space(self.observation_space, state, "state")
+                self.use_vector_state = len(state.keys()) == 1
+                setattr(self.env, "use_vector_state", self.use_vector_state)
         except AttributeError:
             pass
 
@@ -1535,6 +1542,8 @@ class RLlibCUDACrowdSim(MultiAgentEnv):
         Convenient Wrapper to pull data from device and convert it to a list of ndarray
         For later usage in ray.
         """
+        if name == _STATE and self.use_vector_state:
+            name += "_" + _VECTOR_STATE
         my_vector = self.float_dtype(self.env_wrapper.cuda_data_manager.pull_data_from_device(name))
         if self.use_2d_state:
             all_vector = my_vector[..., :split_dim]
@@ -1543,8 +1552,11 @@ class RLlibCUDACrowdSim(MultiAgentEnv):
             else:
                 shape = (self.num_envs, self.num_agents, -1, grid_size, grid_size)
             all_images = my_vector[..., split_dim:].reshape(*shape)
-            my_vector = [{_VECTOR_STATE: all_vector[i], _IMAGE_STATE: all_images[i]}
-                         for i in range(self.num_envs)]
+            if self.use_vector_state and _VECTOR_STATE in name:
+                my_vector = [{_VECTOR_STATE: all_vector[i]} for i in range(self.num_envs)]
+            else:
+                my_vector = [{_IMAGE_STATE: all_images[i], _VECTOR_STATE: all_vector[i]}
+                             for i in range(self.num_envs)]
         return my_vector
 
     def reset(self) -> MultiAgentDict:

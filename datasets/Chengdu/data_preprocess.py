@@ -387,13 +387,14 @@ class VehicleTrajectoriesAnalyst(object):
             {'timestamp': np.arange(self._start_time, self._start_time + self._during_time + step_time, step_time)})
         sorted_coordinates_counts = sorted_coordinates_counts.merge(timestamp_frame, how='cross')
         # output csv
-        sorted_coordinates_counts.to_csv("ground_trajs.csv")
+        time_string = f'{padded_start_hour}{padded_start_minute}_{padded_end_hour}{padded_end_minute}'
+        sorted_coordinates_counts.to_csv("ground_trajs_" + time_string + ".csv")
         # Define the number of bins
         num_bins = 20
         # https://web.archive.org/web/20170110153824/http://www.indevelopment.nl/PDFfiles/CapacityOfRroads.pdf
         # breakdown vehicle density, >67 vehicles per mile are considered a jam
         # increase to 80 vehicles to simulate a more severe jam
-        breakdown_threshold = 67 / 1.60934 * (self._map_width / num_bins / 1000)
+        breakdown_threshold = 73 / 1.60934 * (self._map_width / num_bins / 1000)
 
         # Create bins for x and y coordinates
         df['x_bin'] = pd.cut(df['x'], bins=num_bins, labels=False)
@@ -419,7 +420,9 @@ class VehicleTrajectoriesAnalyst(object):
         unusual_traffic_time_loc = grouped_counts[grouped_counts['car_count'] > breakdown_threshold]
         unusual_traffic_time_loc['time'] = pd.cut(unusual_traffic_time_loc['timestamp'], bins=120, labels=False)
         # output all emergencies points as csv
-        unusual_traffic_time_loc.to_csv(self._trajectories_file_name + "_emergency_time_loc_" + ".csv")
+        unusual_traffic_time_loc = unusual_traffic_time_loc.groupby(['x_bin', 'y_bin',
+                                                                     'time']).size().reset_index(name='count')
+        unusual_traffic_time_loc.to_csv("emergency_time_loc_" + time_string + ".csv")
 
         vehicle_ids = df['vehicle_id'].unique()
 
@@ -456,10 +459,10 @@ parent_dir_name = os.path.join("/workspace", "saved_data", 'datasets', 'Chengdu_
 trajectory_file_name: str = os.path.join(parent_dir_name, 'gps_20161116')
 longitude_min: float = 104.04565967220308
 latitude_min: float = 30.654605745741608
-start_hour = 20
+start_hour = 19
 start_minute = 0
 start_second = 0
-end_hour = 20
+end_hour = 19
 end_minute = 30
 end_second = 0
 padded_start_hour = str(start_hour).zfill(2)

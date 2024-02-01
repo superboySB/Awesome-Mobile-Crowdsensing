@@ -41,7 +41,7 @@ class BaseEnvConfig(object):
 
     env.lower_left = [104.04319927137526, 30.657065702618834]
     env.upper_right = [104.09715856773038, 30.711024998973958]
-    env.dataset_dir = os.path.join(get_project_root(), 'datasets', 'Chengdu', 'ground_trajs.csv')
+    env.dataset_dir = os.path.join(get_project_root(), 'datasets', 'Chengdu', 'ground_trajs_0900_0930.csv')
     hypo = 300
     leg = hypo / math.sqrt(2)
 

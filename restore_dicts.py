@@ -81,3 +81,16 @@ checkpoint_num = 27000
 uuid = "9a55f"
 time_str = "2024-01-27_16-18-08"
 checkpoint_num = 27000
+# bootstrap reward in Chengdu
+uuid = "87ab4"
+time_str = "2024-02-01_16-11-41"
+checkpoint_num = 2000
+# switch bootstrap in Chengdu
+uuid = "8dfe7"
+time_str = "2024-02-01_16-11-51"
+checkpoint_num = 2000
+# NN，San Francisco, gen_interval=10
+uuid = "4ab3b"
+time_str = "2024-01-30_20-22-54"
+checkpoint_num = 30000
+backup_str = "2024-01-30_20-22-53"
