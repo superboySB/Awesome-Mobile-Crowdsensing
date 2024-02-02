@@ -37,6 +37,7 @@ from tabulate import tabulate
 
 from warp_drive.utils.constants import Constants
 from warp_drive.utils.data_feed import DataFeed
+from warp_drive.cuda_managers.pycuda_data_manager import PyCUDADataManager
 from warp_drive.utils.gpu_environment_context import CUDAEnvironmentContext
 from warp_drive.utils.recursive_obs_dict_to_spaces_dict import (
     BIG_NUMBER
@@ -1257,7 +1258,7 @@ class CUDACrowdSim(CrowdSim, CUDAEnvironmentContext):
                                  # [self.episode_length + 1, self.num_sensing_targets]
                                  ("target_y", self.float_dtype(self.target_y_time_list), True),
                                  # [self.episode_length + 1, self.num_sensing_targets]
-                                 ("aoi_schedule", self.int_dtype(self.aoi_schedule)),
+                                 ("aoi_schedule", self.int_dtype(self.aoi_schedule), True),
                                  ("emergency_per_gen", self.int_dtype(self.points_per_gen)),
                                  ("emergency_allocation_table", self.int_dtype(np.full([self.num_agents, ], -1)), True),
                                  ("target_aoi", self.int_dtype(np.ones([self.num_sensing_targets, ])), True),
@@ -1540,12 +1541,11 @@ class RLlibCUDACrowdSim(MultiAgentEnv):
             logging.debug("Modifying Emergency Points on CUDA!")
             points_x, points_y = (torch.tensor(self.env.target_x_time_list[:, zero_shot_start:]),
                                   torch.tensor(self.env.target_y_time_list[:, zero_shot_start:]))
-            self.env_wrapper.cuda_data_manager.data_on_device_via_torch("target_x_at_reset")[:, :,
-            zero_shot_start:] = points_x
-            self.env_wrapper.cuda_data_manager.data_on_device_via_torch("target_y_at_reset")[:, :,
-            zero_shot_start:] = points_y
-            self.env_wrapper.cuda_data_manager.data_on_device_via_torch(_OBSERVATIONS + "_at_reset")[:] = (
-                torch.tensor(new_obs).cuda())
+            data_manager: PyCUDADataManager = self.env_wrapper.cuda_data_manager
+            data_manager.data_on_device_via_torch("target_x_at_reset")[:, :, zero_shot_start:] = points_x
+            data_manager.data_on_device_via_torch("target_y_at_reset")[:, :, zero_shot_start:] = points_y
+            data_manager.data_on_device_via_torch(_OBSERVATIONS + "_at_reset")[:] = (torch.tensor(new_obs).cuda())
+            data_manager.change_scalar("num_targets", self.env.num_sensing_targets)
         # current_observation shape [n_agent, dim_obs]
         current_observation = self.pull_vec_from_device_to_list(_OBSERVATIONS, self.obs_vec_dim)
         state_list = self.pull_vec_from_device_to_list(_STATE, self.env.vector_state_dim)

@@ -359,33 +359,9 @@ class VehicleTrajectoriesAnalyst(object):
         self._map_width = map_width
 
     def output_characteristics(self):
-        df = pd.read_csv(self._trajectories_file_name, names=final_csv_header, header=0)
-        vehicle_ids = df['vehicle_id'].unique()
-        number_of_vehicles_in_seconds = np.zeros(self._during_time, dtype=np.int32)
-        vehicle_dwell_times = []
-        print("Analysing trajectories...")
-        for vehicle_id in tqdm(vehicle_ids):
-            new_df = df[df['vehicle_id'] == vehicle_id]
-            distances = np.sqrt((new_df['x'] - 1500) ** 2 + (new_df['y'] - 1500) ** 2)
-            # find places where distance <= 1500
-            new_df = new_df[distances <= 1500]
-            vehicle_dwell_time = len(new_df)
-            number_of_vehicles_in_seconds[new_df['time']] += 1
-            vehicle_dwell_times.append(vehicle_dwell_time)
+        # self.analyse_congestion()
 
-        assert len(vehicle_dwell_times) == len(vehicle_ids)
-        print("vehicle_number: ", len(vehicle_ids))
 
-        adt = np.mean(vehicle_dwell_times)
-        adt_std = np.std(vehicle_dwell_times)
-        anv = np.mean(number_of_vehicles_in_seconds)
-        anv_std = np.std(number_of_vehicles_in_seconds)
-        print("Average dwell time (s):", adt)
-        print("Standard deviation of dwell time (s):", adt_std)
-        print("Average number of vehicles in each second:", anv)
-        print("Standard deviation of number of vehicles in each second:", anv_std)
-
-        vehicle_speeds = []
         df = pd.read_csv(self._trajectories_file_name_with_no_fill,
                          names=final_csv_header, header=0)
 
@@ -396,7 +372,7 @@ class VehicleTrajectoriesAnalyst(object):
         sorted_coordinates_counts = coordinates_counts.sort_values(by='count', ascending=False)
         sorted_coordinates_counts.reset_index(drop=True, inplace=True)
         sorted_coordinates_counts['id'] = sorted_coordinates_counts.index
-        # output top 1% of the coordinates as csv
+        # output top 0.2% of the coordinates as csv
         sorted_coordinates_counts = sorted_coordinates_counts[:int(len(sorted_coordinates_counts) * 0.002)]
         # create a single dataframe with timestamps from start to end, with interval=15
         step_time = 15
@@ -410,8 +386,8 @@ class VehicleTrajectoriesAnalyst(object):
         num_bins = 20
         # https://web.archive.org/web/20170110153824/http://www.indevelopment.nl/PDFfiles/CapacityOfRroads.pdf
         # breakdown vehicle density, >67 vehicles per mile are considered a jam
-        # increase to 80 vehicles to simulate a more severe jam
-        breakdown_threshold = 73 / 1.60934 * (self._map_width / num_bins / 1000)
+        # increase to 73 vehicles to simulate a more severe jam
+        breakdown_threshold = 67 / 1.60934 * (self._map_width / num_bins / 1000)
 
         # Create bins for x and y coordinates
         df['x_bin'] = pd.cut(df['x'], bins=num_bins, labels=False)
@@ -441,8 +417,37 @@ class VehicleTrajectoriesAnalyst(object):
                                                                      'time']).size().reset_index(name='count')
         unusual_traffic_time_loc.to_csv("emergency_time_loc_" + time_string + ".csv")
 
-        vehicle_ids = df['vehicle_id'].unique()
+        # self.analyse_speed(df, vehicle_speeds)
 
+    def analyse_congestion(self):
+
+        df = pd.read_csv(self._trajectories_file_name, names=final_csv_header, header=0)
+        vehicle_ids = df['vehicle_id'].unique()
+        number_of_vehicles_in_seconds = np.zeros(self._during_time, dtype=np.int32)
+        vehicle_dwell_times = []
+        print("Analysing trajectories...")
+        for vehicle_id in tqdm(vehicle_ids):
+            new_df = df[df['vehicle_id'] == vehicle_id]
+            distances = np.sqrt((new_df['x'] - 1500) ** 2 + (new_df['y'] - 1500) ** 2)
+            # find places where distance <= 1500
+            new_df = new_df[distances <= 1500]
+            vehicle_dwell_time = len(new_df)
+            number_of_vehicles_in_seconds[new_df['time']] += 1
+            vehicle_dwell_times.append(vehicle_dwell_time)
+        assert len(vehicle_dwell_times) == len(vehicle_ids)
+        print("vehicle_number: ", len(vehicle_ids))
+        adt = np.mean(vehicle_dwell_times)
+        adt_std = np.std(vehicle_dwell_times)
+        anv = np.mean(number_of_vehicles_in_seconds)
+        anv_std = np.std(number_of_vehicles_in_seconds)
+        print("Average dwell time (s):", adt)
+        print("Standard deviation of dwell time (s):", adt_std)
+        print("Average number of vehicles in each second:", anv)
+        print("Standard deviation of number of vehicles in each second:", anv_std)
+
+    def analyse_speed(self, df):
+        vehicle_speeds = []
+        vehicle_ids = df['vehicle_id'].unique()
         for vehicle_id in vehicle_ids:
             vehicle_speed = []
             new_df = df[df['vehicle_id'] == vehicle_id]
@@ -465,7 +470,6 @@ class VehicleTrajectoriesAnalyst(object):
             if vehicle_speed:
                 average_vehicle_speed = np.mean(vehicle_speed)
                 vehicle_speeds.append(average_vehicle_speed)
-
         asv = np.mean(vehicle_speeds)
         asv_std = np.std(vehicle_speeds)
         print("Average speed (m/s):", asv)
@@ -479,10 +483,10 @@ trajectory_file_name: str = os.path.join(parent_dir_name, 'gps_20161116')
 longitude_min: float = 104.04565967220308
 latitude_min: float = 30.654605745741608
 # longitude_min, latitude_min = 104.04215, 30.65294
-start_hour = 9
+start_hour = 16
 start_minute = 0
 start_second = 0
-end_hour = 9
+end_hour = 16
 end_minute = 30
 end_second = 0
 padded_start_hour = str(start_hour).zfill(2)

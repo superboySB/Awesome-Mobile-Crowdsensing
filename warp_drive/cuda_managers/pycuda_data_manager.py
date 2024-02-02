@@ -121,3 +121,12 @@ class PyCUDADataManager(CUDADataManager):
             self._device_data_pointer[name_on_device] = CudaTensorHolder(
                 torch_tensor_device
             )
+
+    def change_scalar(self, name: str, new_value: Union[int, float, np.int32, np.float32]):
+        assert name in self._scalar_data_list
+        if isinstance(new_value, int):
+            new_value = np.int32(new_value)
+        elif isinstance(new_value, float):
+            new_value = np.float32(new_value)
+        assert self._host_data[name].dtype == new_value.dtype
+        self._host_data[name] = new_value

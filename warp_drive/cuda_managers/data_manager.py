@@ -298,7 +298,7 @@ class CUDADataManager:
                         dtype=array.dtype.name,
                         shape=self._host_data[key].shape,
                     )
-                    # Hack for Emergency Points Generation
+                    # Hack for Emergency Points Generation. torch_accessible adjusted to True.
                     self._to_device(
                         key,
                         name_on_device=key_at_reset,
