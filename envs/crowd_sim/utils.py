@@ -1,7 +1,12 @@
+
 import numpy as np
 import movingpandas
 import pandas as pd
+
+from branca.element import CssLink, Figure, JavascriptLink, MacroElement
+from jinja2 import Template
 np.seterr(invalid='ignore')
+
 
 # from datasets.KAIST.env_config import BaseEnvConfig
 # from shapely.geometry import *
@@ -124,11 +129,11 @@ def traj_to_timestamped_geojson(index, trajectory: movingpandas.Trajectory, car_
         else:
             if is_emergency:
                 radius = 32
-                # handle_time = row.creation_time + row.aoi
-                # if row.creation_time < i < handle_time:
-                opacity = min(1, row.creation_time / row.episode_length)
-                # else:
-                #     opacity = 0
+                handle_time = row.creation_time + row.aoi
+                if row.creation_time < i < handle_time:
+                    opacity = 0.5
+                else:
+                    opacity = 0
             else:
                 radius = 6
                 opacity = 1
@@ -149,7 +154,7 @@ def traj_to_timestamped_geojson(index, trajectory: movingpandas.Trajectory, car_
             feature_dict = create_point_feature(color, current_point_coordinates, current_time, opacity,
                                                 popup_html, radius)
         features.append(feature_dict)
-        if fix_target and not connect_line:
+        if fix_target and not connect_line and not is_emergency:
             break
     return features
 
@@ -162,22 +167,22 @@ def create_point_feature(color, current_point_coordinates, current_time, opacity
             "coordinates": current_point_coordinates,
         },
         "properties": {
-                    "times": current_time,
-                    'popup': popup_html,
-                    "icon": 'circle',  # point
-                    "iconstyle": {
-                        'fillColor': color,
-                        'fillOpacity': opacity,  # 透明度
-                        'stroke': 'true',
-                        'radius': radius,
-                        'weight': 1 if opacity > 0 else 0
-                    },
+            "times": current_time,
+            'popup': popup_html,
+            "icon": 'circle',  # point
+            "iconstyle": {
+                'fillColor': color,
+                'fillOpacity': opacity,  # 透明度
+                'stroke': 'true',
+                'radius': radius,
+                'weight': 1 if opacity > 0 else 0
+            },
 
-                    "style": {  # line
-                        "color": color,
-                    },
-                    "code": 11,
-                },
+            "style": {  # line
+                "color": color,
+            },
+            "code": 11,
+        },
     }
     return feature_dict
 
@@ -187,6 +192,35 @@ def create_linestring_feature(coordinates, dates, color, caption=None, opacity=1
         "type": "Feature",
         "geometry": {
             "type": "LineString",
+            "coordinates": coordinates,
+        },
+        "properties": {
+            "times": dates,
+            "icon": 'circle',  # point
+            "iconstyle": {
+                'fillColor': color,
+                'fillOpacity': opacity,  # 透明度
+                'stroke': 'true',
+                'radius': radius,
+                'weight': 1 if opacity > 0 else 0,
+            },
+
+            "style": {  # line
+                "color": color,
+            },
+            "code": 11,
+        },
+    }
+    if caption is not None:
+        feature_dict["properties"]["popup"] = caption
+    return feature_dict
+
+
+def create_MultiPoint_feature(coordinates, dates, color, caption=None, opacity=1, radius=5):
+    feature_dict = {
+        "type": "Feature",
+        "geometry": {
+            "type": "MultiPoint",
             "coordinates": coordinates,
         },
         "properties": {
@@ -238,3 +272,60 @@ def generate_hotspot_circle(size, radius):
                 hotspot_array[i, j] = np.exp(-distance ** 2 / (2 * (radius / 2) ** 2))
 
     return hotspot_array
+
+
+class JsButton(MacroElement):
+    """
+    Button that executes a javascript function.
+    Parameters
+    ----------
+    title : str
+         title of the button, may contain html like
+    function : str
+         function to execute, should have format `function(btn, map) { ... }`
+
+    See https://github.com/prinsherbert/folium-jsbutton.
+    """
+    _template = Template("""
+        {% macro script(this, kwargs) %}
+        L.easyButton(
+            '<span>{{ this.title }}</span>',
+            {{ this.function }}
+        ).addTo({{ this.map_name }});
+        {% endmacro %}
+        """)
+
+    def __init__(self, title='', function="""
+        function(btn, map){
+            alert('no function defined yet.');
+        }
+    """):
+        super(JsButton, self).__init__()
+        self.title = title
+        self.function = function
+
+    def add_to(self, m):
+        self.map_name = m.get_name()
+        super(JsButton, self).add_to(m)
+
+    def render(self, **kwargs):
+        super(JsButton, self).render()
+
+        figure = self.get_root()
+        assert isinstance(figure, Figure), (
+            'You cannot render this Element if it is not in a Figure.')
+
+        figure.header.add_child(
+            JavascriptLink('https://cdn.jsdelivr.net/npm/leaflet-easybutton@2/src/easy-button.js'),  # noqa
+            name='Control.EasyButton.js'
+        )
+
+        figure.header.add_child(
+            CssLink('https://cdn.jsdelivr.net/npm/leaflet-easybutton@2/src/easy-button.css'),  # noqa
+            name='Control.EasyButton.css'
+        )
+
+        figure.header.add_child(
+            CssLink('https://use.fontawesome.com/releases/v5.3.1/css/all.css'),  # noqa
+            name='Control.FontAwesome.css'
+        )

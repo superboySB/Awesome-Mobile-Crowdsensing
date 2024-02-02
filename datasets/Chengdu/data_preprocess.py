@@ -2,6 +2,7 @@ import os
 
 import math
 import seaborn as sns
+from pyproj import Proj, Transformer
 import pandas as pd
 import numpy as np
 import time
@@ -49,6 +50,34 @@ def trans_form_of_lon(lng: float, lat: float):
     return ret
 
 
+def gcj02_to_wgs84(lng: float, lat: float, reverse=False):
+    """
+    GCJ02(火星坐标系)转GPS84
+    :param lng:火星坐标系的经度
+    :param lat:火星坐标系纬度
+    :return:
+    """
+    a = 6378245.0  # 长半轴
+    ee = 0.00669342162296594323
+
+    d_lat = trans_form_of_lat(lng - 105.0, lat - 35.0)
+    d_lng = trans_form_of_lon(lng - 105.0, lat - 35.0)
+
+    rad_lat = lat / 180.0 * np.pi
+    magic = np.sin(rad_lat)
+    magic = 1 - ee * magic * magic
+    sqrt_magic = np.sqrt(magic)
+
+    d_lat = (d_lat * 180.0) / ((a * (1 - ee)) / (magic * sqrt_magic) * np.pi)
+    d_lng = (d_lng * 180.0) / (a / sqrt_magic * np.cos(rad_lat) * np.pi)
+    mg_lat = lat + d_lat
+    mg_lng = lng + d_lng
+    if reverse:
+        return [mg_lng, mg_lat]
+    else:
+        return [lng * 2 - mg_lng, lat * 2 - mg_lat]
+
+
 def get_distance(lng1: float, lat1: float, lng2: float, lat2: float) -> float:
     """ return the distance between two points in meters """
     lng1, lat1, lng2, lat2 = map(np.radians, [float(lng1), float(lat1), float(lng2), float(lat2)])
@@ -81,43 +110,26 @@ def generate_rows(old_row, new_row, add_number, no_long_lat=False):
     return list_of_rows
 
 
-def get_longitude_and_latitude_max(longitude_min, latitude_min, map_width):
-    # Radius of the Earth in meters
-    earth_radius = 6371000.0
+def get_longitude_and_latitude_max(longitude_min, latitude_min, map_width, map_height):
+    # Define the WGS84 and UTM zone 48R projection coordinate systems
+    wgs84 = Proj(init='epsg:4326')
+    utm_48R = Proj(init='epsg:32648')  # UTM zone 48R
 
-    # Convert map width from meters to degrees using Haversine formula
-    width_deg = (map_width / earth_radius) * (180.0 / math.pi)
-
-    # Calculate maximum longitude and latitude
-    longitude_max = longitude_min + width_deg
-    latitude_max = latitude_min + width_deg
+    # Create a Transformer object for the conversion
+    transformer_from = Transformer.from_proj(wgs84, utm_48R)
+    transformer_to = Transformer.from_proj(utm_48R, wgs84)
+    # Convert the input WGS84 coordinates to UTM zone 48R
+    x_min, y_min = transformer_from.transform(longitude_min, latitude_min)
+    print(x_min, y_min)
+    # Calculate the maximum x-coordinate (eastings) based on map width
+    x_max = x_min + map_width
+    # Calculate the maximum y-coordinate (northings) based on map height
+    y_max = y_min + map_height
+    # Convert back to WGS84 coordinates
+    longitude_max, latitude_max = transformer_to.transform(x_max, y_max)
 
     return longitude_max, latitude_max
 
-
-def gcj02_to_wgs84(lng: float, lat: float):
-    """
-    GCJ02(火星坐标系)转GPS84
-    :param lng:火星坐标系的经度
-    :param lat:火星坐标系纬度
-    :return:
-    """
-    a = 6378245.0  # 长半轴
-    ee = 0.00669342162296594323
-
-    d_lat = trans_form_of_lat(lng - 105.0, lat - 35.0)
-    d_lng = trans_form_of_lon(lng - 105.0, lat - 35.0)
-
-    rad_lat = lat / 180.0 * np.pi
-    magic = np.sin(rad_lat)
-    magic = 1 - ee * magic * magic
-    sqrt_magic = np.sqrt(magic)
-
-    d_lat = (d_lat * 180.0) / ((a * (1 - ee)) / (magic * sqrt_magic) * np.pi)
-    d_lng = (d_lng * 180.0) / (a / sqrt_magic * np.cos(rad_lat) * np.pi)
-    mg_lat = lat + d_lat
-    mg_lng = lng + d_lng
-    return [lng * 2 - mg_lng, lat * 2 - mg_lat]
 
 
 class VehicleTrajectoriesProcessor(object):
@@ -158,7 +170,7 @@ class VehicleTrajectoriesProcessor(object):
         self._time_end_int = int(time.mktime(time_end_array))
 
         self._longitude_max, self._latitude_max = get_longitude_and_latitude_max(
-            self._longitude_min, self._latitude_min, self._map_width)
+            self._longitude_min, self._latitude_min, self._map_width, self._map_width)
 
         self.process(
             map_width=self._map_width,
@@ -202,11 +214,16 @@ class VehicleTrajectoriesProcessor(object):
                 header=0, chunksize=1000
             ), desc='Loading CSV data')
             df = pd.concat([chunk for chunk in reader])
+            dataframe_longitude_range = (df['longitude'].min(), df['longitude'].max())
+            dataframe_latitude_range = (df['latitude'].min(), df['latitude'].max())
+            print("Longitude range: ", dataframe_longitude_range)
+            print("Latitude range: ", dataframe_latitude_range)
             # 经纬度定位
             df.drop(df.columns[[1]], axis=1, inplace=True)
             df.dropna(axis=0)
 
-            longitude_max, latitude_max = get_longitude_and_latitude_max(longitude_min, latitude_min, map_width)
+            longitude_max, latitude_max = get_longitude_and_latitude_max(longitude_min, latitude_min,
+                                                                         map_width, map_width)
             print("Selecting data...")
             df = df[
                 (df['longitude'] > longitude_min) &
@@ -457,12 +474,15 @@ class VehicleTrajectoriesAnalyst(object):
 
 parent_dir_name = os.path.join("/workspace", "saved_data", 'datasets', 'Chengdu_taxi')
 trajectory_file_name: str = os.path.join(parent_dir_name, 'gps_20161116')
+# Longitude range (GCJ02): (104.04215, 104.12958)
+# Latitude range (GCJ02): (30.65294, 30.72775)
 longitude_min: float = 104.04565967220308
 latitude_min: float = 30.654605745741608
-start_hour = 19
+# longitude_min, latitude_min = 104.04215, 30.65294
+start_hour = 9
 start_minute = 0
 start_second = 0
-end_hour = 19
+end_hour = 9
 end_minute = 30
 end_second = 0
 padded_start_hour = str(start_hour).zfill(2)

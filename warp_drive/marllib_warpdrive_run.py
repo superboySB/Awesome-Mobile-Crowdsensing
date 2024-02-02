@@ -39,6 +39,7 @@ if __name__ == '__main__':
     parser.add_argument('--no_refresh', action='store_true', help='do not reset randomly generated emergency points')
     parser.add_argument("--selector_type", type=str, default='NN', choices=['NN', 'greedy', 'oracle', 'random'])
     parser.add_argument("--switch_step", type=int, default=0, help='switch step for NN selector')
+    parser.add_argument("--one_agent_multi_task", action='store_true', help='allocate multiple task for a single agent')
     # parser.add_argument("--ckpt", nargs=3, type=str, help='uuid, time_str, checkpoint_num to restore')
     args = parser.parse_args()
 
@@ -127,9 +128,9 @@ if __name__ == '__main__':
     assert args.algo in algorithm_list, f"algorithm {args.algo} not supported, please implement your custom algorithm"
     my_algorithm: _Algo = getattr(marl.algos, args.algo)(hyperparam_source="common", **custom_algo_params)
     if args.render or args.ckpt:
-        uuid = "87ab4"
-        time_str = "2024-02-01_16-11-41"
-        checkpoint_num = 2000
+        uuid = "7fc7f"
+        time_str = "2024-02-02_18-47-45"
+        checkpoint_num = 1000
         backup_str = ""
         restore_dict = get_restore_dict(args, uuid, time_str, checkpoint_num, backup_str)
         for info in [uuid, str(checkpoint_num)]:
@@ -143,8 +144,9 @@ if __name__ == '__main__':
     model_preference = {"core_arch": args.core_arch, "encode_layer": args.encoder_layer}
 
     if args.env == 'crowdsim':
-        for item in ['selector_type', 'gen_interval', 'with_programming_optimization',
-                     'dataset', 'emergency_threshold', 'switch_step'] + restore_ignore_params:
+        for item in (['selector_type', 'gen_interval', 'with_programming_optimization',
+                      'dataset', 'emergency_threshold', 'switch_step', 'one_agent_multi_task'] +
+                     restore_ignore_params):
             model_preference[item] = getattr(args, item)
     model = marl.build_model(env, my_algorithm, model_preference)
     # start learning

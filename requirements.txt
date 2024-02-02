@@ -48,3 +48,4 @@ cloudpickle~=3.0.0
 click~=8.1.7
 psutil~=5.9.6
 Pillow~=10.0.1
+numba

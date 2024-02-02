@@ -94,3 +94,8 @@ uuid = "4ab3b"
 time_str = "2024-01-30_20-22-54"
 checkpoint_num = 30000
 backup_str = "2024-01-30_20-22-53"
+# Chengdu new dataset, greedy
+uuid = "836db"
+time_str = "2024-02-02_18-47-52"
+checkpoint_num = 4000
+backup_str = "2024-02-02_18-47-51"

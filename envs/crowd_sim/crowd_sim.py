@@ -931,6 +931,21 @@ class CrowdSim:
 
     def render(self, output_file=None, plot_loop=False, moving_line=False):
 
+        custom_js = """
+        function toggleProgressBar(btn, map) {
+            var element = document.getElementsByClassName('leaflet-bottom leaflet-left')[0];
+            if (element) {
+            var opacity = element.style.opacity;
+            if(opacity == 1){
+                element.style.opacity = 0;
+            }
+            else{
+                element.style.opacity = 1;   
+            }
+            }
+        }
+        """
+
         def custom_style_function(feature):
             return {
                 "color": feature["properties"]["style"]["color"],  # Use the color from the properties
@@ -1011,6 +1026,7 @@ class CrowdSim:
                         emergency_df['allocation'] = -1
                     emergency_df['episode_length'] = self.episode_length
                     emergencies_dfs.append(emergency_df)
+                # all_emergency = pd.concat(emergencies_dfs)
                 mixed_df = pd.concat([mixed_df, *emergencies_dfs])
             # ------------------------------------------------------------------------------------
             # 建立moving pandas轨迹，也可以选择调用高级API继续清洗轨迹。
@@ -1024,7 +1040,7 @@ class CrowdSim:
 
             # 经纬度反向
             my_render_map: folium.Map = folium.Map(location=[start_point.y, start_point.x], tiles="cartodbpositron",
-                                                   zoom_start=14, max_zoom=24, control_scale=True)
+                                                   zoom_start=14, max_zoom=24, control_scale=True, prefer_canvas=True)
 
             my_render_map.add_child(folium.LatLngPopup())
             minimap = folium.plugins.MiniMap()
@@ -1087,23 +1103,25 @@ class CrowdSim:
                                                        self.num_cars,
                                                        self.num_drones,
                                                        color,
-                                                       index < self.num_agents,
+                                                       index < self.num_agents or is_emergency,
                                                        self.fix_target,
-                                                       color == 'red')
-                if is_car or is_drone:
+                                                       is_emergency)
+                if is_car or is_drone or is_emergency:
                     # create a feature group
+                    kwargs = {'data': {
+                        "type": "FeatureCollection",
+                        "features": features,
+                    }, 'period': "PT5S", 'add_last_point': True, 'transition_time': 5, 'loop': plot_loop,
+                        'speed_slider': False}
+                    if is_emergency:
+                        kwargs['duration'] = "PT5S"
+                    else:
+                        kwargs['duration'] = "PT2M"
                     TimestampedGeoJson(
-                        {
-                            "type": "FeatureCollection",
-                            "features": features,
-                        },
-                        period="PT5S",  # Adjust the time interval as needed
-                        add_last_point=True,
-                        transition_time=5,
-                        loop=plot_loop  # Apply the custom GeoJSON options
+                        **kwargs,
                     ).add_to(my_render_map)
                 else:
-                    # link thre name with trajectories
+                    # link the name with trajectories
                     all_features.extend(features)
 
             # Point Set Mapping:
@@ -1129,6 +1147,7 @@ class CrowdSim:
                 period="PT5S",  # Adjust the time interval as needed
                 add_last_point=True,
                 transition_time=5,
+                speed_slider=False,
                 loop=False  # Apply the custom GeoJSON options
             ).add_to(my_render_map)
 
@@ -1160,6 +1179,8 @@ class CrowdSim:
                     html=f'<div style="font-size: 12pt">{info_str}</div>',
                 )
             ).add_to(my_render_map)
+            JsButton(
+                title='<i class="fas fa-crosshairs"></i>', function=custom_js).add_to(my_render_map)
             my_render_map.get_root().render()
             my_render_map.get_root().save(output_file)
             logging.info(f"{output_file} saved!")
