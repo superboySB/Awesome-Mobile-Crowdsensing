@@ -752,7 +752,7 @@ extern "C" {
         int reward_increment = (target_aoi - 1);
         float reward_update;
          if(is_dyn_point){
-          reward_update = 5.0;
+          reward_update = 1.0;
          }
          else{
           reward_update = reward_increment * invEpisodeLength;
@@ -892,6 +892,14 @@ extern "C" {
         int emergency_idx = i + zero_shot_start;
         float target_x = target_x_time_list[kThisTargetPositionTimeListIdxOffset + emergency_idx];
         float target_y = target_y_time_list[kThisTargetPositionTimeListIdxOffset + emergency_idx];
+        bool invalid_emergency = target_x == 0 && target_y == 0;
+        if (invalid_emergency) {
+//           if(env_timestep == 118){
+//             printf("Invalid Emergency %d at %d\n", emergency_idx, env_timestep);
+//           }
+          state_arr[kThisEnvStateOffset + StateFullAgentFeature + i * 4 + 3] = -1;
+          continue;
+        }
         int target_aoi = target_aoi_arr[kThisTargetAgeArrayIdxOffset + emergency_idx];
         bool target_coverage = target_coverage_arr[kThisTargetAgeArrayIdxOffset + emergency_idx];
         state_arr[kThisEnvStateOffset + StateFullAgentFeature + i * 4 + 0] = target_x / kAgentXRange;

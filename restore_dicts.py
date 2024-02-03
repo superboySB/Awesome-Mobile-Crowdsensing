@@ -99,3 +99,11 @@ uuid = "836db"
 time_str = "2024-02-02_18-47-52"
 checkpoint_num = 4000
 backup_str = "2024-02-02_18-47-51"
+# Chengdu new dataset, greedy
+uuid = "6ffc8"
+time_str = "2024-02-02_21-46-16"
+checkpoint_num = 8000
+# Chengdu new dataset, NN
+uuid = "6cc0f"
+time_str = "2024-02-02_21-46-11"
+checkpoint_num = 8000

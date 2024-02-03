@@ -224,6 +224,7 @@ class CrowdSim:
         self.agent_speed = {'car': self.config.env.car_velocity, 'drone': self.config.env.drone_velocity}
         points_x, points_y, self.num_centers, self.num_points, self.num_points_per_center = (None,) * 5
         self.dynamic_zero_shot = dynamic_zero_shot
+
         if self.all_random:
             self.num_centers = self.num_sensing_targets
             self.num_points_per_center = 1
@@ -232,31 +233,41 @@ class CrowdSim:
             self.emergency_count = 0
             self.points_per_gen = 0
         else:
-            emergency_path = os.path.join(get_project_root(), 'datasets', self.dataset_name,
-                                          'emergency_time_loc_0900_0930.csv')
-            if os.path.exists(emergency_path):
-                unique_emergencies = pd.read_csv(emergency_path)
+            parent_path = os.path.join(get_project_root(), 'datasets', self.dataset_name)
+            file_names = os.listdir(parent_path)
+            file_names = [file_name for file_name in file_names if file_name.startswith('emergency_time_loc')]
+            if len(file_names) > 0:
+                file_names = sorted(file_names)
+                self.file_names = file_names
+                self.all_dataframes = []
+                self.all_emergency_counts = []
+                for file_name in file_names:
+                    my_frame = pd.read_csv(os.path.join(parent_path, file_name))
+                    my_frame = my_frame[['time', 'x_bin', 'y_bin', 'count']].sort_values(by='time', ascending=True)
+                    self.all_dataframes.append(my_frame)
+                    self.all_emergency_counts.append(self.all_dataframes[-1].shape[0])
+                unique_emergencies = self.all_dataframes[np.argmax(self.all_emergency_counts)]
+                max_length = len(unique_emergencies)
+                dummy_row = pd.Series({'time': self.episode_length, 'x_bin': -1, 'y_bin': -1, 'count': -1})
+                for i in range(len(self.all_dataframes)):
+                    current_frame = self.all_dataframes[i]
+                    repeat_time = max_length - len(current_frame)
+                    if repeat_time > 0:
+                        dummy_rows = pd.concat([dummy_row] * repeat_time, axis=1).transpose()
+                        self.all_dataframes[i] = pd.concat([current_frame, dummy_rows])
                 self.emergency_count = unique_emergencies.shape[0]
                 self.num_sensing_targets += self.emergency_count
                 self.zero_shot_start = self.num_sensing_targets - self.emergency_count
                 self.points_per_gen = self.emergency_count
-                self.aoi_schedule = unique_emergencies['time'].values
                 self.num_centers = self.emergency_count
                 self.num_points_per_center = 1
                 self.num_bins = 20
-                # make sure num_bins is consistent with generated bins
-                self.emergency_centers_x = (
-                            unique_emergencies['x_bin'].values / self.num_bins * self.max_distance_x).astype(
-                    int)
-                self.emergency_centers_y = (
-                            unique_emergencies['y_bin'].values / self.num_bins * self.max_distance_y).astype(
-                    int)
-                points_x, points_y = self.generate_emergency(self.num_centers, self.num_points_per_center,
-                                                             self.emergency_centers_x, self.emergency_centers_y)
+                points_x, points_y = self.get_emergencies_from_dataset(unique_emergencies)
                 logging.debug(f"Emergency points: {self.num_centers}")
             else:
                 self.emergency_centers_x = None
                 self.emergency_centers_y = None
+                self.file_names = self.all_dataframes = self.all_emergency_counts = None
                 if self.dynamic_zero_shot:
                     self.zero_shot_start = self.num_sensing_targets
                     self.points_per_gen = self.num_agents - 1 if self.num_agents > 1 else 1
@@ -284,6 +295,16 @@ class CrowdSim:
         self.target_y_time_list = np.zeros([self.episode_length + 1, self.num_sensing_targets], dtype=np.int_)
         self.target_aoi_timelist = np.ones([self.episode_length + 1, self.num_sensing_targets], dtype=np.int_)
         self.target_coveraged_timelist = np.zeros([self.episode_length + 1, self.num_sensing_targets], dtype=np.bool_)
+
+        if self.dynamic_zero_shot:
+            if self.all_random:
+                self.target_x_time_list[:, :] = points_x
+                self.target_y_time_list[:, :] = points_y
+            else:
+                self.target_x_time_list[:, self.num_sensing_targets -
+                                           self.num_centers * self.num_points_per_center:] = points_x
+                self.target_y_time_list[:, self.num_sensing_targets -
+                                           self.num_centers * self.num_points_per_center:] = points_y
         if not self.all_random:
             # Fill the new array with data from the full DataFrame
             last_id = -1
@@ -304,16 +325,6 @@ class CrowdSim:
                         self.target_y_time_list[timestamp_index, id_index] = row.y
                 else:
                     raise ValueError("Got invalid rows:", row)
-
-            if dynamic_zero_shot:
-                self.target_x_time_list[:, self.num_sensing_targets -
-                                           self.num_centers * self.num_points_per_center:] = points_x
-                self.target_y_time_list[:, self.num_sensing_targets -
-                                           self.num_centers * self.num_points_per_center:] = points_y
-                # rebuild DataFrame from longitude and latitude
-        else:
-            self.target_x_time_list[:, :] = points_x
-            self.target_y_time_list[:, :] = points_y
 
         x1 = self.target_x_time_list[:-1, :]
         y1 = self.target_y_time_list[:-1, :]
@@ -440,6 +451,20 @@ class CrowdSim:
         self.queue_feature = 2
         self.queue_length = 10
 
+    def get_emergencies_from_dataset(self, unique_emergencies: pd.DataFrame):
+        self.aoi_schedule = unique_emergencies['time'].values
+        logging.debug(f"Emergency Schedule: {self.aoi_schedule}")
+        # make sure num_bins is consistent with generated bins
+        self.emergency_centers_x = (
+                unique_emergencies['x_bin'].values / self.num_bins * self.max_distance_x).astype(
+            int)
+        self.emergency_centers_y = (
+                unique_emergencies['y_bin'].values / self.num_bins * self.max_distance_y).astype(
+            int)
+        points_x, points_y = self.generate_emergency(self.num_centers, self.num_points_per_center,
+                                                     self.emergency_centers_x, self.emergency_centers_y)
+        return points_x, points_y
+
     def get_next_color(self):
         # Function to get the next color
         # Check if we have used all colors, shuffle again if needed
@@ -523,8 +548,10 @@ class CrowdSim:
         if self.dynamic_zero_shot and not self.all_random:
             logging.debug("Emergency points reset completed!")
             if self.emergency_centers_y is not None and self.emergency_centers_x is not None:
-                points_x, points_y = self.generate_emergency(self.num_centers, self.num_points_per_center,
-                                                             self.emergency_centers_x, self.emergency_centers_y)
+                my_index = np.random.randint(0, len(self.all_dataframes))
+                new_emergencies = self.all_dataframes[my_index]
+                logging.debug(f"newly selected emergency: {self.file_names[my_index]}")
+                points_x, points_y = self.get_emergencies_from_dataset(new_emergencies)
             else:
                 points_x, points_y = self.generate_emergency(self.num_centers, self.num_points_per_center)
             self.target_x_time_list[:, self.zero_shot_start:] = points_x
@@ -912,7 +939,8 @@ class CrowdSim:
         }
         if self.dynamic_zero_shot and not self.all_random:
             info[SURVEILLANCE_METRIC] = np.mean(self.target_aoi_timelist[self.timestep, :-self.emergency_count])
-            emergency_aoi = self.target_aoi_timelist[self.timestep, -self.emergency_count:]
+            valid_mask = self.aoi_schedule < self.episode_length
+            emergency_aoi = self.target_aoi_timelist[self.timestep, -self.emergency_count:][valid_mask]
             info[EMERGENCY_METRIC] = np.mean(emergency_aoi)
             info[VALID_HANDLING_RATIO] = np.mean(emergency_aoi < self.emergency_threshold)
             # info[OVERALL_AOI] = (info[SURVEILLANCE_METRIC] + info[EMERGENCY_METRIC]) / 2
@@ -933,7 +961,6 @@ class CrowdSim:
     def render(self, output_file=None, plot_loop=False, moving_line=False):
 
         custom_js = """
-        function toggleProgressBar(btn, map) {
             var element = document.getElementsByClassName('leaflet-bottom leaflet-left')[0];
             if (element) {
             var opacity = element.style.opacity;
@@ -944,9 +971,8 @@ class CrowdSim:
                 element.style.opacity = 1;   
             }
             }
-        }
         """
-
+        js_with_function = "function toggleProgressBar(btn, map) {" + custom_js + "}"
         def custom_style_function(feature):
             return {
                 "color": feature["properties"]["style"]["color"],  # Use the color from the properties
@@ -1117,7 +1143,7 @@ class CrowdSim:
                     if is_emergency:
                         kwargs['duration'] = "PT5S"
                     else:
-                        kwargs['duration'] = "PT2M"
+                        kwargs['duration'] = "PT10M"
                     TimestampedGeoJson(
                         **kwargs,
                     ).add_to(my_render_map)
@@ -1181,7 +1207,9 @@ class CrowdSim:
                 )
             ).add_to(my_render_map)
             JsButton(
-                title='<i class="fas fa-crosshairs"></i>', function=custom_js).add_to(my_render_map)
+                title='<i class="fas fa-crosshairs"></i>', function=js_with_function).add_to(my_render_map)
+            # add custom_js to the map
+            my_render_map.get_root().script.add_child(folium.Element(custom_js))
             my_render_map.get_root().render()
             my_render_map.get_root().save(output_file)
             logging.info(f"{output_file} saved!")
@@ -1539,13 +1567,15 @@ class RLlibCUDACrowdSim(MultiAgentEnv):
             new_obs = np.stack(obs_for_agents)
             zero_shot_start = self.env.zero_shot_start
             logging.debug("Modifying Emergency Points on CUDA!")
-            points_x, points_y = (torch.tensor(self.env.target_x_time_list[:, zero_shot_start:]),
-                                  torch.tensor(self.env.target_y_time_list[:, zero_shot_start:]))
+            points_x, points_y = (torch.from_numpy(self.env.target_x_time_list[:, zero_shot_start:]),
+                                  torch.from_numpy(self.env.target_y_time_list[:, zero_shot_start:]))
             data_manager: PyCUDADataManager = self.env_wrapper.cuda_data_manager
             data_manager.data_on_device_via_torch("target_x_at_reset")[:, :, zero_shot_start:] = points_x
             data_manager.data_on_device_via_torch("target_y_at_reset")[:, :, zero_shot_start:] = points_y
-            data_manager.data_on_device_via_torch(_OBSERVATIONS + "_at_reset")[:] = (torch.tensor(new_obs).cuda())
-            data_manager.change_scalar("num_targets", self.env.num_sensing_targets)
+            data_manager.data_on_device_via_torch("aoi_schedule_at_reset")[:, :] = torch.from_numpy(
+                self.env.aoi_schedule)
+            data_manager.data_on_device_via_torch(_OBSERVATIONS + "_at_reset")[:] = (torch.from_numpy(new_obs).cuda())
+            # data_manager.change_scalar("num_targets", self.env.num_sensing_targets)
         # current_observation shape [n_agent, dim_obs]
         current_observation = self.pull_vec_from_device_to_list(_OBSERVATIONS, self.obs_vec_dim)
         state_list = self.pull_vec_from_device_to_list(_STATE, self.env.vector_state_dim)

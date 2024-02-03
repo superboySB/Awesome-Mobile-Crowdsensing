@@ -200,8 +200,8 @@ def create_linestring_feature(coordinates, dates, color, caption=None, opacity=1
             "iconstyle": {
                 'fillColor': color,
                 'fillOpacity': opacity,  # 透明度
-                'stroke': 'true',
-                'radius': radius,
+                'stroke': 'true' if opacity > 0 else 'false',
+                'radius': radius if opacity > 0 else 0,
                 'weight': 1 if opacity > 0 else 0,
             },
 
