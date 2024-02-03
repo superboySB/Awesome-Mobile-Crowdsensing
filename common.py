@@ -59,7 +59,7 @@ def add_common_arguments(parser: ArgumentParser):
                                                                      'two generations of emergencies')
     parser.add_argument('--evaluation_interval', type=int, default=1000, help='evaluation interval')
     parser.add_argument("--cut_points", type=int, default=-1, help='number of points allowed')
-    parser.add_argument('--emergency_threshold', type=int, default=15, help='emergency threshold')
+    parser.add_argument('--emergency_threshold', type=int, default=10, help='emergency threshold')
 
 def customize_experiment(args: argparse.Namespace, run_config: dict = None, yaml_config_path: str = None, ):
     """

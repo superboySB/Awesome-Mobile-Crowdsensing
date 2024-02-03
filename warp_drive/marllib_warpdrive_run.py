@@ -40,6 +40,7 @@ if __name__ == '__main__':
     parser.add_argument("--selector_type", type=str, default='NN', choices=['NN', 'greedy', 'oracle', 'random'])
     parser.add_argument("--switch_step", type=int, default=0, help='switch step for NN selector')
     parser.add_argument("--one_agent_multi_task", action='store_true', help='allocate multiple task for a single agent')
+    parser.add_argument("--emergency_queue_length", type=int, default=4, help='emergency queue length')
     # parser.add_argument("--ckpt", nargs=3, type=str, help='uuid, time_str, checkpoint_num to restore')
     args = parser.parse_args()
 
@@ -145,8 +146,8 @@ if __name__ == '__main__':
 
     if args.env == 'crowdsim':
         for item in (['selector_type', 'gen_interval', 'with_programming_optimization',
-                      'dataset', 'emergency_threshold', 'switch_step', 'one_agent_multi_task'] +
-                     restore_ignore_params):
+                      'dataset', 'emergency_threshold', 'switch_step', 'one_agent_multi_task',
+                      'emergency_queue_length'] + restore_ignore_params):
             model_preference[item] = getattr(args, item)
     model = marl.build_model(env, my_algorithm, model_preference)
     # start learning
