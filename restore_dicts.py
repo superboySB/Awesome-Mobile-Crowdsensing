@@ -107,3 +107,12 @@ checkpoint_num = 8000
 uuid = "6cc0f"
 time_str = "2024-02-02_21-46-11"
 checkpoint_num = 8000
+# Chengdu, multi-time dataset, greedy
+uuid = "aae7e"
+time_str = "2024-02-03_14-44-24"
+checkpoint_num = 10000
+# Chengdu, multi-time dataset, one agent one task, NN
+uuid = "8b20a"
+time_str = "2024-02-03_20-34-16"
+checkpoint_num = 10000
+# Chengdu, multi-time dataset, one agent one task, NN new

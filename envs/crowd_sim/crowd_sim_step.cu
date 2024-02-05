@@ -717,6 +717,9 @@ extern "C" {
 //         bool debug_condition = target_idx < 10 && env_timestep >= 117;
         float target_x = target_x_time_list[kThisTargetPositionTimeListIdxOffset + target_idx];
         float target_y = target_y_time_list[kThisTargetPositionTimeListIdxOffset + target_idx];
+        if (target_x == 0 && target_y == 0){
+          continue;
+        }
         int is_dyn_point = dynamic_zero_shot && target_idx >= zero_shot_start;
         bool target_coverage;
         if (!is_dyn_point) {

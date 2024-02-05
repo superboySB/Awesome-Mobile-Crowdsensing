@@ -129,9 +129,11 @@ def traj_to_timestamped_geojson(index, trajectory: movingpandas.Trajectory, car_
         else:
             if is_emergency:
                 radius = 32
-                handle_time = row.creation_time + row.aoi
-                if row.creation_time < i < handle_time:
-                    opacity = 0.5
+                if row.creation_time < i:
+                    if not row.coverage:
+                        opacity = 0.5
+                    else:
+                        opacity = 0
                 else:
                     opacity = 0
             else:

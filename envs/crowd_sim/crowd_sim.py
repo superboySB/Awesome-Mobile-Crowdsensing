@@ -46,6 +46,8 @@ from envs.crowd_sim.env_wrapper import CUDAEnvWrapper
 from warp_drive.training.data_loader import create_and_push_data_placeholders
 from .utils import *
 
+DELAY_ADVANTAGE_RATIO = 'delay_advantage_ratio'
+
 state_aoi_caption = "State AoI"
 
 emergency_caption = "Emergency Grid Example"
@@ -212,7 +214,7 @@ class CrowdSim:
                                                                Point(self.upper_right[0], self.lower_left[1]))
         self.max_distance_y: float = measure_distance_geodesic(Point(self.lower_left[0], self.lower_left[1]),
                                                                Point(self.lower_left[0], self.upper_right[1]))
-        # Hack, reduce points for better effect.
+        self.num_bins = 20
         if cut_points != -1:
             self.human_df = self.human_df[self.human_df['id'] < cut_points]
         self.num_sensing_targets = self.human_df.shape[0] // (self.episode_length + 1)
@@ -221,6 +223,9 @@ class CrowdSim:
         self.human_df['energy'] = -1  # 加入energy记录energy
         self.max_distance_x = min(self.max_distance_x, max(self.human_df['x']))
         self.max_distance_y = min(self.max_distance_y, max(self.human_df['y']))
+        # self.human_df['x_bin'] = pd.cut(self.human_df['x'], bins=self.num_bins, labels=False).astype(int)
+        # self.human_df['y_bin'] = pd.cut(self.human_df['y'], bins=self.num_bins, labels=False).astype(int)
+        # grouped_counts = self.human_df[self.human_df['timestamp'] == self.start_timestamp].groupby(['x_bin', 'y_bin']).size().reset_index(name='poi_count')
         self.agent_speed = {'car': self.config.env.car_velocity, 'drone': self.config.env.drone_velocity}
         points_x, points_y, self.num_centers, self.num_points, self.num_points_per_center = (None,) * 5
         self.dynamic_zero_shot = dynamic_zero_shot
@@ -261,7 +266,7 @@ class CrowdSim:
                 self.points_per_gen = self.emergency_count
                 self.num_centers = self.emergency_count
                 self.num_points_per_center = 1
-                self.num_bins = 20
+
                 points_x, points_y = self.get_emergencies_from_dataset(unique_emergencies)
                 logging.debug(f"Emergency points: {self.num_centers}")
             else:
@@ -940,8 +945,10 @@ class CrowdSim:
         if self.dynamic_zero_shot and not self.all_random:
             info[SURVEILLANCE_METRIC] = np.mean(self.target_aoi_timelist[self.timestep, :-self.emergency_count])
             valid_mask = self.aoi_schedule < self.episode_length
+            max_response_delay = np.sum(self.episode_length - self.aoi_schedule)
             emergency_aoi = self.target_aoi_timelist[self.timestep, -self.emergency_count:][valid_mask]
             info[EMERGENCY_METRIC] = np.mean(emergency_aoi)
+            info[DELAY_ADVANTAGE_RATIO] = 1 - np.sum(emergency_aoi) / max_response_delay
             info[VALID_HANDLING_RATIO] = np.mean(emergency_aoi < self.emergency_threshold)
             # info[OVERALL_AOI] = (info[SURVEILLANCE_METRIC] + info[EMERGENCY_METRIC]) / 2
             # logging.debug(f"Emergency: {info[EMERGENCY_METRIC]}")
@@ -1042,6 +1049,8 @@ class CrowdSim:
                     delay_list = np.full_like(self.target_aoi_timelist[:, i], self.target_aoi_timelist[:, i][-1])
                     x_list = all_zero_shot_x[:, i - self.zero_shot_start]
                     y_list = all_zero_shot_y[:, i - self.zero_shot_start]
+                    if x_list[0] == 0 and y_list[0] == 0:
+                        continue
                     id_list = np.full_like(x_list, i)
                     energy_list = np.zeros_like(x_list)
                     emergency_df = self.xy_to_dataframe(delay_list, energy_list, id_list, max_latitude,
@@ -1052,6 +1061,8 @@ class CrowdSim:
                     else:
                         emergency_df['allocation'] = -1
                     emergency_df['episode_length'] = self.episode_length
+                    emergency_df['coverage'] = self.target_coveraged_timelist[:, i]
+                    logging.debug(f"Emergency Covered at {np.nonzero(emergency_df['coverage'])[0]}")
                     emergencies_dfs.append(emergency_df)
                 # all_emergency = pd.concat(emergencies_dfs)
                 mixed_df = pd.concat([mixed_df, *emergencies_dfs])
@@ -1184,7 +1195,7 @@ class CrowdSim:
             if self.dynamic_zero_shot:
                 # the metric should include surveillance_aoi, response_delay, overall_aoi, not mean_aoi
                 info_str = f"Energy: {info[ENERGY_METRIC_NAME]:.2f},<br>" \
-                           f"Freshness: {info[FRESHNESS_FACTOR]:.2f},<br>" \
+                           f"Advantage Ratio: {info[DELAY_ADVANTAGE_RATIO]:.2f},<br>" \
                            f"Surveillance: {info[SURVEILLANCE_METRIC]:.2f},<br>" \
                            f"Response Delay: {info[EMERGENCY_METRIC]:.2f},<br>" \
                            f"Valid Ratio: {info[VALID_HANDLING_RATIO]:.2f},<br>" \
@@ -1387,9 +1398,8 @@ class CUDACrowdSim(CrowdSim, CUDAEnvironmentContext):
         logging.debug(f"Timestep in CUDACrowdSim {self.timestep}")
         logging.debug(f"Dones in CUDACrowdSim {dones[:5]}")
         self.timestep = int(self.cuda_data_manager.pull_data_from_device("_timestep_")[0])
-        if not self.dynamic_zero_shot:
-            self.target_coveraged_timelist[self.timestep, :] = self.cuda_data_manager.pull_data_from_device(
-                "target_coverage")[0]
+        self.target_coveraged_timelist[self.timestep, :] = self.cuda_data_manager.pull_data_from_device(
+            "target_coverage")[0]
         self.target_aoi_timelist[self.timestep, :] = self.cuda_data_manager.pull_data_from_device(
             "target_aoi")[0]
         self.agent_energy_timelist[self.timestep, :] = self.cuda_data_manager.pull_data_from_device(
