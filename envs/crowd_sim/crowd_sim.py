@@ -945,7 +945,7 @@ class CrowdSim:
         if self.dynamic_zero_shot and not self.all_random:
             info[SURVEILLANCE_METRIC] = np.mean(self.target_aoi_timelist[self.timestep, :-self.emergency_count])
             valid_mask = self.aoi_schedule < self.episode_length
-            max_response_delay = np.sum(self.episode_length - self.aoi_schedule)
+            max_response_delay = np.sum(self.episode_length - self.aoi_schedule[valid_mask])
             emergency_aoi = self.target_aoi_timelist[self.timestep, -self.emergency_count:][valid_mask]
             info[EMERGENCY_METRIC] = np.mean(emergency_aoi)
             info[DELAY_ADVANTAGE_RATIO] = 1 - np.sum(emergency_aoi) / max_response_delay
