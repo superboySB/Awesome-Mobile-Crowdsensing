@@ -945,8 +945,8 @@ class CrowdSim:
         if self.dynamic_zero_shot and not self.all_random:
             info[SURVEILLANCE_METRIC] = np.mean(self.target_aoi_timelist[self.timestep, :-self.emergency_count])
             valid_mask = self.aoi_schedule < self.episode_length
-            max_response_delay = np.sum(self.episode_length - self.aoi_schedule[valid_mask])
-            emergency_aoi = self.target_aoi_timelist[self.timestep, -self.emergency_count:][valid_mask]
+            max_response_delay = np.sum(self.episode_length + 1 - self.aoi_schedule[valid_mask])
+            emergency_aoi = self.target_aoi_timelist[self.timestep, -self.emergency_count:][valid_mask] - 1
             info[EMERGENCY_METRIC] = np.mean(emergency_aoi)
             info[DELAY_ADVANTAGE_RATIO] = 1 - np.sum(emergency_aoi) / max_response_delay
             info[VALID_HANDLING_RATIO] = np.mean(emergency_aoi < self.emergency_threshold)
@@ -1042,6 +1042,7 @@ class CrowdSim:
             # pull emergency coordinates from device to host, since points in host are already refreshed
             all_zero_shot_x = self.cuda_data_manager.pull_data_from_device("target_x")[0][:, self.zero_shot_start:]
             all_zero_shot_y = self.cuda_data_manager.pull_data_from_device("target_y")[0][:, self.zero_shot_start:]
+            self.aoi_schedule = self.cuda_data_manager.pull_data_from_device("aoi_schedule")[0]
             if self.dynamic_zero_shot:
                 emergencies_dfs = []
                 for i in range(self.zero_shot_start, self.num_sensing_targets):

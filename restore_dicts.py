@@ -116,3 +116,11 @@ uuid = "8b20a"
 time_str = "2024-02-03_20-34-16"
 checkpoint_num = 10000
 # Chengdu, multi-time dataset, one agent one task, NN new
+uuid = "f06d0"
+time_str = "2024-02-05_02-26-40"
+checkpoint_num = 10000
+# Chegndu, multi-time dataset, one agent multi task, greedy
+uuid = "bb749"
+time_str = "2024-02-05_16-44-11"
+checkpoint_num = 7000
+backup_str = "2024-02-05_15-44-10"
