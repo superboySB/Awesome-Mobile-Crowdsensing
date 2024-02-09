@@ -9,7 +9,7 @@ import argparse
 from envs.crowd_sim.crowd_sim import LARGE_DATASET_NAME
 
 # 'encoder_layer', 'core_arch', 'cut_points', 'fix_target', 'num_drones', 'num_cars', 'share_policy', 'gen_interval',
-display_tags = {'selector_type', 'dataset', 'emergency_threshold', 'switch_step', 'tolerance'}
+display_tags = {'selector_type', 'dataset', 'emergency_threshold', 'switch_step'}
 logging_dir = os.path.join("/workspace", "saved_data")
 
 
