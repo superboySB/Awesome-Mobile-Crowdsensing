@@ -2,7 +2,7 @@
 
 #dataset_name='Chengdu'
 exp_name='WARP_MIX'
-session_name=$exp_name
+session_name=$exp_name'_2'
 cards=(1 2 3)
 card_num=${#cards[@]}
 dry_run=false

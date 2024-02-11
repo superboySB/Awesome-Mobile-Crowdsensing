@@ -40,7 +40,7 @@ if __name__ == '__main__':
     parser.add_argument("--selector_type", type=str, default='NN', choices=['NN', 'greedy', 'oracle', 'random', 'RL'])
     parser.add_argument("--switch_step", type=int, default=600000, help='switch step for NN selector')
     parser.add_argument("--one_agent_multi_task", action='store_true', help='allocate multiple task for a single agent')
-    parser.add_argument("--emergency_queue_length", type=int, default=4, help='emergency queue length')
+    parser.add_argument("--emergency_queue_length", type=int, default=5, help='emergency queue length')
     parser.add_argument("--tolerance", type=float, default=1e-2, help='tolerance for choosing multiple emergencies')
     # parser.add_argument("--ckpt", nargs=3, type=str, help='uuid, time_str, checkpoint_num to restore')
     args = parser.parse_args()
