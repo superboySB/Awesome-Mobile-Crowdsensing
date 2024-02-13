@@ -1150,7 +1150,7 @@ class CrowdSim:
                     kwargs = {'data': {
                         "type": "FeatureCollection",
                         "features": features,
-                    }, 'period': "PT5S", 'add_last_point': True, 'transition_time': 5, 'loop': plot_loop,
+                    }, 'period': "PT5S", 'add_last_point': True, 'transition_time': 200, 'loop': plot_loop,
                         'speed_slider': False}
                     if is_emergency:
                         kwargs['duration'] = "PT5S"

@@ -40,8 +40,11 @@ if __name__ == '__main__':
     parser.add_argument("--selector_type", type=str, default='NN', choices=['NN', 'greedy', 'oracle', 'random', 'RL'])
     parser.add_argument("--switch_step", type=int, default=600000, help='switch step for NN selector')
     parser.add_argument("--one_agent_multi_task", action='store_true', help='allocate multiple task for a single agent')
+    parser.add_argument("--look_ahead", action='store_true',
+                        help='greedily assign according to agent final destination')
     parser.add_argument("--emergency_queue_length", type=int, default=5, help='emergency queue length')
     parser.add_argument("--tolerance", type=float, default=1e-2, help='tolerance for choosing multiple emergencies')
+
     # parser.add_argument("--ckpt", nargs=3, type=str, help='uuid, time_str, checkpoint_num to restore')
     args = parser.parse_args()
 
@@ -148,7 +151,7 @@ if __name__ == '__main__':
     if args.env == 'crowdsim':
         for item in (['selector_type', 'gen_interval', 'with_programming_optimization',
                       'dataset', 'emergency_threshold', 'switch_step', 'one_agent_multi_task',
-                      'emergency_queue_length', 'tolerance'] + restore_ignore_params):
+                      'emergency_queue_length', 'tolerance', 'look_ahead'] + restore_ignore_params):
             model_preference[item] = getattr(args, item)
     model = marl.build_model(env, my_algorithm, model_preference)
     # start learning

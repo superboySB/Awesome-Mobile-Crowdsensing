@@ -9,7 +9,8 @@ import argparse
 from envs.crowd_sim.crowd_sim import LARGE_DATASET_NAME
 
 # 'encoder_layer', 'core_arch', 'cut_points', 'fix_target', 'num_drones', 'num_cars', 'share_policy', 'gen_interval',
-display_tags = {'selector_type', 'dataset', 'emergency_threshold', 'switch_step', 'emergency_queue_length'}
+display_tags = {'selector_type', 'dataset', 'emergency_queue_length', 'gen_interval'}
+ignore_tags = {'dynamic_zero_shot', 'fix_target', 'use_2d_state', }
 logging_dir = os.path.join("/workspace", "saved_data")
 
 
@@ -75,7 +76,7 @@ def customize_experiment(args: argparse.Namespace, run_config: dict = None, yaml
     for arg in list(vars(args)):
         if arg != "track":
             attr_val = getattr(args, arg)
-            if attr_val is True:
+            if attr_val is True and arg not in ignore_tags:
                 tags.append(arg)
             elif attr_val is not False and arg in display_tags:
                 expr_name += f"_{arg}_{attr_val}"
