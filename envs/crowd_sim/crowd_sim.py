@@ -1484,8 +1484,8 @@ class RLlibCUDACrowdSim(MultiAgentEnv):
                 warnings.warn("render=True, num_envs is always equal to 4, and user input is ignored.")
             elif self.is_local:
                 # pass
-                self.num_envs = 4
-                warnings.warn("local_mode=True, num_envs is always equal to 4, and user input is ignored.")
+                self.num_envs = 10
+                warnings.warn("local_mode=True, num_envs is always equal to 10, and user input is ignored.")
             self.env_wrapper: CUDAEnvWrapper = CUDAEnvWrapper(
                 self.env,
                 num_envs=self.num_envs,
