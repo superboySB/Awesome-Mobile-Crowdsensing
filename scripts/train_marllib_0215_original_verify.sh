@@ -2,8 +2,8 @@
 
 #dataset_name='Chengdu'
 exp_name='WARP_MIX'
-session_name=$exp_name
-cards=(1 2 3)
+session_name=$exp_name'_3'
+cards=(1 2 3 1 3 3)
 card_num=${#cards[@]}
 dry_run=false
 # Process command-line arguments
@@ -19,12 +19,12 @@ while [[ $# -gt 0 ]]; do
 done
 # remove NN share_policy all
 trains=(
-  "--dataset SanFrancisco --selector_type RL --gen_interval 10 --emergency_queue_length 5"
-  "--dataset SanFrancisco --selector_type RL --gen_interval 10 --emergency_queue_length 3"
-  "--dataset SanFrancisco --selector_type RL --gen_interval 10 --emergency_queue_length 1"
-  "--dataset Chengdu --selector_type RL --emergency_queue_length 5"
-  "--dataset Chengdu --selector_type RL --emergency_queue_length 3"
-  "--dataset Chengdu --selector_type RL --emergency_queue_length 1"
+  "--dataset SanFrancisco --selector_type NN --with_programming_optimization --gen_interval 10"
+  "--dataset SanFrancisco --selector_type random --with_programming_optimization --gen_interval 10"
+  "--dataset SanFrancisco --selector_type greedy --with_programming_optimization --gen_interval 10"
+  "--dataset Chengdu --selector_type NN --with_programming_optimization"
+  "--dataset Chengdu --selector_type random --with_programming_optimization"
+  "--dataset Chengdu --selector_type greedy --with_programming_optimization"
 )
 
 
@@ -61,7 +61,7 @@ for ((i = 0; i < train_num; i++)); do
   # if want to add $PATH, remember to add / before $
   command="python warp_drive/marllib_warpdrive_run.py --track --core_arch crowdsim_net --dynamic_zero_shot\
   --num_drones 4 --num_cars 0 --group auto_allocation --algo trafficppo --share_policy all --switch_step 60000000\
-  --gpu_id ${cards[card_id]} ${trains[i]} --use_2d_state --tag VPG"
+  --gpu_id ${cards[card_id]} ${trains[i]} --use_2d_state"
   echo "$command"
   if [ "$dry_run" = "false" ] && [ "$choice" != "n" ]
   then
