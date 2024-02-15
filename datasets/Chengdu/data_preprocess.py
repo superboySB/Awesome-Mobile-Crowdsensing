@@ -1,14 +1,10 @@
 import os
-
-import math
-import seaborn as sns
-from pyproj import Proj, Transformer
-import pandas as pd
-import numpy as np
 import time
 from typing import Optional
 
-from matplotlib import pyplot as plt
+import numpy as np
+import pandas as pd
+from pyproj import Proj, Transformer
 from tqdm import tqdm
 
 final_csv_header = ['vehicle_id', 'time', 'longitude', 'latitude', 'timestamp', 'x', 'y']
@@ -110,6 +106,50 @@ def generate_rows(old_row, new_row, add_number, no_long_lat=False):
     return list_of_rows
 
 
+def find_fragments(df):
+    # Assuming your DataFrame has columns: 'x_bin', 'y_bin', 'time', 'count'
+    # Convert 'time' column to datetime type
+    df['time'] = pd.to_datetime(df['time'], unit='s')
+
+    # Group by 'x_bin' and 'y_bin'
+    grouped_df = df.groupby(['x_bin', 'y_bin'])
+
+    # Define a function to find start_time and end_time for each group
+
+    def find_fragments_per_group(group):
+        # Calculate the difference in consecutive times
+        time_diff = group['time'].diff().dt.total_seconds().fillna(0)
+        # Identify the points where the time difference is exxactly 1, which indicates consecutive times
+        consecutive_indices = time_diff.eq(1)
+        # Find time steps with valid emergency status
+        emergency_valid_periods = group.index[consecutive_indices]
+        split_indices = np.where(np.diff(emergency_valid_periods) > 1)[0]
+        fixed_x, fixed_y = group.iloc[0]['x_bin'], group.iloc[0]['y_bin']
+        if len(split_indices) > 0:
+            # Split the array at the identified indices
+            min_index = min(time_diff.index)
+            result = np.split(emergency_valid_periods, split_indices + 1)
+            # keep the start and end of each array in result, which forms the start_indices and end_indices
+            start_indices = [x[0] - min_index for x in result]
+            end_indices = [x[-1] - min_index for x in result]
+            # If there are multiple fragments, zip the start and end indices
+            fragments = zip(start_indices, end_indices)
+            # Return a DataFrame with start_time and end_time for each fragment
+            return [(fixed_x, fixed_y, group.iloc[start]['time'], group.iloc[end]['time'])
+                    for start, end in fragments]
+        # If there is only one fragment, return the start and end indices
+        else:
+            return [(fixed_x, fixed_y, group.iloc[0]['time'], group.iloc[-1]['time'])]
+
+    emergencies = []
+    for name, group in grouped_df:
+        emergencies.extend(find_fragments_per_group(group))
+    result_df = pd.DataFrame(emergencies, columns=['x_bin', 'y_bin', 'start_time', 'end_time'])
+    # convert time back to 0 started
+    result_df['start_time'] = (result_df['start_time'] - pd.Timestamp("1970-01-01")) // pd.Timedelta('1s')
+    result_df['end_time'] = (result_df['end_time'] - pd.Timestamp("1970-01-01")) // pd.Timedelta('1s')
+    return result_df
+
 def get_longitude_and_latitude_max(longitude_min, latitude_min, map_width, map_height):
     # Define the WGS84 and UTM zone 48R projection coordinate systems
     wgs84 = Proj(init='epsg:4326')
@@ -129,7 +169,6 @@ def get_longitude_and_latitude_max(longitude_min, latitude_min, map_width, map_h
     longitude_max, latitude_max = transformer_to.transform(x_max, y_max)
 
     return longitude_max, latitude_max
-
 
 
 class VehicleTrajectoriesProcessor(object):
@@ -361,7 +400,6 @@ class VehicleTrajectoriesAnalyst(object):
     def output_characteristics(self):
         # self.analyse_congestion()
 
-
         df = pd.read_csv(self._trajectories_file_name_with_no_fill,
                          names=final_csv_header, header=0)
 
@@ -415,8 +453,10 @@ class VehicleTrajectoriesAnalyst(object):
         # output all emergencies points as csv
         unusual_traffic_time_loc = unusual_traffic_time_loc.groupby(['x_bin', 'y_bin',
                                                                      'time']).size().reset_index(name='count')
+        result_df = find_fragments(unusual_traffic_time_loc)
         unusual_traffic_time_loc.to_csv("emergency_time_loc_" + time_string + ".csv")
 
+        # Convert start_time and end_time back to seconds
         # self.analyse_speed(df, vehicle_speeds)
 
     def analyse_congestion(self):
@@ -483,10 +523,10 @@ trajectory_file_name: str = os.path.join(parent_dir_name, 'gps_20161116')
 longitude_min: float = 104.04565967220308
 latitude_min: float = 30.654605745741608
 # longitude_min, latitude_min = 104.04215, 30.65294
-start_hour = 16
+start_hour = 9
 start_minute = 0
 start_second = 0
-end_hour = 16
+end_hour = 9
 end_minute = 30
 end_second = 0
 padded_start_hour = str(start_hour).zfill(2)
