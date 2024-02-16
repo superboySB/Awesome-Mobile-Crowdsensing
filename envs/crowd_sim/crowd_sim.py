@@ -1480,8 +1480,8 @@ class RLlibCUDACrowdSim(MultiAgentEnv):
         self.agents = []
         if "mock" not in additional_params:
             if self.is_render:
-                self.num_envs = 4
-                warnings.warn("render=True, num_envs is always equal to 4, and user input is ignored.")
+                self.num_envs = 10
+                warnings.warn("render=True, num_envs is always equal to 10, and user input is ignored.")
             elif self.is_local:
                 # pass
                 self.num_envs = 10
