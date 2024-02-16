@@ -34,7 +34,7 @@ if __name__ == '__main__':
 
     parser.add_argument("--ckpt", action='store_true', help='load checkpoint')
     parser.add_argument("--share_policy", choices=['all', 'group', 'individual'], default='all')
-    parser.add_argument("--separate_render", action='store_true', help='render file will be stored separately')
+    # parser.add_argument("--separate_render", action='store_true', help='render file will be stored separately')
     parser.add_argument("--with_programming_optimization", action='store_true')
     parser.add_argument('--no_refresh', action='store_true', help='do not reset randomly generated emergency points')
     parser.add_argument("--selector_type", type=str, default='NN', choices=['NN', 'greedy', 'oracle', 'random', 'RL'])
@@ -105,7 +105,7 @@ if __name__ == '__main__':
             if item != 'env_config':
                 if item == 'render_file_name':
                     original = getattr(args, item)
-                    if args.separate_render:
+                    if args.render:
                         env_params[item] = os.path.join("/workspace", "saved_data", "trajectories", original)
                     else:
                         env_params[item] = os.path.join(str(this_expr_dir), original)
@@ -151,8 +151,16 @@ if __name__ == '__main__':
     if args.env == 'crowdsim':
         for item in (['selector_type', 'gen_interval', 'with_programming_optimization',
                       'dataset', 'emergency_threshold', 'switch_step', 'one_agent_multi_task',
-                      'emergency_queue_length', 'tolerance', 'look_ahead', 'local_mode'] + restore_ignore_params):
-            model_preference[item] = getattr(args, item)
+                      'emergency_queue_length', 'tolerance', 'look_ahead', 'local_mode',
+                      'render_file_name'] + restore_ignore_params):
+            if item == 'render_file_name':
+                original = getattr(args, item)
+                if args.render:
+                    model_preference[item] = os.path.join("/workspace", "saved_data", "trajectories", original)
+                else:
+                    model_preference[item] = os.path.join(str(this_expr_dir), original)
+            else:
+                model_preference[item] = getattr(args, item)
     model = marl.build_model(env, my_algorithm, model_preference)
     # start learning
     # passing logging_config to fit is for trainer Initialization

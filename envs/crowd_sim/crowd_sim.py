@@ -171,6 +171,7 @@ class CrowdSim:
             gen_interval=30,
             no_refresh=False,
             emergency_threshold=15,
+            emergency_queue_length=1,
     ):
         self.float_dtype = np.float32
         self.single_type_agent = single_type_agent
@@ -454,7 +455,7 @@ class CrowdSim:
         # Initialize an index to keep track of the selected color
         self.selected_color_index = 0
         self.queue_feature = 2
-        self.queue_length = 10
+        self.emergency_queue_length = emergency_queue_length
 
     def get_emergencies_from_dataset(self, unique_emergencies: pd.DataFrame):
         self.aoi_schedule = unique_emergencies['time'].values
@@ -658,7 +659,7 @@ class CrowdSim:
                                                 grid_size)
 
         # TODO: this full_queue is mock, no actual prediction is provided.
-        full_queue = np.zeros((self.num_agents, self.queue_feature))
+        full_queue = np.zeros((self.num_agents, self.queue_feature * self.emergency_queue_length))
         if self.dynamic_zero_shot:
             current_aoi = self.target_aoi_timelist[self.timestep]
             valid_zero_shots_mask = (current_aoi > 1) & (np.arange(self.num_sensing_targets) > self.zero_shot_start) & \
@@ -1299,6 +1300,7 @@ class CUDACrowdSim(CrowdSim, CUDAEnvironmentContext):
                                  ("target_y", self.float_dtype(self.target_y_time_list), True),
                                  # [self.episode_length + 1, self.num_sensing_targets]
                                  ("aoi_schedule", self.int_dtype(self.aoi_schedule), True),
+                                 ("emergency_queue_length", self.int_dtype(self.emergency_queue_length)),
                                  ("emergency_per_gen", self.int_dtype(self.points_per_gen)),
                                  ("emergency_allocation_table", self.int_dtype(np.full([self.num_agents, ], -1)), True),
                                  ("target_aoi", self.int_dtype(np.ones([self.num_sensing_targets, ])), True),
@@ -1674,6 +1676,7 @@ class RLlibCUDACrowdSim(MultiAgentEnv):
                 self.evaluate_count_down = self.eval_interval
             else:
                 self.evaluate_count_down -= 1
+                logging.debug(f"Crowdsim Eval Countdown: {self.evaluate_count_down}")
             log_env_metrics(info, self.evaluate_count_down)
             # if wandb.run is not None:
             #     for i in range(self.num_agents):
@@ -1690,7 +1693,7 @@ class RLlibCUDACrowdSim(MultiAgentEnv):
     def render(self, mode=None):
         logging.debug("render called")
         # add datetime to trajectory
-        datetime_str = datetime.now().strftime("%Y%m%d_%H%M%S")
+        datetime_str = datetime.now().strftime("%Y%m%d-%H%M%S")
         self.env.render(f'{self.render_file_name}_{datetime_str}', True, False)
 
     def log_aoi_grid(self):

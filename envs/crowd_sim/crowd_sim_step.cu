@@ -320,8 +320,8 @@ extern "C" {
                                                 const int dynamic_zero_shot,
                                                   const int zero_shot_start,
                                                     const int emergency_count,
-                                                      const int FeaturesInEmergencyQueue,
-                                                        const int EmergencyQueueLength
+                                                      const int FeaturesInEmergencyQueue
+//                                                         const int EmergencyQueueLength
   ) {
     // observation: agent type, agent energy, Heterogeneous and homogeneous visible agents
     // displacements, 100 dim AoI Maps.
@@ -539,6 +539,7 @@ extern "C" {
                         float * target_x_time_list,
                         float * target_y_time_list,
                           const int * aoi_schedule,
+                            const int emergency_queue_length,
                             const int emergency_per_gen,
                               int * emergency_allocation_table,
                               int * target_aoi_arr,
@@ -608,7 +609,6 @@ extern "C" {
     const int total_num_grids = grid_flatten_size;
     const int AgentFeature = 4 + kNumAgents;
     // Update on 2024.1.10, add emergency points queue
-    const int EmergencyQueueLength = 10;
     const int FeaturesInEmergencyQueue = 2;
     const int StateFullAgentFeature = kNumAgents * AgentFeature;
     // add timestep to state for neural network resetting.
@@ -975,8 +975,8 @@ extern "C" {
         dynamic_zero_shot,
         zero_shot_start,
         emergency_count,
-        FeaturesInEmergencyQueue,
-        EmergencyQueueLength
+        FeaturesInEmergencyQueue
+//         EmergencyQueueLength
       );
     }
 
