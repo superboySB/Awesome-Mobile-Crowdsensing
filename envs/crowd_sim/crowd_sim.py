@@ -414,7 +414,7 @@ class CrowdSim:
         # neighbor_aoi_grids (10 * 10) = 122
         self.observation_space = None  # Note: this will be set via the env_wrapper
         # state = (type,energy,x,y) * self.num_agents + neighbor_aoi_grids (10 * 10)
-        self.vector_state_dim = (self.num_agents + 4) * self.num_agents + self.emergency_count * 4 + 1
+        self.vector_state_dim = (self.num_agents + 4) * self.num_agents + self.emergency_count * 5 + 1
         self.image_state_dim = 0
         if self.use_2d_state:
             self.global_state = {
@@ -709,7 +709,9 @@ class CrowdSim:
             emergency_state = np.vstack([self.target_x_time_list[self.timestep, self.zero_shot_start:] / self.nlon,
                                          self.target_y_time_list[self.timestep, self.zero_shot_start:] / self.nlat,
                                          self.target_aoi_timelist[self.timestep, self.zero_shot_start:],
-                                         emergency_status]).T
+                                         emergency_status,
+                                         np.zeros_like(emergency_status)]).T
+            # TODO: the fifth dimension is not synced with CUDA
             vector_state = np.concatenate([agents_state.ravel(), emergency_state.ravel(), np.array([self.timestep])])
         else:
             vector_state = np.concatenate([agents_state.ravel(), np.array([self.timestep])])

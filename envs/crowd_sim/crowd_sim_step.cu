@@ -612,15 +612,19 @@ extern "C" {
     const int FeaturesInEmergencyQueue = 2;
     const int StateFullAgentFeature = kNumAgents * AgentFeature;
     // add timestep to state for neural network resetting.
-    const int state_vec_features = StateFullAgentFeature + emergency_count * 4 + 1;
+    const int features_per_emergency_in_state = 5;
+    const int state_vec_features = StateFullAgentFeature + emergency_count * features_per_emergency_in_state + 1;
     const int state_features = state_vec_features;
     const int obs_vec_features = AgentFeature + (kNumAgentsObserved << 2) + FeaturesInEmergencyQueue;
     const int obs_features = obs_vec_features + total_num_grids;
     const int kThisEnvStateOffset = kEnvId * state_features;
+    const int kThisTargetAgeArrayIdxOffset = kEnvId * kNumTargets;
+    const int kThisTargetPositionTimeListIdxOffset = env_timestep * kNumTargets;
+    const float invEpisodeLength = 1.0f / kEpisodeLength;
     int * this_emergency_allocation_table = emergency_allocation_table + kThisEnvAgentsOffset;
     int * this_emergency_dis_to_target_index = emergency_dis_to_target_index + kThisEnvAgentsOffset;
     float * this_emergency_dis_to_target = emergency_dis_to_target + kThisEnvAgentsOffset;
-
+    float * this_state_arr_emergency = state_arr + kThisEnvStateOffset + StateFullAgentFeature;
     //     printf("Drone Sensing Range: %f\n", kDroneSensingRange);
     //     printf("features: %d, obs: %d\n", state_features, obs_features);
     //     printf("total targets: %d fix targets: %d\n", kNumTargets, zero_shot_start);
@@ -634,6 +638,27 @@ extern "C" {
 //         }
 //       }
 //     }
+  // print env_timestep
+    if (kThisAgentId == 0 && env_timestep == 1) {
+//     printf("resetting emergency states for env %d\n", kEnvId);
+      for (int i = 0; i < emergency_count; i++) {
+        int emergency_idx = i + zero_shot_start;
+        float target_x = target_x_time_list[kThisTargetPositionTimeListIdxOffset + emergency_idx];
+        float target_y = target_y_time_list[kThisTargetPositionTimeListIdxOffset + emergency_idx];
+        bool invalid_emergency = target_x == 0 && target_y == 0;
+        if (invalid_emergency) {
+          this_state_arr_emergency[i * features_per_emergency_in_state + 3] = -1;
+          continue;
+        }
+        // target_x and target_y, will not change.
+        this_state_arr_emergency[i * features_per_emergency_in_state + 0] = target_x / kAgentXRange;
+        this_state_arr_emergency[i * features_per_emergency_in_state + 1] = target_y / kAgentYRange;
+//         printf("emergency %d at %f, %f\n", emergency_idx, target_x, target_y);
+        // handling agent, the agent id that covers this emergency.
+        this_state_arr_emergency[i * features_per_emergency_in_state + 4] = -1;
+      }
+    }
+    __sync_env_threads(); // Make sure all emergency states are refreshed.
     if (kThisAgentId < kNumAgents) {
       int kThisAgentActionIdxOffset = kThisAgentArrayIdx * kNumActionDim;
       float dx, dy;
@@ -700,9 +725,7 @@ extern "C" {
     // -------------------------------
     // Compute reward
     //     int count = 0;
-    const int kThisTargetAgeArrayIdxOffset = kEnvId * kNumTargets;
-    const int kThisTargetPositionTimeListIdxOffset = env_timestep * kNumTargets;
-    const float invEpisodeLength = 1.0f / kEpisodeLength;
+
     if (kThisAgentId == 0) {
       //     printf("TargetTimeListOffset: %d\n", kThisTargetPositionTimeListIdxOffset);
       // print last 30 entries of coverage array
@@ -781,16 +804,18 @@ extern "C" {
             // Only Surveillance Points have AoI reset.
             target_aoi = 1;
           } else {
-
+          // record covering agent
+//           printf("Emergency %d at %f,%f in env %d handled by %d, aoi=%d\n",
+//           target_idx, target_x, target_y, kEnvId, nearest_agent_id, target_aoi);
+            this_state_arr_emergency[(target_idx - zero_shot_start) * features_per_emergency_in_state + 4] = nearest_agent_id;
             //               emergency_cover_num++;
             // clear this emergency point in the allocation this_emergency_allocation_table
-            for (int i = 0; i < kNumAgents; i++) {
-              if (this_emergency_allocation_table[i] == target_idx) {
-                this_emergency_allocation_table[i] = -1;
-                break;
-              }
-            }
-
+//             for (int i = 0; i < kNumAgents; i++) {
+//               if (this_emergency_allocation_table[i] == target_idx) {
+//                 this_emergency_allocation_table[i] = -1;
+//                 break;
+//               }
+//             }
           }
           // Reward is one time for emergency
           if (!(is_dyn_point && target_coverage)) {
@@ -820,7 +845,7 @@ extern "C" {
 //                       }
           if (is_dyn_point) {
             // scan the this_emergency_allocation_table and confirm this point is not allocated
-            int is_allocated = false;
+//             int is_allocated = false;
 //            if (kThisAgentId == 0 && kEnvId == 125){
 //            // print emergency allocation table
 //             printf("Emergency Allocation Table in Env %d\n", kEnvId);
@@ -831,7 +856,7 @@ extern "C" {
 //            }
             for (int i = 0; i < kNumAgents; i++) {
               if (this_emergency_allocation_table[i] == target_idx) {
-                is_allocated = true;
+//                 is_allocated = true;
                 break;
               }
             }
@@ -870,7 +895,7 @@ extern "C" {
       // const int global_range = kDroneCarCommRange * 4;
       //       printf("StateAoIGen: %d %p %p\n", kEnvId, state_arr + kThisEnvStateOffset + state_vec_features,
       //       state_arr + kThisEnvStateOffset + state_vec_features + 100);
-      memset(state_arr + kThisEnvStateOffset, 0, state_vec_features * sizeof(float));
+//       memset(state_arr + kThisEnvStateOffset, 0, state_vec_features * sizeof(float));
       //       printf("Grid Center (%f, %f)\n", max_distance_x / 2, max_distance_y / 2);
 //       CUDACrowdSimGenerateAoIGrid(
 //         state_arr + kThisEnvStateOffset + state_vec_features,
@@ -893,22 +918,13 @@ extern "C" {
       // copy each emergency (x,y,aoi,coverage) status to the end of state_arr using for loop
       for (int i = 0; i < emergency_count; i++) {
         int emergency_idx = i + zero_shot_start;
-        float target_x = target_x_time_list[kThisTargetPositionTimeListIdxOffset + emergency_idx];
-        float target_y = target_y_time_list[kThisTargetPositionTimeListIdxOffset + emergency_idx];
-        bool invalid_emergency = target_x == 0 && target_y == 0;
-        if (invalid_emergency) {
-//           if(env_timestep == 118){
-//             printf("Invalid Emergency %d at %d\n", emergency_idx, env_timestep);
-//           }
-          state_arr[kThisEnvStateOffset + StateFullAgentFeature + i * 4 + 3] = -1;
-          continue;
-        }
         int target_aoi = target_aoi_arr[kThisTargetAgeArrayIdxOffset + emergency_idx];
         bool target_coverage = target_coverage_arr[kThisTargetAgeArrayIdxOffset + emergency_idx];
-        state_arr[kThisEnvStateOffset + StateFullAgentFeature + i * 4 + 0] = target_x / kAgentXRange;
-        state_arr[kThisEnvStateOffset + StateFullAgentFeature + i * 4 + 1] = target_y / kAgentYRange;
-        state_arr[kThisEnvStateOffset + StateFullAgentFeature + i * 4 + 2] = target_aoi;
-        state_arr[kThisEnvStateOffset + StateFullAgentFeature + i * 4 + 3] = env_timestep > aoi_schedule[i] ? target_coverage : -1;
+//         float target_x = this_state_arr_emergency[i * features_per_emergency_in_state + 0];
+//         float target_y = this_state_arr_emergency[i * features_per_emergency_in_state + 1];
+//         printf("emergency %d at %f,%f in env %d\n", emergency_idx, target_x, target_y);
+        this_state_arr_emergency[i * features_per_emergency_in_state + 2] = target_aoi;
+        this_state_arr_emergency[i * features_per_emergency_in_state + 3] = env_timestep > aoi_schedule[i] ? target_coverage : -1;
       }
       state_arr[state_vec_features - 1] = env_timestep;
     }
