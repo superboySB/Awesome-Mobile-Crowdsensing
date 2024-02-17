@@ -2,8 +2,8 @@
 
 #dataset_name='Chengdu'
 exp_name='WARP_MIX'
-session_name=$exp_name
-cards=(1 2 3)
+session_name=$exp_name'_3'
+cards=(0 0 0 0 2 3)
 card_num=${#cards[@]}
 dry_run=false
 # Process command-line arguments
@@ -61,7 +61,7 @@ for ((i = 0; i < train_num; i++)); do
   # if want to add $PATH, remember to add / before $
   command="python warp_drive/marllib_warpdrive_run.py --track --core_arch crowdsim_net --dynamic_zero_shot\
   --num_drones 4 --num_cars 0 --group auto_allocation --algo trafficppo --share_policy all --switch_step 60000000\
-  --gpu_id ${cards[card_id]} ${trains[i]} --use_2d_state --tag VPG"
+  --gpu_id ${cards[card_id]} ${trains[i]} --use_2d_state --tag mock_RL greedy"
   echo "$command"
   if [ "$dry_run" = "false" ] && [ "$choice" != "n" ]
   then
