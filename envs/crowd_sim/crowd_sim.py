@@ -66,7 +66,7 @@ VALID_HANDLING_RATIO = "valid_handling_ratio"
 
 user_override_params = ['env_config', 'dynamic_zero_shot', 'use_2d_state', 'all_random',
                         'num_drones', 'num_cars', 'cut_points', 'fix_target', 'gen_interval',
-                        'no_refresh', 'emergency_threshold']
+                        'no_refresh', 'emergency_threshold', 'emergency_queue_length']
 
 grid_size = 10
 
