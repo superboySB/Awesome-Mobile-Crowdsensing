@@ -615,7 +615,7 @@ extern "C" {
     const int features_per_emergency_in_state = 5;
     const int state_vec_features = StateFullAgentFeature + emergency_count * features_per_emergency_in_state + 1;
     const int state_features = state_vec_features;
-    const int obs_vec_features = AgentFeature + (kNumAgentsObserved << 2) + FeaturesInEmergencyQueue * emergency_queue_length;
+    const int obs_vec_features = AgentFeature + (kNumAgentsObserved << 2) + FeaturesInEmergencyQueue;
     const int obs_features = obs_vec_features + total_num_grids;
     const int kThisEnvStateOffset = kEnvId * state_features;
     const int kThisTargetAgeArrayIdxOffset = kEnvId * kNumTargets;
