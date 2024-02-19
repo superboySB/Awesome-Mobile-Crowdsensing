@@ -37,13 +37,15 @@ if __name__ == '__main__':
     # parser.add_argument("--separate_render", action='store_true', help='render file will be stored separately')
     parser.add_argument("--with_programming_optimization", action='store_true')
     parser.add_argument('--no_refresh', action='store_true', help='do not reset randomly generated emergency points')
-    parser.add_argument("--selector_type", type=str, default='NN', choices=['NN', 'greedy', 'oracle', 'random', 'RL'])
+    parser.add_argument("--selector_type", type=str, default='NN',
+                        choices=['NN', 'greedy', 'oracle', 'random', 'RL'], nargs='+')
     parser.add_argument("--switch_step", type=int, default=600000, help='switch step for NN selector')
     parser.add_argument("--one_agent_multi_task", action='store_true', help='allocate multiple task for a single agent')
     parser.add_argument("--look_ahead", action='store_true',
                         help='greedily assign according to agent final destination')
     parser.add_argument("--emergency_queue_length", type=int, default=5, help='emergency queue length')
     parser.add_argument("--tolerance", type=float, default=1e-2, help='tolerance for choosing multiple emergencies')
+    parser.add_argument("--rl_gamma", type=float, default=0.99, help='gamma for RL selector')
 
     # parser.add_argument("--ckpt", nargs=3, type=str, help='uuid, time_str, checkpoint_num to restore')
     args = parser.parse_args()
@@ -152,7 +154,7 @@ if __name__ == '__main__':
         for item in (['selector_type', 'gen_interval', 'with_programming_optimization',
                       'dataset', 'emergency_threshold', 'switch_step', 'one_agent_multi_task',
                       'emergency_queue_length', 'tolerance', 'look_ahead', 'local_mode',
-                      'render_file_name'] + restore_ignore_params):
+                      'render_file_name', 'rl_gamma'] + restore_ignore_params):
             if item == 'render_file_name':
                 original = getattr(args, item)
                 if args.render:

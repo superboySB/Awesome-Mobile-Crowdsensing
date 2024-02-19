@@ -778,7 +778,7 @@ extern "C" {
         int reward_increment = (target_aoi - 1);
         float reward_update;
          if(is_dyn_point){
-          reward_update = 1.0;
+          reward_update = 10.0;
          }
          else{
           reward_update = reward_increment * invEpisodeLength;
