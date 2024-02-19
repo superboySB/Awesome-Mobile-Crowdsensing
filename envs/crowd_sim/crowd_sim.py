@@ -970,19 +970,6 @@ class CrowdSim:
 
     def render(self, output_file=None, plot_loop=False, moving_line=False):
 
-        custom_js = """
-            var element = document.getElementsByClassName('leaflet-bottom leaflet-left')[0];
-            if (element) {
-            var opacity = element.style.opacity;
-            if(opacity == 1){
-                element.style.opacity = 0;
-            }
-            else{
-                element.style.opacity = 1;   
-            }
-            }
-        """
-        js_with_function = "function toggleProgressBar(btn, map) {" + custom_js + "}"
         def custom_style_function(feature):
             return {
                 "color": feature["properties"]["style"]["color"],  # Use the color from the properties
@@ -1221,10 +1208,49 @@ class CrowdSim:
                     html=f'<div style="font-size: 12pt">{info_str}</div>',
                 )
             ).add_to(my_render_map)
+            hide_progress_bar_js = """
+                var element = document.getElementsByClassName('leaflet-bottom leaflet-left')[0];
+                if (element) {
+                var opacity = element.style.opacity;
+                if(opacity == 1){
+                    element.style.opacity = 0;
+                }
+                else{
+                    element.style.opacity = 1;   
+                }
+                }
+            """
+            hide_progress_bar_js_func = "function toggleProgressBar(btn, map) {" + hide_progress_bar_js + "}"
             JsButton(
-                title='<i class="fas fa-crosshairs"></i>', function=js_with_function).add_to(my_render_map)
+                title='<i class="fas fa-crosshairs"></i>', function=hide_progress_bar_js_func).add_to(my_render_map)
             # add custom_js to the map
-            my_render_map.get_root().script.add_child(folium.Element(custom_js))
+            my_render_map.get_root().script.add_child(folium.Element(hide_progress_bar_js))
+            pause_js_func = """
+                function pauseMap(btn, map) {
+                    // Select all elements with the specified class name
+                    var elements = document.querySelectorAll('.leaflet-control-timecontrol.timecontrol-play.pause');
+
+                    // Simulate click event for each element
+                    elements.forEach(function(element) {
+                    element.click();
+                    });
+                }
+            """
+            JsButton(
+                title='<i class="fas fa-pause"></i>', function=pause_js_func).add_to(my_render_map)
+            play_js_func = """
+                function pauseMap(btn, map) {
+                    // Select all elements with the specified class name
+                    var elements = document.querySelectorAll('.leaflet-control-timecontrol.timecontrol-play.play');
+
+                    // Simulate click event for each element
+                    elements.forEach(function(element) {
+                    element.click();
+                    });
+                }
+            """
+            JsButton(
+                title='<i class="fas fa-play"></i>', function=play_js_func).add_to(my_render_map)
             my_render_map.get_root().render()
             my_render_map.get_root().save(output_file)
             logging.info(f"{output_file} saved!")
@@ -1437,6 +1463,7 @@ class RLlibCUDACrowdSim(MultiAgentEnv):
         os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"
         self.eval_interval = 5
         self.evaluate_count_down: int = self.eval_interval
+        self.trajectory_generated = 0
         requirements = ["env_params", "trainer"]
         for requirement in requirements:
             if requirement not in run_config:
@@ -1676,6 +1703,7 @@ class RLlibCUDACrowdSim(MultiAgentEnv):
             logging.debug("All OK!")
             if self.evaluate_count_down <= 0:
                 self.evaluate_count_down = self.eval_interval
+                self.trajectory_generated += 1
             else:
                 self.evaluate_count_down -= 1
                 logging.debug(f"Crowdsim Eval Countdown: {self.evaluate_count_down}")
@@ -1696,7 +1724,8 @@ class RLlibCUDACrowdSim(MultiAgentEnv):
         logging.debug("render called")
         # add datetime to trajectory
         datetime_str = datetime.now().strftime("%Y%m%d-%H%M%S")
-        self.env.render(f'{self.render_file_name}_{datetime_str}', True, False)
+        self.env.render(f'{self.render_file_name}_{datetime_str}_{self.trajectory_generated}',
+                        True, False)
 
     def log_aoi_grid(self):
         pass
