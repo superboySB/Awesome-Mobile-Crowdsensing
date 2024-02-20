@@ -580,6 +580,7 @@ extern "C" {
     // Update Timestep
     // Increment time ONCE -- only 1 thread can do this.
     if (kThisAgentId == 0) {
+
       int original = env_timestep_arr[kEnvId]++;
       if (original > kEpisodeLength) {
         env_timestep_arr[kEnvId] = 0;
@@ -791,8 +792,8 @@ extern "C" {
         //           printf("dist: %f\n", min_dist);
         //         }
         bool dyn_point_covered = is_dyn_point && (target_coverage ||
-        ((min_dist <= kDroneSensingRange / 2) && (nearest_agent_id != -1) && (nearest_agent_id ==
-        this_emergency_allocation_table[target_idx - zero_shot_start])));
+        ((min_dist <= kDroneSensingRange / 2) && (nearest_agent_id != -1)));
+//        dyn_point_covered &= (nearest_agent_id == this_emergency_allocation_table[target_idx - zero_shot_start]);
 //         if (is_dyn_point && kEnvId == 0 && (min_dist <= kDroneSensingRange / 2 && nearest_agent_id != -1)) {
 //         if (nearest_agent_id == this_emergency_allocation_table[target_idx - zero_shot_start]) {
 //           printf("Correct Handling of Emergency %d by Agent %d\n", target_idx, nearest_agent_id);

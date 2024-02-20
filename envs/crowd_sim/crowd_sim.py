@@ -1979,10 +1979,11 @@ class SendAllocationCallback(DefaultCallbacks):
                         episode: MultiAgentEpisode,
                         env_index: Optional[int] = None,
                         **kwargs) -> None:
-        my_env: CUDACrowdSim = base_env.vector_env.env.env
-        allocation_table = worker.policy_map['shared_policy'].model.get_allocation_table()
-        my_env.cuda_data_manager.data_on_device_via_torch("emergency_allocation_table")[:] = torch.from_numpy(
-            allocation_table)
+        if env_index == 0:
+            my_env: CUDACrowdSim = base_env.vector_env.env.env
+            allocation_table = worker.policy_map['shared_policy'].model.get_allocation_table()
+            my_env.cuda_data_manager.data_on_device_via_torch("emergency_allocation_table")[:] = (
+                torch.from_numpy(allocation_table))
 
     def on_postprocess_trajectory(
             self, *, worker: "RolloutWorker", episode: MultiAgentEpisode,
