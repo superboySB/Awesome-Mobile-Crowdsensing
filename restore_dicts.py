@@ -154,3 +154,17 @@ uuid = "a01e1"
 time_str = "2024-02-17_20-25-25"
 checkpoint_num = 6000
 backup_str = "2024-02-17_20-25-24"
+# San, queue_length=3, RL greedy, large reward
+uuid = "4e133"
+checkpoint_num = 4000
+time_str = "2024-02-20_01-21-23"
+backup_str = ""
+"""
+San, queue_length=1, RL greedy, large reward
+3fff7 5000 2024-02-20_01-21-00 2024-02-20_01-21-00
+San, queue_length=3, RL greedy, large reward
+4e133 4000 2024-02-20_01-21-23 2024-02-20_01-21-23
+Chengdu, queue_length=3, RL greedy, large reward
+bb7c6 4000 2024-02-20_02-07-25 2024-02-20-02-07-24
+"""
+#

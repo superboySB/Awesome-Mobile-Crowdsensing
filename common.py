@@ -174,7 +174,8 @@ def is_valid_format(input_str):
         return False
 
 
-def get_restore_dict(args: argparse.Namespace, uuid: str, time_str: str, checkpoint_num: int, backup_str: str = ""):
+def get_restore_dict(args: argparse.Namespace, uuid: str,
+                     checkpoint_num: int, time_str: str, backup_str: str = ""):
     """
     Get the restore dict for a given experiment.
 

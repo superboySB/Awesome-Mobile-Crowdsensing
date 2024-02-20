@@ -1322,7 +1322,8 @@ class CUDACrowdSim(CrowdSim, CUDAEnvironmentContext):
                                  ("aoi_schedule", self.int_dtype(self.aoi_schedule), True),
                                  ("emergency_queue_length", self.int_dtype(self.emergency_queue_length)),
                                  ("emergency_per_gen", self.int_dtype(self.points_per_gen)),
-                                 ("emergency_allocation_table", self.int_dtype(np.full([self.num_agents, ], -1)), True),
+                                 ("emergency_allocation_table", self.int_dtype(np.full([self.emergency_count, ], -1)),
+                                  True),
                                  ("target_aoi", self.int_dtype(np.ones([self.num_sensing_targets, ])), True),
                                  ("emergency_index", self.int_dtype(np.full(
                                      [self.num_agents, self.emergency_count], -1)), True),

@@ -14,6 +14,17 @@ from envs.crowd_sim.crowd_sim import (RLlibCUDACrowdSim, LARGE_DATASET_NAME,
                                       RLlibCUDACrowdSimWrapper, user_override_params)
 
 
+def load_preferences(custom_preference: dict, args: argparse.Namespace, this_expr_dir: str):
+    if item == 'render_file_name':
+        original = getattr(args, item)
+        if args.render:
+            custom_preference[item] = os.path.join("/workspace", "saved_data", "trajectories", original)
+        else:
+            custom_preference[item] = os.path.join(str(this_expr_dir), original)
+    else:
+        custom_preference[item] = getattr(args, item)
+
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     add_common_arguments(parser)
@@ -31,8 +42,8 @@ if __name__ == '__main__':
     parser.add_argument('--local_mode', action='store_true', help='run in local mode')
     parser.add_argument('--all_random', action='store_true', help='PoIs in the environment '
                                                                   'are completely random')
-
-    parser.add_argument("--ckpt", action='store_true', help='load checkpoint')
+    parser.add_argument("--ckpt", nargs=4, type=str, help='uuid, checkpoint_num, time_str '
+                                                          'and backup_str to restore')
     parser.add_argument("--share_policy", choices=['all', 'group', 'individual'], default='all')
     # parser.add_argument("--separate_render", action='store_true', help='render file will be stored separately')
     parser.add_argument("--with_programming_optimization", action='store_true')
@@ -47,7 +58,6 @@ if __name__ == '__main__':
     parser.add_argument("--tolerance", type=float, default=1e-2, help='tolerance for choosing multiple emergencies')
     parser.add_argument("--rl_gamma", type=float, default=0.99, help='gamma for RL selector')
 
-    # parser.add_argument("--ckpt", nargs=3, type=str, help='uuid, time_str, checkpoint_num to restore')
     args = parser.parse_args()
 
     assert args.encoder_layer is not None and is_valid_format(args.encoder_layer), \
@@ -105,14 +115,7 @@ if __name__ == '__main__':
             logging_config = None
         for item in ['centralized', 'gpu_id', 'render_file_name', 'render', 'local_mode'] + user_override_params:
             if item != 'env_config':
-                if item == 'render_file_name':
-                    original = getattr(args, item)
-                    if args.render:
-                        env_params[item] = os.path.join("/workspace", "saved_data", "trajectories", original)
-                    else:
-                        env_params[item] = os.path.join(str(this_expr_dir), original)
-                else:
-                    env_params[item] = getattr(args, item)
+                load_preferences(custom_preference=env_params, args=args, this_expr_dir=this_expr_dir)
         logging.debug(env_params)
         env = marl.make_env(environment_name=args.env, map_name=args.dataset, env_params=env_params)
     else:
@@ -134,12 +137,13 @@ if __name__ == '__main__':
     algorithm_list.remove('register_algo')
     assert args.algo in algorithm_list, f"algorithm {args.algo} not supported, please implement your custom algorithm"
     my_algorithm: _Algo = getattr(marl.algos, args.algo)(hyperparam_source="common", **custom_algo_params)
+    model_preference = {"core_arch": args.core_arch, "encode_layer": args.encoder_layer}
     if args.render or args.ckpt:
-        uuid = "35fef"
-        time_str = "2024-02-17_20-22-27"
-        checkpoint_num = 6000
-        backup_str = "2024-02-17_20-22-26"
-        restore_dict = get_restore_dict(args, uuid, time_str, checkpoint_num, backup_str)
+        uuid, checkpoint_num, time_str, backup_str = args.ckpt
+        restore_dict = get_restore_dict(args, uuid, checkpoint_num, time_str, backup_str)
+        if args.ckpt:
+            model_preference['checkpoint_path'] = restore_dict
+            restore_dict = {}
         for info in [uuid, str(checkpoint_num)]:
             if info not in env_params['render_file_name']:
                 env_params['render_file_name'] += f"_{info}"
@@ -148,21 +152,12 @@ if __name__ == '__main__':
     else:
         restore_dict = {}
     # customize model
-    model_preference = {"core_arch": args.core_arch, "encode_layer": args.encoder_layer}
-
     if args.env == 'crowdsim':
-        for item in (['selector_type', 'gen_interval', 'with_programming_optimization',
+        for item in (['gen_interval', 'with_programming_optimization',
                       'dataset', 'emergency_threshold', 'switch_step', 'one_agent_multi_task',
                       'emergency_queue_length', 'tolerance', 'look_ahead', 'local_mode',
-                      'render_file_name', 'rl_gamma'] + restore_ignore_params):
-            if item == 'render_file_name':
-                original = getattr(args, item)
-                if args.render:
-                    model_preference[item] = os.path.join("/workspace", "saved_data", "trajectories", original)
-                else:
-                    model_preference[item] = os.path.join(str(this_expr_dir), original)
-            else:
-                model_preference[item] = getattr(args, item)
+                      'render_file_name'] + restore_ignore_params):
+            load_preferences(custom_preference=model_preference, args=args, this_expr_dir=this_expr_dir)
     model = marl.build_model(env, my_algorithm, model_preference)
     # start learning
     # passing logging_config to fit is for trainer Initialization
