@@ -1227,30 +1227,22 @@ class CrowdSim:
             my_render_map.get_root().script.add_child(folium.Element(hide_progress_bar_js))
             pause_js_func = """
                 function pauseMap(btn, map) {
-                    // Select all elements with the specified class name
-                    var elements = document.querySelectorAll('.leaflet-control-timecontrol.timecontrol-play.pause');
-
-                    // Simulate click event for each element
-                    elements.forEach(function(element) {
-                    element.click();
-                    });
+                // Select all elements with the specified class name
+                var elements = document.querySelectorAll('.leaflet-control-timecontrol.timecontrol-play.pause');
+            
+                // Check if NodeList is empty, then select elements with a different class name
+                if (elements.length === 0) {
+                    elements = document.querySelectorAll('.leaflet-control-timecontrol.timecontrol-play.play');
                 }
+            
+                // Simulate click event for each element
+                elements.forEach(function(element) {
+                    element.click();
+                });
+            }
             """
             JsButton(
                 title='<i class="fas fa-pause"></i>', function=pause_js_func).add_to(my_render_map)
-            play_js_func = """
-                function pauseMap(btn, map) {
-                    // Select all elements with the specified class name
-                    var elements = document.querySelectorAll('.leaflet-control-timecontrol.timecontrol-play.play');
-
-                    // Simulate click event for each element
-                    elements.forEach(function(element) {
-                    element.click();
-                    });
-                }
-            """
-            JsButton(
-                title='<i class="fas fa-play"></i>', function=play_js_func).add_to(my_render_map)
             my_render_map.get_root().render()
             my_render_map.get_root().save(output_file)
             logging.info(f"{output_file} saved!")
