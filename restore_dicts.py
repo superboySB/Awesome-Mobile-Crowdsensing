@@ -165,6 +165,6 @@ San, queue_length=1, RL greedy, large reward
 San, queue_length=3, RL greedy, large reward
 4e133 4000 2024-02-20_01-21-23 2024-02-20_01-21-23
 Chengdu, queue_length=3, RL greedy, large reward
-bb7c6 4000 2024-02-20_02-07-25 2024-02-20-02-07-24
+bb7c6 4000 2024-02-20_02-07-25 2024-02-20_02-07-24
 """
 #

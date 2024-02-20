@@ -7,8 +7,13 @@ import os
 import pprint
 import warnings
 import random
+import geopandas as gpd
+import movingpandas as mpd
+from typing import Optional
 from movingpandas.geometry_utils import measure_distance_geodesic
-import ray
+from ray.rllib import BaseEnv, Policy, SampleBatch
+from ray.rllib.agents.callbacks import DefaultCallbacks
+from ray.rllib.evaluation import MultiAgentEpisode
 from tqdm import tqdm
 from typing import Optional, Tuple, Dict, List, Any, Union
 
@@ -27,7 +32,7 @@ from ray.rllib.env import GroupAgentsWrapper
 from run_configs.mcs_configs_python import PROJECT_NAME
 from warp_drive.utils.common import get_project_root
 from warp_drive.utils.env_registrar import EnvironmentRegistrar
-from ray.rllib.utils.typing import MultiAgentDict, EnvActionType, EnvObsType, EnvInfoDict
+from ray.rllib.utils.typing import MultiAgentDict, EnvActionType, EnvObsType, EnvInfoDict, PolicyID, AgentID
 from shapely.geometry import Point
 from pytorch_lightning import seed_everything
 from ray.rllib.env.vector_env import VectorEnv
@@ -388,8 +393,8 @@ class CrowdSim:
                                          fill_value=self.starting_location_y, dtype=self.float_dtype)
         if self.dynamic_zero_shot:
             self.emergency_allocation_table = np.full([self.emergency_count, ], -1, dtype=self.int_dtype)
-        self.agent_emergency_table = np.full([self.episode_length + 1, self.num_agents], fill_value=-1,
-                                             dtype=self.int_dtype)
+        # self.agent_emergency_table = np.full([self.episode_length + 1, self.num_agents], fill_value=-1,
+        #                                      dtype=self.int_dtype)
         self.agent_actions_time_list = np.zeros([self.episode_length + 1, self.num_agents, self.action_dim],
                                                 dtype=self.int_dtype)
         self.agent_rewards_time_list = np.zeros([self.episode_length + 1, self.num_agents], dtype=self.float_dtype)
@@ -985,31 +990,12 @@ class CrowdSim:
         if isinstance(self, CUDACrowdSim):
             self.agent_x_time_list[self.timestep, :] = self.cuda_data_manager.pull_data_from_device("agent_x")[0]
             self.agent_y_time_list[self.timestep, :] = self.cuda_data_manager.pull_data_from_device("agent_y")[0]
-            agent_emergency_allocation = self.cuda_data_manager.pull_data_from_device("emergency_allocation_table")[0]
             self.agent_rewards_time_list[self.timestep, :] = self.cuda_data_manager.pull_data_from_device(_REWARDS)[0]
             self.agent_actions_time_list[self.timestep, :] = self.cuda_data_manager.pull_data_from_device(_ACTIONS)[0]
-            if self.dynamic_zero_shot:
-                # get emergency index where the allocation table is not -1
-                num_of_normal_targets = self.num_sensing_targets - self.emergency_count
-                for i in range(self.num_agents):
-                    emergency_index = agent_emergency_allocation[i]
-                    if emergency_index != -1:
-                        self.emergency_allocation_table[emergency_index - num_of_normal_targets] = i
-                self.agent_emergency_table[self.timestep] = agent_emergency_allocation
-            # agent_emergency_allocation will now be the index of emergency points, where the index of
-            # agent_emergency_allocation are the allocated agents.
-            # agent table
-            # 0 1 2 3
-            # 201 202 200 203
-            # Emergency Table
-            # 200 201 202 203
-            # 2 0 1 3
 
         if self.timestep == self.config.env.num_timestep:
             # output final trajectory
             # 可将机器人traj，可以载入到human的dataframe中，id从-1开始递减
-            import geopandas as gpd
-            import movingpandas as mpd
             mixed_df = self.human_df.copy()
             aoi_list = np.full(self.episode_length + 1, -1, dtype=np.int_)
             timestamp_list = [self.start_timestamp + t * self.step_time for t in range(self.episode_length + 1)]
@@ -1028,12 +1014,14 @@ class CrowdSim:
                 # Add reward timelist for rendering.
                 robot_dfs.append(robot_df)
             mixed_df = pd.concat([mixed_df, *robot_dfs])
-            # add emergency targets.
-            # pull emergency coordinates from device to host, since points in host are already refreshed
-            all_zero_shot_x = self.cuda_data_manager.pull_data_from_device("target_x")[0][:, self.zero_shot_start:]
-            all_zero_shot_y = self.cuda_data_manager.pull_data_from_device("target_y")[0][:, self.zero_shot_start:]
-            self.aoi_schedule = self.cuda_data_manager.pull_data_from_device("aoi_schedule")[0]
             if self.dynamic_zero_shot:
+                self.emergency_allocation_table = self.cuda_data_manager.pull_data_from_device(
+                    "emergency_allocation_table")[0]
+                # add emergency targets.
+                # pull emergency coordinates from device to host, since points in host are already refreshed
+                all_zero_shot_x = self.cuda_data_manager.pull_data_from_device("target_x")[0][:, self.zero_shot_start:]
+                all_zero_shot_y = self.cuda_data_manager.pull_data_from_device("target_y")[0][:, self.zero_shot_start:]
+                self.aoi_schedule = self.cuda_data_manager.pull_data_from_device("aoi_schedule")[0]
                 emergencies_dfs = []
                 for i in range(self.zero_shot_start, self.num_sensing_targets):
                     logging.debug(f"Creation Time: {self.aoi_schedule[i - self.zero_shot_start]}")
@@ -1045,7 +1033,7 @@ class CrowdSim:
                     id_list = np.full_like(x_list, i)
                     energy_list = np.zeros_like(x_list)
                     emergency_df = self.xy_to_dataframe(delay_list, energy_list, id_list, max_latitude,
-                                                    max_longitude, timestamp_list, x_list, y_list)
+                                                        max_longitude, timestamp_list, x_list, y_list)
                     emergency_df['creation_time'] = self.aoi_schedule[i - self.zero_shot_start]
                     if self.dynamic_zero_shot:
                         emergency_df['allocation'] = int(self.emergency_allocation_table[i - self.zero_shot_start])
@@ -1289,6 +1277,17 @@ class CUDACrowdSim(CrowdSim, CUDAEnvironmentContext):
         """
         super().history_reset()
 
+    def get_tensor_dictionary(self):
+        """
+        Create a dictionary of tensors to push to the device
+        """
+        # Note, get_tensor_dictionary is called only once, so dummy values are allowed.
+        data_dict = DataFeed()
+        data_dict.add_data("emergency_allocation_table",
+                           self.int_dtype(np.full([self.emergency_count, ], -1)),
+                           save_copy_and_apply_at_reset=True)
+        return data_dict
+
     def get_data_dictionary(self):
         """
         Create a dictionary of data to push to the device
@@ -1322,8 +1321,6 @@ class CUDACrowdSim(CrowdSim, CUDAEnvironmentContext):
                                  ("aoi_schedule", self.int_dtype(self.aoi_schedule), True),
                                  ("emergency_queue_length", self.int_dtype(self.emergency_queue_length)),
                                  ("emergency_per_gen", self.int_dtype(self.points_per_gen)),
-                                 ("emergency_allocation_table", self.int_dtype(np.full([self.emergency_count, ], -1)),
-                                  True),
                                  ("target_aoi", self.int_dtype(np.ones([self.num_sensing_targets, ])), True),
                                  ("emergency_index", self.int_dtype(np.full(
                                      [self.num_agents, self.emergency_count], -1)), True),
@@ -1971,6 +1968,28 @@ class RLlibCrowdSim(MultiAgentEnv):
     def render(self, mode=None) -> None:
         pass
         # self.env.render()
+
+
+class SendAllocationCallback(DefaultCallbacks):
+    def on_episode_step(self,
+                        *,
+                        worker: "RolloutWorker",
+                        base_env: BaseEnv,
+                        policies: Optional[Dict[PolicyID, Policy]] = None,
+                        episode: MultiAgentEpisode,
+                        env_index: Optional[int] = None,
+                        **kwargs) -> None:
+        my_env: CUDACrowdSim = base_env.vector_env.env.env
+        allocation_table = worker.policy_map['shared_policy'].model.get_allocation_table()
+        my_env.cuda_data_manager.data_on_device_via_torch("emergency_allocation_table")[:] = torch.from_numpy(
+            allocation_table)
+
+    def on_postprocess_trajectory(
+            self, *, worker: "RolloutWorker", episode: MultiAgentEpisode,
+            agent_id: AgentID, policy_id: PolicyID,
+            policies: Dict[PolicyID, Policy], postprocessed_batch: SampleBatch,
+            original_batches: Dict[AgentID, SampleBatch], **kwargs) -> None:
+        pass
 
 
 LARGE_DATASET_NAME = 'SanFrancisco'

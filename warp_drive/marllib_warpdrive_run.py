@@ -11,7 +11,8 @@ from marllib.marl import _Algo
 import setproctitle
 from common import add_common_arguments, logging_dir, customize_experiment, is_valid_format, get_restore_dict
 from envs.crowd_sim.crowd_sim import (RLlibCUDACrowdSim, LARGE_DATASET_NAME,
-                                      RLlibCUDACrowdSimWrapper, user_override_params)
+                                      RLlibCUDACrowdSimWrapper, SendAllocationCallback,
+                                      user_override_params)
 
 
 def load_preferences(custom_preference: dict, args: argparse.Namespace, this_expr_dir: str):
@@ -21,6 +22,8 @@ def load_preferences(custom_preference: dict, args: argparse.Namespace, this_exp
             custom_preference[item] = os.path.join("/workspace", "saved_data", "trajectories", original)
         else:
             custom_preference[item] = os.path.join(str(this_expr_dir), original)
+    elif item == 'checkpoint_path':
+        pass
     else:
         custom_preference[item] = getattr(args, item)
 
@@ -141,8 +144,8 @@ if __name__ == '__main__':
     if args.render or args.ckpt:
         uuid, checkpoint_num, time_str, backup_str = args.ckpt
         restore_dict = get_restore_dict(args, uuid, checkpoint_num, time_str, backup_str)
-        if args.ckpt:
-            model_preference['checkpoint_path'] = restore_dict
+        model_preference['checkpoint_path'] = restore_dict
+        if not args.render:
             restore_dict = {}
         for info in [uuid, str(checkpoint_num)]:
             if info not in env_params['render_file_name']:
@@ -173,9 +176,11 @@ if __name__ == '__main__':
         }
         if args.env == 'crowdsim':
             kwargs['custom_vector_env'] = RLlibCUDACrowdSimWrapper
+            kwargs['callbacks'] = SendAllocationCallback
         # figure out how to let evaluation program call "render", set lr=0
         my_algorithm.render(env, model, **kwargs)
     else:
+
         kwargs = {'local_mode': args.local_mode, 'num_gpus': 1, 'num_workers': args.num_workers,
                   'share_policy': share_policy,
                   'checkpoint_end': False, 'algo_args': {'resume': args.resume},
@@ -186,6 +191,7 @@ if __name__ == '__main__':
         # 1 if args.local_mode else args.evaluation_interval
         if args.env == 'crowdsim':
             kwargs['custom_vector_env'] = RLlibCUDACrowdSimWrapper
+            kwargs['callbacks'] = SendAllocationCallback
         my_algorithm.fit(env, model, **kwargs)
 '''
            --algo qmix --env mpe --dataset simple_spread --num_workers 1
