@@ -580,7 +580,6 @@ extern "C" {
     // Update Timestep
     // Increment time ONCE -- only 1 thread can do this.
     if (kThisAgentId == 0) {
-
       int original = env_timestep_arr[kEnvId]++;
       if (original > kEpisodeLength) {
         env_timestep_arr[kEnvId] = 0;
@@ -621,7 +620,7 @@ extern "C" {
     const int kThisTargetAgeArrayIdxOffset = kEnvId * kNumTargets;
     const int kThisTargetPositionTimeListIdxOffset = env_timestep * kNumTargets;
     const float invEpisodeLength = 1.0f / kEpisodeLength;
-    int * this_emergency_allocation_table = emergency_allocation_table + kThisEnvAgentsOffset;
+    int * this_emergency_allocation_table = emergency_allocation_table + kEnvId * emergency_count;
     int * this_emergency_dis_to_target_index = emergency_dis_to_target_index + kThisEnvAgentsOffset;
     float * this_emergency_dis_to_target = emergency_dis_to_target + kThisEnvAgentsOffset;
     float * this_state_arr_emergency = state_arr + kThisEnvStateOffset + StateFullAgentFeature;
@@ -791,7 +790,17 @@ extern "C" {
         //           printf("Agent Pos: %f, %f\n", agent_x_arr[kThisEnvAgentsOffset + nearest_agent_id], agent_y_arr[kThisEnvAgentsOffset + nearest_agent_id]);
         //           printf("dist: %f\n", min_dist);
         //         }
-        bool dyn_point_covered = is_dyn_point && (target_coverage || ((min_dist <= kDroneSensingRange / 2) && (nearest_agent_id != -1)));
+        bool dyn_point_covered = is_dyn_point && (target_coverage ||
+        ((min_dist <= kDroneSensingRange / 2) && (nearest_agent_id != -1) && (nearest_agent_id ==
+        this_emergency_allocation_table[target_idx - zero_shot_start])));
+//         if (is_dyn_point && kEnvId == 0 && (min_dist <= kDroneSensingRange / 2 && nearest_agent_id != -1)) {
+//         if (nearest_agent_id == this_emergency_allocation_table[target_idx - zero_shot_start]) {
+//           printf("Correct Handling of Emergency %d by Agent %d\n", target_idx, nearest_agent_id);
+//         }
+//         else{
+//           printf("Wrong Handling of Emergency %d by Agent %d\n", target_idx, nearest_agent_id);
+//         }
+//      }
         bool regular_point_covered = !is_dyn_point && (min_dist <= kDroneSensingRange && nearest_agent_id != -1);
 //         if (debug_condition){
 //         printf("%d min_dist: %f nearest_agent: %d\n", kEnvId, min_dist, nearest_agent_id);
@@ -843,7 +852,7 @@ extern "C" {
 //                       if (target_idx < 10 && env_timestep > 118){
 //                         printf("target %d aoi is %d, coverage arr %d\n", target_idx, target_aoi, target_coverage_arr[kThisTargetAgeArrayIdxOffset + target_idx]);
 //                       }
-          if (is_dyn_point) {
+//           if (is_dyn_point) {
             // scan the this_emergency_allocation_table and confirm this point is not allocated
 //             int is_allocated = false;
 //            if (kThisAgentId == 0 && kEnvId == 125){
@@ -854,12 +863,12 @@ extern "C" {
 //             }
 //             printf("\n");
 //            }
-            for (int i = 0; i < kNumAgents; i++) {
-              if (this_emergency_allocation_table[i] == target_idx) {
+//             for (int i = 0; i < kNumAgents; i++) {
+//               if (this_emergency_allocation_table[i] == target_idx) {
 //                 is_allocated = true;
-                break;
-              }
-            }
+//                 break;
+//               }
+//             }
 //             if (!is_allocated) {
 //             CudaCrowdSimGreedyAllocation(agent_x_arr, agent_y_arr, target_x, target_y,
 //                                          target_idx, this_emergency_dis_to_target,
@@ -868,7 +877,7 @@ extern "C" {
 //                                          kNumAgents, kThisEnvAgentsOffset, kEnvId, env_timestep);
 //
 //             }
-          }
+//           }
           global_reward -= is_dyn_point ? 5 * invEpisodeLength : invEpisodeLength;
         }
         //             if (target_idx < 5){
