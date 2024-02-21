@@ -57,15 +57,19 @@ if __name__ == '__main__':
     parser.add_argument("--one_agent_multi_task", action='store_true', help='allocate multiple task for a single agent')
     parser.add_argument("--look_ahead", action='store_true',
                         help='greedily assign according to agent final destination')
-    parser.add_argument("--emergency_queue_length", type=int, default=5, help='emergency queue length')
+    parser.add_argument("--emergency_queue_length", type=int, default=1, help='emergency queue length')
     parser.add_argument("--tolerance", type=float, default=1e-2, help='tolerance for choosing multiple emergencies')
-    parser.add_argument("--rl_gamma", type=float, default=0.99, help='gamma for RL selector')
+    parser.add_argument("--rl_gamma", type=float, default=0.5, help='gamma for RL selector')
     parser.add_argument("--force_allocate", action='store_true', help='force emergencies to be allocated, agent'
                                                                       'will receive no reward if it is not allocated '
                                                                       'to cover.')
     parser.add_argument("--sibling_rivalry", action='store_true', help='enable anti-goal distance reward')
     parser.add_argument('--alpha', type=float, default=0.1, help='alpha for anti-goal distance reward')
     parser.add_argument("--buffer_in_obs", action='store_true', help='display entire buffer in the observation')
+    parser.add_argument("--reward_mode", type=str, default='mix',
+                        choices=['mix', 'original', 'intrinsic', 'none'],
+                        help='reward type for emergency')
+    parser.add_argument('--fail_hint', action='store_true', help='use fail hint for emergency allocation reward')
     args = parser.parse_args()
 
     assert args.encoder_layer is not None and is_valid_format(args.encoder_layer), \
