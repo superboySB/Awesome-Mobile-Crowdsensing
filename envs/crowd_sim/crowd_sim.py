@@ -71,7 +71,8 @@ VALID_HANDLING_RATIO = "valid_handling_ratio"
 
 user_override_params = ['env_config', 'dynamic_zero_shot', 'use_2d_state', 'all_random',
                         'num_drones', 'num_cars', 'cut_points', 'fix_target', 'gen_interval',
-                        'no_refresh', 'emergency_threshold', 'force_allocate']
+                        'no_refresh', 'emergency_threshold', 'force_allocate',
+                        'emergency_queue_length', 'buffer_in_obs']
 
 grid_size = 10
 
@@ -178,11 +179,13 @@ class CrowdSim:
             emergency_threshold=15,
             emergency_queue_length=1,
             force_allocate=False,
+            buffer_in_obs=False,
     ):
         self.float_dtype = np.float32
         self.single_type_agent = single_type_agent
         self.int_dtype = np.int32
         self.no_refresh = no_refresh
+        self.buffer_in_obs = buffer_in_obs
         self.bool_dtype = np.bool_
         # small number to prevent indeterminate cases
         self.eps = self.float_dtype(1e-10)
@@ -668,7 +671,10 @@ class CrowdSim:
                                                 grid_size)
 
         # TODO: this full_queue is mock, no actual prediction is provided.
-        full_queue = np.zeros((self.num_agents, self.queue_feature * self.emergency_queue_length))
+        if self.buffer_in_obs:
+            full_queue = np.zeros((self.num_agents, self.queue_feature * self.emergency_queue_length))
+        else:
+            full_queue = np.zeros((self.num_agents, self.queue_feature))
         if self.dynamic_zero_shot:
             current_aoi = self.target_aoi_timelist[self.timestep]
             valid_zero_shots_mask = (current_aoi > 1) & (np.arange(self.num_sensing_targets) > self.zero_shot_start) & \
@@ -1349,6 +1355,7 @@ class CUDACrowdSim(CrowdSim, CUDAEnvironmentContext):
                                  ("slot_time", self.float_dtype(self.step_time)),
                                  ("agent_speed", self.int_dtype(list(self.agent_speed.values()))),
                                  ("dynamic_zero_shot", self.int_dtype(self.dynamic_zero_shot)),
+                                 ("buffer_in_obs", self.int_dtype(self.buffer_in_obs)),
                                  ("force_allocate", self.int_dtype(self.force_allocate)),
                                  ("zero_shot_start", self.int_dtype(self.zero_shot_start)),
                                  ("single_type_agent", self.int_dtype(self.single_type_agent)),
@@ -1380,6 +1387,7 @@ class CUDACrowdSim(CrowdSim, CUDAEnvironmentContext):
             "target_x",
             "target_y",
             "aoi_schedule",
+            "emergency_queue_length",
             "emergency_per_gen",
             "emergency_allocation_table",
             "target_aoi",
@@ -1404,6 +1412,7 @@ class CUDACrowdSim(CrowdSim, CUDAEnvironmentContext):
             "slot_time",
             "agent_speed",
             "dynamic_zero_shot",
+            "buffer_in_obs",
             "force_allocate",
             "zero_shot_start",
             "single_type_agent",
@@ -1849,7 +1858,7 @@ def setup_wandb(logging_config: dict):
 
 
 def define_metrics_crowdsim():
-    for item in [COVERAGE_METRIC_NAME, DATA_METRIC_NAME, MAIN_METRIC_NAME, FRESHNESS_FACTOR]:
+    for item in [COVERAGE_METRIC_NAME, DATA_METRIC_NAME, MAIN_METRIC_NAME, FRESHNESS_FACTOR, VALID_HANDLING_RATIO]:
         wandb.define_metric(item, summary="max")
     for item in [AOI_METRIC_NAME, ENERGY_METRIC_NAME, SURVEILLANCE_METRIC, EMERGENCY_METRIC, OVERALL_AOI]:
         wandb.define_metric(item, summary="min")

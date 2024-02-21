@@ -48,7 +48,7 @@ if __name__ == '__main__':
     parser.add_argument("--ckpt", nargs=4, type=str, help='uuid, checkpoint_num, time_str '
                                                           'and backup_str to restore')
     parser.add_argument("--share_policy", choices=['all', 'group', 'individual'], default='all')
-    # parser.add_argument("--separate_render", action='store_true', help='render file will be stored separately')
+    parser.add_argument("--separate_encoder", action='store_true', help='use separate head for emergency')
     parser.add_argument("--with_programming_optimization", action='store_true')
     parser.add_argument('--no_refresh', action='store_true', help='do not reset randomly generated emergency points')
     parser.add_argument("--selector_type", type=str, default='NN',
@@ -64,6 +64,7 @@ if __name__ == '__main__':
                                                                       'will receive no reward if it is not allocated '
                                                                       'to cover.')
     parser.add_argument("--sibling_rivalry", action='store_true', help='enable anti-goal distance reward')
+    parser.add_argument('--alpha', type=float, default=0.1, help='alpha for anti-goal distance reward')
     parser.add_argument("--buffer_in_obs", action='store_true', help='display entire buffer in the observation')
     args = parser.parse_args()
 
@@ -163,7 +164,7 @@ if __name__ == '__main__':
         for item in (['gen_interval', 'with_programming_optimization',
                       'dataset', 'emergency_threshold', 'switch_step', 'one_agent_multi_task',
                       'emergency_queue_length', 'tolerance', 'look_ahead', 'local_mode',
-                      'render_file_name'] + restore_ignore_params):
+                      'render_file_name', 'buffer_in_obs', 'separate_encoder'] + restore_ignore_params):
             load_preferences(custom_preference=model_preference, args=args, this_expr_dir=this_expr_dir)
     model = marl.build_model(env, my_algorithm, model_preference)
     # start learning

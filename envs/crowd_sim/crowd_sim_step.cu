@@ -564,6 +564,7 @@ extern "C" {
                                         const float slot_time,
                                           const int * agent_speed_arr,
                                             int dynamic_zero_shot,
+                                            int buffer_in_obs,
                                             int force_allocate,
                                             int zero_shot_start,
                                             int single_type_agent,
@@ -616,7 +617,14 @@ extern "C" {
     const int features_per_emergency_in_state = 5;
     const int state_vec_features = StateFullAgentFeature + emergency_count * features_per_emergency_in_state + 1;
     const int state_features = state_vec_features;
-    const int obs_vec_features = AgentFeature + (kNumAgentsObserved << 2) + FeaturesInEmergencyQueue;
+    int obs_vec_features = AgentFeature + (kNumAgentsObserved << 2);
+    if (buffer_in_obs){
+      obs_vec_features += FeaturesInEmergencyQueue * emergency_queue_length;
+    }
+    else{
+      obs_vec_features += FeaturesInEmergencyQueue;
+    }
+//     printf("CUDA: obs_vec_features: %d\n", obs_vec_features);
     const int obs_features = obs_vec_features + total_num_grids;
     const int kThisEnvStateOffset = kEnvId * state_features;
     const int kThisTargetAgeArrayIdxOffset = kEnvId * kNumTargets;
