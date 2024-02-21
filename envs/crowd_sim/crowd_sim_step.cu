@@ -564,6 +564,7 @@ extern "C" {
                                         const float slot_time,
                                           const int * agent_speed_arr,
                                             int dynamic_zero_shot,
+                                            int force_allocate,
                                             int zero_shot_start,
                                             int single_type_agent,
                                             bool * agents_over_range
@@ -793,7 +794,9 @@ extern "C" {
         //         }
         bool dyn_point_covered = is_dyn_point && (target_coverage ||
         ((min_dist <= kDroneSensingRange / 2) && (nearest_agent_id != -1)));
-//        dyn_point_covered &= (nearest_agent_id == this_emergency_allocation_table[target_idx - zero_shot_start]);
+        if (force_allocate){
+          dyn_point_covered &= (nearest_agent_id == this_emergency_allocation_table[target_idx - zero_shot_start]);
+        }
 //         if (is_dyn_point && kEnvId == 0 && (min_dist <= kDroneSensingRange / 2 && nearest_agent_id != -1)) {
 //         if (nearest_agent_id == this_emergency_allocation_table[target_idx - zero_shot_start]) {
 //           printf("Correct Handling of Emergency %d by Agent %d\n", target_idx, nearest_agent_id);

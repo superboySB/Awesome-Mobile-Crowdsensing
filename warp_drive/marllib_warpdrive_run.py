@@ -60,7 +60,8 @@ if __name__ == '__main__':
     parser.add_argument("--emergency_queue_length", type=int, default=5, help='emergency queue length')
     parser.add_argument("--tolerance", type=float, default=1e-2, help='tolerance for choosing multiple emergencies')
     parser.add_argument("--rl_gamma", type=float, default=0.99, help='gamma for RL selector')
-
+    parser.add_argument("--force_allocate", action='store_true', help='force emergencies to be allocated, agent'
+                                                                      'will receive no reward if it is not allocated to cover.')
     args = parser.parse_args()
 
     assert args.encoder_layer is not None and is_valid_format(args.encoder_layer), \

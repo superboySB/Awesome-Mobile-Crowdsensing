@@ -454,7 +454,7 @@ class VehicleTrajectoriesAnalyst(object):
         unusual_traffic_time_loc = unusual_traffic_time_loc.groupby(['x_bin', 'y_bin',
                                                                      'time']).size().reset_index(name='count')
         result_df = find_fragments(unusual_traffic_time_loc)
-        unusual_traffic_time_loc.to_csv("emergency_time_loc_" + time_string + ".csv")
+        result_df.to_csv("emergency_time_loc_" + time_string + ".csv")
 
         # Convert start_time and end_time back to seconds
         # self.analyse_speed(df, vehicle_speeds)
@@ -523,10 +523,10 @@ trajectory_file_name: str = os.path.join(parent_dir_name, 'gps_20161116')
 longitude_min: float = 104.04565967220308
 latitude_min: float = 30.654605745741608
 # longitude_min, latitude_min = 104.04215, 30.65294
-start_hour = 9
+start_hour = 14
 start_minute = 0
 start_second = 0
-end_hour = 9
+end_hour = 14
 end_minute = 30
 end_second = 0
 padded_start_hour = str(start_hour).zfill(2)

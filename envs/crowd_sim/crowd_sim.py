@@ -71,7 +71,7 @@ VALID_HANDLING_RATIO = "valid_handling_ratio"
 
 user_override_params = ['env_config', 'dynamic_zero_shot', 'use_2d_state', 'all_random',
                         'num_drones', 'num_cars', 'cut_points', 'fix_target', 'gen_interval',
-                        'no_refresh', 'emergency_threshold']
+                        'no_refresh', 'emergency_threshold', 'force_allocate']
 
 grid_size = 10
 
@@ -177,6 +177,7 @@ class CrowdSim:
             no_refresh=False,
             emergency_threshold=15,
             emergency_queue_length=1,
+            force_allocate=False,
     ):
         self.float_dtype = np.float32
         self.single_type_agent = single_type_agent
@@ -194,6 +195,7 @@ class CrowdSim:
 
         self.centralized = centralized
         self.use_2d_state = use_2d_state
+        self.force_allocate = force_allocate
         self.num_drones = num_drones
         self.num_cars = num_cars
         self.num_agents = self.num_drones + self.num_cars
@@ -254,12 +256,14 @@ class CrowdSim:
                 self.all_emergency_counts = []
                 for file_name in file_names:
                     my_frame = pd.read_csv(os.path.join(parent_path, file_name))
-                    my_frame = my_frame[['time', 'x_bin', 'y_bin', 'count']].sort_values(by='time', ascending=True)
+                    columns = ['start_time', 'end_time', 'x_bin', 'y_bin']
+                    my_frame = my_frame[columns].sort_values(by=['start_time', 'end_time'], ascending=True)
                     self.all_dataframes.append(my_frame)
                     self.all_emergency_counts.append(self.all_dataframes[-1].shape[0])
                 unique_emergencies = self.all_dataframes[np.argmax(self.all_emergency_counts)]
                 max_length = len(unique_emergencies)
-                dummy_row = pd.Series({'time': self.episode_length, 'x_bin': -1, 'y_bin': -1, 'count': -1})
+                dummy_row = pd.Series({'start_time': self.episode_length, 'end_time': self.episode_length,
+                                       'x_bin': -1, 'y_bin': -1})
                 for i in range(len(self.all_dataframes)):
                     current_frame = self.all_dataframes[i]
                     repeat_time = max_length - len(current_frame)
@@ -463,7 +467,7 @@ class CrowdSim:
         self.emergency_queue_length = emergency_queue_length
 
     def get_emergencies_from_dataset(self, unique_emergencies: pd.DataFrame):
-        self.aoi_schedule = unique_emergencies['time'].values
+        self.aoi_schedule = unique_emergencies['start_time'].values
         logging.debug(f"Emergency Schedule: {self.aoi_schedule}")
         # make sure num_bins is consistent with generated bins
         self.emergency_centers_x = (
@@ -1345,6 +1349,7 @@ class CUDACrowdSim(CrowdSim, CUDAEnvironmentContext):
                                  ("slot_time", self.float_dtype(self.step_time)),
                                  ("agent_speed", self.int_dtype(list(self.agent_speed.values()))),
                                  ("dynamic_zero_shot", self.int_dtype(self.dynamic_zero_shot)),
+                                 ("force_allocate", self.int_dtype(self.force_allocate)),
                                  ("zero_shot_start", self.int_dtype(self.zero_shot_start)),
                                  ("single_type_agent", self.int_dtype(self.single_type_agent)),
                                  ("agents_over_range", self.bool_dtype(np.zeros([self.num_agents, ])), True),
