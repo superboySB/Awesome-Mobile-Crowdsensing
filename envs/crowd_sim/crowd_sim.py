@@ -1404,6 +1404,7 @@ class CUDACrowdSim(CrowdSim, CUDAEnvironmentContext):
             "slot_time",
             "agent_speed",
             "dynamic_zero_shot",
+            "force_allocate",
             "zero_shot_start",
             "single_type_agent",
             "agents_over_range",
