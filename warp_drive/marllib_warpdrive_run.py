@@ -61,7 +61,10 @@ if __name__ == '__main__':
     parser.add_argument("--tolerance", type=float, default=1e-2, help='tolerance for choosing multiple emergencies')
     parser.add_argument("--rl_gamma", type=float, default=0.99, help='gamma for RL selector')
     parser.add_argument("--force_allocate", action='store_true', help='force emergencies to be allocated, agent'
-                                                                      'will receive no reward if it is not allocated to cover.')
+                                                                      'will receive no reward if it is not allocated '
+                                                                      'to cover.')
+    parser.add_argument("--sibling_rivalry", action='store_true', help='enable anti-goal distance reward')
+    parser.add_argument("--buffer_in_obs", action='store_true', help='display entire buffer in the observation')
     args = parser.parse_args()
 
     assert args.encoder_layer is not None and is_valid_format(args.encoder_layer), \
