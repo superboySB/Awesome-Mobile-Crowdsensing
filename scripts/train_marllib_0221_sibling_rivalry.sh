@@ -3,7 +3,7 @@
 #dataset_name='Chengdu'
 exp_name='103_sibling_rivalry'
 session_name=$exp_name
-cards=(0 1 2 0 1 2 0 1 2 2)
+cards=(0 1 2 0 1 2 1 2 1 2)
 card_num=${#cards[@]}
 dry_run=false
 # Process command-line arguments

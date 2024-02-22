@@ -71,8 +71,7 @@ VALID_HANDLING_RATIO = "valid_handling_ratio"
 
 user_override_params = ['env_config', 'dynamic_zero_shot', 'use_2d_state', 'all_random',
                         'num_drones', 'num_cars', 'cut_points', 'fix_target', 'gen_interval',
-                        'no_refresh', 'emergency_threshold', 'force_allocate',
-                        'emergency_queue_length', 'buffer_in_obs']
+                        'no_refresh', 'force_allocate', 'emergency_queue_length', 'buffer_in_obs']
 
 grid_size = 10
 
@@ -205,7 +204,7 @@ class CrowdSim:
         self.gen_interval = gen_interval
 
         self.aoi_threshold = self.config.env.aoi_threshold
-        self.emergency_threshold = emergency_threshold
+        self.emergency_threshold = self.config.env.emergency_threshold
         self.num_agents_observed = self.num_agents - 1
         self.all_random = all_random
         self.episode_length = self.config.env.num_timestep
@@ -963,10 +962,9 @@ class CrowdSim:
         if self.dynamic_zero_shot and not self.all_random:
             info[SURVEILLANCE_METRIC] = np.mean(self.target_aoi_timelist[self.timestep, :-self.emergency_count])
             valid_mask = self.aoi_schedule < self.episode_length
-            max_response_delay = np.sum(self.episode_length + 1 - self.aoi_schedule[valid_mask])
             emergency_aoi = self.target_aoi_timelist[self.timestep, -self.emergency_count:][valid_mask] - 1
             info[EMERGENCY_METRIC] = np.mean(emergency_aoi)
-            info[DELAY_ADVANTAGE_RATIO] = 1 - np.sum(emergency_aoi) / max_response_delay
+            info[DELAY_ADVANTAGE_RATIO] = 1 - np.mean(emergency_aoi) / self.emergency_threshold
             info[VALID_HANDLING_RATIO] = np.mean(emergency_aoi < self.emergency_threshold)
             # info[OVERALL_AOI] = (info[SURVEILLANCE_METRIC] + info[EMERGENCY_METRIC]) / 2
             # logging.debug(f"Emergency: {info[EMERGENCY_METRIC]}")
@@ -1357,6 +1355,7 @@ class CUDACrowdSim(CrowdSim, CUDAEnvironmentContext):
                                  ("dynamic_zero_shot", self.int_dtype(self.dynamic_zero_shot)),
                                  ("buffer_in_obs", self.int_dtype(self.buffer_in_obs)),
                                  ("force_allocate", self.int_dtype(self.force_allocate)),
+                                 ("emergency_threshold", self.int_dtype(self.emergency_threshold)),
                                  ("zero_shot_start", self.int_dtype(self.zero_shot_start)),
                                  ("single_type_agent", self.int_dtype(self.single_type_agent)),
                                  ("agents_over_range", self.bool_dtype(np.zeros([self.num_agents, ])), True),
@@ -1414,6 +1413,7 @@ class CUDACrowdSim(CrowdSim, CUDAEnvironmentContext):
             "dynamic_zero_shot",
             "buffer_in_obs",
             "force_allocate",
+            "emergency_threshold",
             "zero_shot_start",
             "single_type_agent",
             "agents_over_range",

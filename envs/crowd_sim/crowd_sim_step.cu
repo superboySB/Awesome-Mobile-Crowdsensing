@@ -566,6 +566,7 @@ extern "C" {
                                             int dynamic_zero_shot,
                                             int buffer_in_obs,
                                             int force_allocate,
+                                            int emergency_threshold,
                                             int zero_shot_start,
                                             int single_type_agent,
                                             bool * agents_over_range
@@ -608,6 +609,7 @@ extern "C" {
     // Update on 2024.1.2, Double AoI Grid (100 -> 200)
     // Update on 2024.1.10, remove emergency grid. (200 -> 100)
     const int grid_flatten_size = 100;
+    const int emergency_reward = 10;
     const int total_num_grids = grid_flatten_size;
     const int AgentFeature = 4 + kNumAgents;
     // Update on 2024.1.10, add emergency points queue
@@ -787,7 +789,7 @@ extern "C" {
         int reward_increment = (target_aoi - 1);
         float reward_update;
          if(is_dyn_point){
-          reward_update = 10.0;
+          reward_update = emergency_reward;
          }
          else{
           reward_update = reward_increment * invEpisodeLength;
@@ -860,6 +862,14 @@ extern "C" {
           // Uncovered Emergency and Uncovered Surveillance, both require AoI increasing.
           // Note Emergency Points Before Schedule are skipped in prior logic.
           target_aoi++;
+        if (is_dyn_point and target_aoi > emergency_threshold){
+          target_coverage = true;
+          int allocate_agent = this_emergency_allocation_table[target_idx - zero_shot_start];
+          if(allocate_agent != -1){
+//           printf("Coverage Failure of Emergency %d by Agent %d in Env %d\n", target_idx, allocate_agent, kEnvId);
+          rewards_arr[kThisEnvAgentsOffset + allocate_agent] -= emergency_reward;
+          }
+        }
           // print aoi increment for first 10 points
 //                       if (target_idx < 10 && env_timestep > 118){
 //                         printf("target %d aoi is %d, coverage arr %d\n", target_idx, target_aoi, target_coverage_arr[kThisTargetAgeArrayIdxOffset + target_idx]);
@@ -904,10 +914,10 @@ extern "C" {
       }
       global_rewards_arr[kEnvId] = global_reward;
 
-        for(int i = zero_shot_start;i < kNumTargets;i++){
-          mean_emergency_aoi += (target_aoi_arr[kThisTargetAgeArrayIdxOffset + i] - 1);
-        }
-        mean_emergency_aoi /= emergency_count;
+//         for(int i = zero_shot_start;i < kNumTargets;i++){
+//           mean_emergency_aoi += (target_aoi_arr[kThisTargetAgeArrayIdxOffset + i] - 1);
+//         }
+//         mean_emergency_aoi /= emergency_count;
     }
     __sync_env_threads(); // Make sure all agents have calculated the reward and updated emergency allocation
 

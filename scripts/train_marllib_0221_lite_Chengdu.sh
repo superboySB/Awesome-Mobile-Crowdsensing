@@ -3,7 +3,7 @@
 #dataset_name='Chengdu'
 exp_name='WARP_queue_Chengdu'
 session_name=$exp_name
-cards=(1 1 3 1 3 0 0)
+cards=(0 2 2 2 3 2 3)
 card_num=${#cards[@]}
 dry_run=false
 # Process command-line arguments
