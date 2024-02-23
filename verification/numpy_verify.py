@@ -22,3 +22,9 @@ for i in range(length):
     mock_select = mock_other[i][mask]
 """
 print(timeit.timeit(stmt=my_code_2, globals=globals(), number=100))
+
+from collections import deque
+# Queue verify
+# all_queues = [deque() for _ in range(2000)]
+# 2d_queues = [[deque() for _ in range(4)] for _ in range(500)]
+# for
