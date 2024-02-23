@@ -168,4 +168,8 @@ Chengdu, queue_length=3, RL greedy, large reward
 bb7c6 4000 2024-02-20_02-07-25 2024-02-20_02-07-24
 San, queue_length=1, RL, large reward
 4ed6e 5000 2024-02-20_17-42-06 2024-02-20_17-42-05
+San, optim_greedy, large_reward, with end time
+69d9c 7000 2024-02-22_16-28-54 2024-02-22_16-28-53
+Chengdu, optim_greedy, large_reward, with end time
+42045 7000 2024-02-22_14-33-15 2024-02-22_14-33-15
 """

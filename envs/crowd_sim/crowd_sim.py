@@ -1,6 +1,7 @@
 """
 The Mobile Crowdsensing Environment
 """
+import csv
 from datetime import datetime
 import logging
 import os
@@ -981,7 +982,7 @@ class CrowdSim:
             })
         return info
 
-    def render(self, output_file=None, plot_loop=False, moving_line=False):
+    def render(self, output_file=None, plot_loop=False, moving_line=False, run_num=0):
 
         def custom_style_function(feature):
             return {
@@ -1179,6 +1180,25 @@ class CrowdSim:
             folium.LayerControl().add_to(my_render_map)
             # collect environment metric info and add it to folium
             info = self.collect_info()
+            info['run_num'] = run_num
+            # append info as a row of csv to existing file.
+            # get parent directory of self.render_file_name
+            parent_dir = os.path.dirname(output_file)
+            csv_file = os.path.join(parent_dir, "test_env_metrics.csv")
+            # if the file does not exist, create it
+            if not os.path.exists(csv_file):
+                # write info to the csv
+                with open(csv_file, 'w', newline='') as file:
+                    # serialize the info dict
+                    writer = csv.DictWriter(file, fieldnames=info.keys())
+                    writer.writeheader()
+                    writer.writerow(info)
+            else:
+                # open the csv file and write
+                with open(csv_file, 'a', newline='') as file:
+                    writer = csv.DictWriter(file, fieldnames=info.keys())
+                    writer.writerow(info)
+
             if self.dynamic_zero_shot:
                 # the metric should include surveillance_aoi, response_delay, overall_aoi, not mean_aoi
                 info_str = f"Energy: {info[ENERGY_METRIC_NAME]:.2f},<br>" \
@@ -1730,7 +1750,7 @@ class RLlibCUDACrowdSim(MultiAgentEnv):
         # add datetime to trajectory
         datetime_str = datetime.now().strftime("%Y%m%d-%H%M%S")
         self.env.render(f'{self.render_file_name}_{datetime_str}_{self.trajectory_generated}',
-                        True, False)
+                        True, False, self.trajectory_generated)
 
     def log_aoi_grid(self):
         pass

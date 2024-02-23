@@ -1,9 +1,9 @@
 #!/bin/bash
 
-#dataset_name='Chengdu'
-exp_name='76_reward_variant'
+dataset_name='Chengdu'
+exp_name='76_sibling_rivalry'
 session_name=$exp_name
-cards=(0 1 2 3 4 5 6 7)
+cards=(1 2 3 4 5 6)
 card_num=${#cards[@]}
 dry_run=false
 # Process command-line arguments
@@ -19,14 +19,16 @@ while [[ $# -gt 0 ]]; do
 done
 # remove NN share_policy all
 trains=(
-  "--dataset SanFrancisco --selector_type RL --gen_interval 10 --reward_mode mix"
-  "--dataset SanFrancisco --selector_type RL --gen_interval 10 --reward_mode original"
-  "--dataset SanFrancisco --selector_type RL --gen_interval 10 --reward_mode intrinsic"
-  "--dataset SanFrancisco --selector_type RL --gen_interval 10 --reward_mode none"
-  "--dataset SanFrancisco --selector_type RL --gen_interval 10 --reward_mode mix --fail_hint"
-  "--dataset SanFrancisco --selector_type RL --gen_interval 10 --reward_mode original --fail_hint"
-  "--dataset SanFrancisco --selector_type RL --gen_interval 10 --reward_mode intrinsic --fail_hint"
-  "--dataset SanFrancisco --selector_type RL --gen_interval 10 --reward_mode none --fail_hint"
+  "--selector_type random --with_programming_optimization --gen_interval 10 --sibling_rivalry"
+  "--selector_type random --with_programming_optimization --gen_interval 10"
+  "--selector_type greedy --with_programming_optimization --gen_interval 10 --sibling_rivalry"
+  "--selector_type greedy --with_programming_optimization --gen_interval 10"
+  "--selector_type RL greedy --emergency_queue_length 1 --gen_interval 10"
+  "--selector_type RL greedy --emergency_queue_length 1 --gen_interval 10 --sibling_rivalry"
+  "--selector_type RL greedy --emergency_queue_length 3 --gen_interval 10"
+  "--selector_type RL greedy --emergency_queue_length 3 --gen_interval 10 --sibling_rivalry"
+  "--selector_type RL greedy --emergency_queue_length 5 --gen_interval 10"
+  "--selector_type RL greedy --emergency_queue_length 5 --gen_interval 10 --sibling_rivalry"
 )
 
 
@@ -63,7 +65,7 @@ for ((i = 0; i < train_num; i++)); do
   # if want to add $PATH, remember to add / before $
   command="python warp_drive/marllib_warpdrive_run.py --track --core_arch crowdsim_net --dynamic_zero_shot\
   --num_drones 4 --num_cars 0 --group auto_allocation --algo trafficppo --share_policy all --switch_step 60000000\
-  --gpu_id ${cards[card_id]} ${trains[i]} --use_2d_state --look_ahead --rl_gamma 0.5 --emergency_queue_length 1 --tag add_mask"
+  --gpu_id ${cards[card_id]} ${trains[i]} --use_2d_state --tag new_reward --look_ahead --dataset ${dataset_name}"
   echo "$command"
   if [ "$dry_run" = "false" ] && [ "$choice" != "n" ]
   then

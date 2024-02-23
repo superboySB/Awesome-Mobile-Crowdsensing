@@ -1,9 +1,8 @@
 #!/bin/bash
 
-#dataset_name='Chengdu'
-exp_name='76_reward_variant'
+exp_name='75_pretrain'
 session_name=$exp_name
-cards=(0 1 2 3 4 5 6 7)
+cards=(1 2 3 5 6 7)
 card_num=${#cards[@]}
 dry_run=false
 # Process command-line arguments
@@ -19,14 +18,12 @@ while [[ $# -gt 0 ]]; do
 done
 # remove NN share_policy all
 trains=(
-  "--dataset SanFrancisco --selector_type RL --gen_interval 10 --reward_mode mix"
-  "--dataset SanFrancisco --selector_type RL --gen_interval 10 --reward_mode original"
-  "--dataset SanFrancisco --selector_type RL --gen_interval 10 --reward_mode intrinsic"
-  "--dataset SanFrancisco --selector_type RL --gen_interval 10 --reward_mode none"
-  "--dataset SanFrancisco --selector_type RL --gen_interval 10 --reward_mode mix --fail_hint"
-  "--dataset SanFrancisco --selector_type RL --gen_interval 10 --reward_mode original --fail_hint"
-  "--dataset SanFrancisco --selector_type RL --gen_interval 10 --reward_mode intrinsic --fail_hint"
-  "--dataset SanFrancisco --selector_type RL --gen_interval 10 --reward_mode none --fail_hint"
+  "--dataset SanFrancisco --selector_type RL --rl_gamma 0.5 --emergency_queue_length 1 --gen_interval 10 --ckpt 69d9c 7000 2024-02-22_16-28-54 2024-02-22_16-28-53"
+  "--dataset SanFrancisco --selector_type RL --rl_gamma 0.5 --emergency_queue_length 3 --gen_interval 10 --ckpt 69d9c 7000 2024-02-22_16-28-54 2024-02-22_16-28-53"
+  "--dataset SanFrancisco --selector_type RL --rl_gamma 0.5 --emergency_queue_length 5 --gen_interval 10 --ckpt 69d9c 7000 2024-02-22_16-28-54 2024-02-22_16-28-53"
+  "--dataset Chengdu --selector_type RL --rl_gamma 0.5 --emergency_queue_length 1 --gen_interval 10 --ckpt 42045 7000 2024-02-22_14-33-15 2024-02-22_14-33-15"
+  "--dataset Chengdu --selector_type RL --rl_gamma 0.5 --emergency_queue_length 3 --gen_interval 10 --ckpt 42045 7000 2024-02-22_14-33-15 2024-02-22_14-33-15"
+  "--dataset Chengdu --selector_type RL --rl_gamma 0.5 --emergency_queue_length 5 --gen_interval 10 --ckpt 42045 7000 2024-02-22_14-33-15 2024-02-22_14-33-15"
 )
 
 
@@ -63,7 +60,7 @@ for ((i = 0; i < train_num; i++)); do
   # if want to add $PATH, remember to add / before $
   command="python warp_drive/marllib_warpdrive_run.py --track --core_arch crowdsim_net --dynamic_zero_shot\
   --num_drones 4 --num_cars 0 --group auto_allocation --algo trafficppo --share_policy all --switch_step 60000000\
-  --gpu_id ${cards[card_id]} ${trains[i]} --use_2d_state --look_ahead --rl_gamma 0.5 --emergency_queue_length 1 --tag add_mask"
+  --gpu_id ${cards[card_id]} ${trains[i]} --use_2d_state --tag add_mask pretrain --look_ahead"
   echo "$command"
   if [ "$dry_run" = "false" ] && [ "$choice" != "n" ]
   then
