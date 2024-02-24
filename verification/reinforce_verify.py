@@ -1,4 +1,6 @@
 import argparse
+from typing import Optional, Tuple
+
 import gym
 import numpy as np
 from itertools import count
@@ -7,6 +9,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
+from gym.core import ObsType, ActType
 from torch.distributions import Categorical
 
 parser = argparse.ArgumentParser(description='PyTorch REINFORCE example')
@@ -20,17 +23,54 @@ parser.add_argument('--log-interval', type=int, default=10, metavar='N',
                     help='interval between training status logs (default: 10)')
 args = parser.parse_args()
 
-env = gym.make('CartPole-v1')
+
+class DistanceSelectEnv(gym.Env):
+    def __init__(self, select_range=4):
+        super(DistanceSelectEnv, self).__init__()
+        self.select_range = select_range
+        self.action_space = gym.spaces.Discrete(select_range)
+        self.observation_space = gym.spaces.Box(low=-1, high=1, shape=(select_range + 1,))
+        self.state = None
+        self.timestep = 0
+
+    def reset(
+            self,
+            *,
+            seed: Optional[int] = None,
+            options: Optional[dict] = None,
+    ) -> Tuple[ObsType, dict]:
+        np.random.seed(seed)
+        self.state = np.random.uniform(-1, 1, size=(self.select_range + 1,))
+        self.timestep = 0
+        self.time_limit = 100
+        return self.state, {}
+
+    def step(self, action: ActType) -> Tuple[ObsType, float, bool, bool, dict]:
+        # calculate the distance between selected state dim and final_dim
+        distance = np.abs(self.state[-1] - self.state[action])
+        reward = -distance
+        self.state = np.random.uniform(-1, 1, size=(self.select_range + 1,))
+        self.tiemstep += 1
+        if self.timestep == self.time_limit:
+            return self.state, reward, True, False, {}
+        else:
+            return self.state, reward, False, False, {}
+
+    def render(self, mode='human'):
+        pass
+
+
+env = DistanceSelectEnv()
+# env = gym.make('CartPole-v1')
 env.reset(seed=args.seed)
 torch.manual_seed(args.seed)
-
 
 class Policy(nn.Module):
     def __init__(self):
         super(Policy, self).__init__()
-        self.affine1 = nn.Linear(4, 128)
+        self.affine1 = nn.Linear(5, 128)
         self.dropout = nn.Dropout(p=0.6)
-        self.affine2 = nn.Linear(128, 2)
+        self.affine2 = nn.Linear(128, 4)
         self.fc = nn.Sequential(
             self.affine1,
             self.dropout,
@@ -84,7 +124,7 @@ def finish_episode():
 
 
 def main():
-    running_reward = 10
+    running_reward = 0
     for i_episode in count(1):
         state, _ = env.reset()
         ep_reward = 0
