@@ -73,6 +73,8 @@ if __name__ == '__main__':
     parser.add_argument('--prioritized_buffer', action='store_true',
                         help='use prioritized emergency buffer, sorted by distance')
     parser.add_argument('--rl_use_cnn', action='store_true', help='use CNN for RL selector')
+    parser.add_argument('--intrinsic_mode', type=str, default='none', choices=['none', 'dis', 'aoi',
+                                                                               'scaled_dis_aoi', 'dis_aoi'])
     args = parser.parse_args()
 
     assert args.encoder_layer is not None and is_valid_format(args.encoder_layer), \
@@ -172,7 +174,7 @@ if __name__ == '__main__':
                       'dataset', 'emergency_threshold', 'switch_step', 'one_agent_multi_task',
                       'emergency_queue_length', 'tolerance', 'look_ahead', 'local_mode',
                       'render_file_name', 'buffer_in_obs', 'separate_encoder', 'prioritized_buffer',
-                      'rl_use_cnn'] + restore_ignore_params):
+                      'rl_use_cnn', 'intrinsic_mode'] + restore_ignore_params):
             load_preferences(custom_preference=model_preference, args=args, this_expr_dir=this_expr_dir)
     model = marl.build_model(env, my_algorithm, model_preference)
     # start learning
