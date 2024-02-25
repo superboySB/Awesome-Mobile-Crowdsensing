@@ -733,7 +733,7 @@ class CrowdSim:
         if self.use_2d_state:
             self.global_state = {
                 _VECTOR_STATE: self.float_dtype(vector_state),
-                # _IMAGE_STATE: self.float_dtype(state_aoi_grid),
+                _IMAGE_STATE: self.float_dtype(state_aoi_grid),
             }
             for array in self.global_state.values():
                 logging.debug("Global state shape: {}".format(array.shape))

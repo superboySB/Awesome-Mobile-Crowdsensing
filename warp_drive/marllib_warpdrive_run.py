@@ -67,11 +67,12 @@ if __name__ == '__main__':
     parser.add_argument('--alpha', type=float, default=0.1, help='alpha for anti-goal distance reward')
     parser.add_argument("--buffer_in_obs", action='store_true', help='display entire buffer in the observation')
     parser.add_argument("--reward_mode", type=str, default='mix',
-                        choices=['mix', 'original', 'intrinsic', 'none'],
+                        choices=['mix', 'original', 'intrinsic', 'none', 'greedy'],
                         help='reward type for emergency')
     parser.add_argument('--fail_hint', action='store_true', help='use fail hint for emergency allocation reward')
     parser.add_argument('--prioritized_buffer', action='store_true',
                         help='use prioritized emergency buffer, sorted by distance')
+    parser.add_argument('--rl_use_cnn', action='store_true', help='use CNN for RL selector')
     args = parser.parse_args()
 
     assert args.encoder_layer is not None and is_valid_format(args.encoder_layer), \
@@ -170,8 +171,8 @@ if __name__ == '__main__':
         for item in (['gen_interval', 'with_programming_optimization',
                       'dataset', 'emergency_threshold', 'switch_step', 'one_agent_multi_task',
                       'emergency_queue_length', 'tolerance', 'look_ahead', 'local_mode',
-                      'render_file_name', 'buffer_in_obs', 'separate_encoder', 'prioritized_buffer']
-                     + restore_ignore_params):
+                      'render_file_name', 'buffer_in_obs', 'separate_encoder', 'prioritized_buffer',
+                      'rl_use_cnn'] + restore_ignore_params):
             load_preferences(custom_preference=model_preference, args=args, this_expr_dir=this_expr_dir)
     model = marl.build_model(env, my_algorithm, model_preference)
     # start learning

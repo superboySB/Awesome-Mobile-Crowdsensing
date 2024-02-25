@@ -618,7 +618,7 @@ extern "C" {
     // add timestep to state for neural network resetting.
     const int features_per_emergency_in_state = 5;
     const int state_vec_features = StateFullAgentFeature + emergency_count * features_per_emergency_in_state + 1;
-    const int state_features = state_vec_features;
+    const int state_features = state_vec_features + grid_flatten_size;
     int obs_vec_features = AgentFeature + (kNumAgentsObserved << 2);
     if (buffer_in_obs){
       obs_vec_features += FeaturesInEmergencyQueue * emergency_queue_length;
@@ -768,6 +768,9 @@ extern "C" {
 //             printf("Coverage Status for Emergency %d: %d\n", target_idx, target_coverage_arr[kThisTargetAgeArrayIdxOffset + target_idx]);
 //           }
           target_coverage = target_coverage_arr[kThisTargetAgeArrayIdxOffset + target_idx];
+          if (target_coverage){
+            continue;
+          }
           //           valid_emergency_count++;
         }
 
@@ -928,24 +931,24 @@ extern "C" {
       //       state_arr + kThisEnvStateOffset + state_vec_features + 100);
 //       memset(state_arr + kThisEnvStateOffset, 0, state_vec_features * sizeof(float));
       //       printf("Grid Center (%f, %f)\n", max_distance_x / 2, max_distance_y / 2);
-//       CUDACrowdSimGenerateAoIGrid(
-//         state_arr + kThisEnvStateOffset + state_vec_features,
-//         max_distance_x >> 1,
-//         max_distance_y >> 1,
-//         max_distance_x,
-//         max_distance_y,
-//         target_x_time_list + kThisTargetPositionTimeListIdxOffset,
-//         target_y_time_list + kThisTargetPositionTimeListIdxOffset,
-//         aoi_schedule,
-//         target_aoi_arr + kThisTargetAgeArrayIdxOffset,
-//         kNumTargets,
-//         kEpisodeLength,
-//         dynamic_zero_shot,
-//         zero_shot_start,
-//         env_timestep,
-//         kThisAgentId,
-//         kEnvId
-//       );
+      CUDACrowdSimGenerateAoIGrid(
+        state_arr + kThisEnvStateOffset + state_vec_features,
+        max_distance_x >> 1,
+        max_distance_y >> 1,
+        max_distance_x,
+        max_distance_y,
+        target_x_time_list + kThisTargetPositionTimeListIdxOffset,
+        target_y_time_list + kThisTargetPositionTimeListIdxOffset,
+        aoi_schedule,
+        target_aoi_arr + kThisTargetAgeArrayIdxOffset,
+        kNumTargets,
+        kEpisodeLength,
+        dynamic_zero_shot,
+        zero_shot_start,
+        env_timestep,
+        kThisAgentId,
+        kEnvId
+      );
       // copy each emergency (x,y,aoi,coverage) status to the end of state_arr using for loop
       for (int i = 0; i < emergency_count; i++) {
         int emergency_idx = i + zero_shot_start;
