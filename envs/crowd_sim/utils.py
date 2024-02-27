@@ -1,3 +1,4 @@
+import os
 
 import numpy as np
 import movingpandas
@@ -5,6 +6,9 @@ import pandas as pd
 
 from branca.element import CssLink, Figure, JavascriptLink, MacroElement
 from jinja2 import Template
+
+from warp_drive.utils.common import get_project_root
+
 np.seterr(invalid='ignore')
 
 
@@ -94,10 +98,19 @@ def traj_to_timestamped_geojson(index, trajectory: movingpandas.Trajectory, car_
     point_gdf.loc[point_gdf["time"].iloc[0], "previous_time"] = point_gdf['time'].iloc[0]
     # pd.Timedelta(days=0, hours=0, minutes=15))
     features = []
+    if isinstance(color, list):
+        colors = color
+    else:
+        colors = None
     # for Point in GeoJSON type
+    first_row = point_gdf.iloc[0]
     for i, row in enumerate(point_gdf.itertuples(index=False)):
-        current_point_coordinates = [row.geometry.xy[0][0], row.geometry.xy[1][0]]
-        previous_point_coordinates = [row.previous_geometry.xy[0][0], row.previous_geometry.xy[1][0]]
+        if fix_target:
+            current_point_coordinates = [first_row.geometry.xy[0][0], first_row.geometry.xy[1][0]]
+            previous_point_coordinates = [first_row.geometry.xy[0][0], first_row.geometry.xy[1][0]]
+        else:
+            current_point_coordinates = [row.geometry.xy[0][0], row.geometry.xy[1][0]]
+            previous_point_coordinates = [row.previous_geometry.xy[0][0], row.previous_geometry.xy[1][0]]
         current_time = [row.time.isoformat()]
         previous_time = [row.previous_time.isoformat()]
 
@@ -136,28 +149,32 @@ def traj_to_timestamped_geojson(index, trajectory: movingpandas.Trajectory, car_
                         opacity = 0
                 else:
                     opacity = 0
+                popup_html = f'<h4> Emergency {int(row.id)}</h4>' + \
+                             f"<p style='font-size:14px;'>grid coord: ({row.x},{row.y})</p>" + \
+                             f"<p style='font-size:14px;'>Creation Time: {row.creation_time} </p>" + \
+                             f"<p style='font-size:14px;'>Delay: {int(row.aoi)} </p>" + \
+                             f"<p style='font-size:14px;'>Allocation: {row.allocation}</p>"
             else:
                 radius = 6
                 opacity = 1
-            popup_html = f'<h4> PoI {int(row.id)}</h4>' + \
-                         f"<p style='font-size:14px;'>grid coord: ({row.x},{row.y})</p>" + \
-                         f"<p style='font-size:14px;'>Creation Time: {row.creation_time} </p>" + \
-                         f"<p style='font-size:14px;'>Delay: {int(row.aoi)} </p>" + \
-                         f"<p style='font-size:14px;'>Allocation: {row.allocation}</p>"
-
-            # f"<p >raw coord: {current_point_coordinates}</p>" + \
-            # f'<p>dist coord: ({row.x_distance}m, {row.y_distance}m)</p>' + \
+                popup_html = f'<h4> Surveillance {int(row.id)}</h4>' + \
+                             f"<p style='font-size:14px;'>grid coord: ({row.x},{row.y})</p>" + \
+                             f"<p style='font-size:14px;'>AoI: {int(row.aoi)} </p>"
 
         if connect_line:
             feature_dict = create_linestring_feature([previous_point_coordinates, current_point_coordinates],
                                                      [previous_time[0], current_time[0]],
                                                      color=color, caption=popup_html, opacity=opacity, radius=radius)
         else:
-            feature_dict = create_point_feature(color, current_point_coordinates, current_time, opacity,
+            if colors is not None:
+                current_color = colors[i]
+            else:
+                current_color = color
+            feature_dict = create_point_feature(current_color,
+                                                current_point_coordinates,
+                                                current_time, opacity,
                                                 popup_html, radius)
         features.append(feature_dict)
-        if fix_target and not connect_line and not is_emergency:
-            break
     return features
 
 
@@ -246,6 +263,7 @@ def create_MultiPoint_feature(coordinates, dates, color, caption=None, opacity=1
         feature_dict["properties"]["popup"] = caption
     return feature_dict
 
+
 # if __name__ == "__main__":
 #     print(judge_collision(new_robot_px=6505, new_robot_py=5130,
 #                           old_robot_px=6925, old_robot_py=5130))
@@ -317,8 +335,10 @@ class JsButton(MacroElement):
         assert isinstance(figure, Figure), (
             'You cannot render this Element if it is not in a Figure.')
 
+        manual_link = JavascriptLink('https://cdn.jsdelivr.net/npm/leaflet-easybutton@2/src/easy-button.js')
+        manual_link.code = open(os.path.join(get_project_root(), 'envs', 'crowd_sim', 'easy-button.js')).read()
         figure.header.add_child(
-            JavascriptLink('https://cdn.jsdelivr.net/npm/leaflet-easybutton@2/src/easy-button.js'),  # noqa
+            manual_link,  # noqa
             name='Control.EasyButton.js'
         )
 

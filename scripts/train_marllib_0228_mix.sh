@@ -1,8 +1,7 @@
 #!/bin/bash
-
-exp_name='76_scratch'
+exp_name='75_scratch'
 session_name=$exp_name
-cards=(5 6 6 7 7 7)
+cards=(1 2 3 5 6 7)
 card_num=${#cards[@]}
 dry_run=false
 # Process command-line arguments
@@ -18,12 +17,15 @@ while [[ $# -gt 0 ]]; do
 done
 # remove NN share_policy all
 trains=(
-  "--dataset SanFrancisco --selector_type RL --rl_gamma 0 --emergency_queue_length 1 --gen_interval 10 --reward_mode original"
-  "--dataset SanFrancisco --selector_type RL --rl_gamma 0 --emergency_queue_length 3 --gen_interval 10 --reward_mode original"
-  "--dataset SanFrancisco --selector_type RL --rl_gamma 0 --emergency_queue_length 5 --gen_interval 10 --reward_mode original"
-  "--dataset Chengdu --selector_type RL --rl_gamma 0 --emergency_queue_length 1 --gen_interval 10 --reward_mode original"
-  "--dataset Chengdu --selector_type RL --rl_gamma 0 --emergency_queue_length 3 --gen_interval 10 --reward_mode original"
-  "--dataset Chengdu --selector_type RL --rl_gamma 0 --emergency_queue_length 5 --gen_interval 10 --reward_mode original"
+  "--dataset SanFrancisco --gen_interval 10 --tag surveillance_only"
+  "--dataset SanFrancisco --selector_type RL --rl_gamma 0 --emergency_queue_length 4 --gen_interval 10 --dynamic_zero_shot"
+  "--dataset SanFrancisco --selector_type RL --rl_gamma 0 --emergency_queue_length 5 --gen_interval 10 --dynamic_zero_shot"
+  "--dataset Chengdu --gen_interval 10 --tag surveillance_only"
+  "--dataset Chengdu --selector_type greedy --gen_interval 10 --dynamic_zero_shot"
+  "--dataset Chengdu --selector_type random --gen_interval 10 --dynamic_zero_shot"
+  "--dataset Chengdu --selector_type RL --rl_gamma 0 --emergency_queue_length 3 --gen_interval 10 --dynamic_zero_shot"
+  "--dataset Chengdu --selector_type RL --rl_gamma 0 --emergency_queue_length 4 --gen_interval 10 --dynamic_zero_shot"
+  "--dataset Chengdu --selector_type RL --rl_gamma 0 --emergency_queue_length 5 --gen_interval 10 --dynamic_zero_shot"
 )
 
 
@@ -58,9 +60,10 @@ for ((i = 0; i < train_num; i++)); do
   card_id=$((i % card_num))
   # shellcheck disable=SC2004
   # if want to add $PATH, remember to add / before $
-  command="python warp_drive/marllib_warpdrive_run.py --track --core_arch crowdsim_net --dynamic_zero_shot\
+  command="python warp_drive/marllib_warpdrive_run.py --track --core_arch crowdsim_net\
   --num_drones 4 --num_cars 0 --group auto_allocation --algo trafficppo --share_policy all --switch_step 60000000\
-  --gpu_id ${cards[card_id]} ${trains[i]} --use_2d_state --tag add_greedy --look_ahead --intrinsic_mode dis_aoi"
+  --gpu_id ${cards[card_id]} ${trains[i]} --use_2d_state --look_ahead --intrinsic_mode scaled_dis_aoi\
+  --reward_mode greedy --prioritized_buffer --use_random"
   echo "$command"
   if [ "$dry_run" = "false" ] && [ "$choice" != "n" ]
   then

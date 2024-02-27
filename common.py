@@ -79,6 +79,10 @@ def customize_experiment(args: argparse.Namespace, run_config: dict = None, yaml
             if attr_val is True and arg not in ignore_tags:
                 tags.append(arg)
             elif attr_val is not False and arg in display_tags:
+                if isinstance(attr_val, list):
+                    attr_val = "_".join(map(str, attr_val))
+                else:
+                    attr_val = str(attr_val)
                 expr_name += f"_{arg}_{attr_val}"
     # Process YAML configuration if provided
     if yaml_config_path:

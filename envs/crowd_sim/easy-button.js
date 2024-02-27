@@ -95,7 +95,7 @@
     L.Control.EasyButton = L.Control.extend({
 
         options: {
-            position: 'topleft',       // part of leaflet's defaults
+            position: 'topright',       // part of leaflet's defaults
 
             id: null,            // an id to tag the button with
 

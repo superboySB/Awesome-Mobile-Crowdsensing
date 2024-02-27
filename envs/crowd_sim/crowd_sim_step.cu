@@ -753,7 +753,14 @@ extern "C" {
       float global_reward = 0.0;
       //     int emergency_cover_num = 0;
       //     int valid_emergency_count = 0;
-      for (int target_idx = 0; target_idx < kNumTargets; target_idx++) {
+      int targetToCheck;
+      if (!dynamic_zero_shot){
+        targetToCheck = kNumTargets - emergency_count;
+      }
+      else{
+        targetToCheck = kNumTargets;
+      }
+      for (int target_idx = 0; target_idx < targetToCheck; target_idx++) {
 //         bool debug_condition = target_idx < 10 && env_timestep >= 117;
         float target_x = target_x_time_list[kThisTargetPositionTimeListIdxOffset + target_idx];
         float target_y = target_y_time_list[kThisTargetPositionTimeListIdxOffset + target_idx];

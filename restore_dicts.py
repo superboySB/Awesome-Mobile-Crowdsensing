@@ -172,4 +172,6 @@ San, optim_greedy, large_reward, with end time
 69d9c 7000 2024-02-22_16-28-54 2024-02-22_16-28-53
 Chengdu, optim_greedy, large_reward, with end time
 42045 7000 2024-02-22_14-33-15 2024-02-22_14-33-15
+San, random pick, RL
+4926c 
 """

@@ -2,54 +2,49 @@
 The Mobile Crowdsensing Environment
 """
 import csv
-from datetime import datetime
 import logging
-import os
 import pprint
-import warnings
 import random
+import time
+import warnings
+from datetime import datetime
+from typing import Optional, Tuple, Dict, List, Any, Union
+from branca.element import Template, MacroElement
+
+import folium
 import geopandas as gpd
 import movingpandas as mpd
-from typing import Optional
-from movingpandas.geometry_utils import measure_distance_geodesic
-from ray.rllib import BaseEnv, Policy, SampleBatch
-from ray.rllib.agents.callbacks import DefaultCallbacks
-from ray.rllib.evaluation import MultiAgentEpisode
-from tqdm import tqdm
-from typing import Optional, Tuple, Dict, List, Any, Union
-
-import numpy as np
 import torch
-import folium
 import wandb
-import time
-import pandas as pd
 from folium import DivIcon
-from folium.plugins import TimestampedGeoJson, AntPath
+from folium.plugins import TimestampedGeoJson
 from gym import spaces
 from gym.spaces import Discrete, Box, MultiDiscrete
-from ray.rllib.env import GroupAgentsWrapper
-
-from run_configs.mcs_configs_python import PROJECT_NAME
-from warp_drive.utils.common import get_project_root
-from warp_drive.utils.env_registrar import EnvironmentRegistrar
-from ray.rllib.utils.typing import MultiAgentDict, EnvActionType, EnvObsType, EnvInfoDict, PolicyID, AgentID
-from shapely.geometry import Point
+from movingpandas.geometry_utils import measure_distance_geodesic
 from pytorch_lightning import seed_everything
-from ray.rllib.env.vector_env import VectorEnv
+from ray.rllib import BaseEnv, Policy, SampleBatch
+from ray.rllib.agents.callbacks import DefaultCallbacks
+from ray.rllib.env import GroupAgentsWrapper
 from ray.rllib.env.base_env import dummy_group_id
 from ray.rllib.env.multi_agent_env import MultiAgentEnv
+from ray.rllib.env.vector_env import VectorEnv
+from ray.rllib.evaluation import MultiAgentEpisode
+from ray.rllib.utils.typing import MultiAgentDict, EnvActionType, EnvObsType, EnvInfoDict, PolicyID, AgentID
+from shapely.geometry import Point
 from tabulate import tabulate
+from tqdm import tqdm
 
+from envs.crowd_sim.env_wrapper import CUDAEnvWrapper
+from run_configs.mcs_configs_python import PROJECT_NAME
+from warp_drive.cuda_managers.pycuda_data_manager import PyCUDADataManager
+from warp_drive.training.data_loader import create_and_push_data_placeholders
 from warp_drive.utils.constants import Constants
 from warp_drive.utils.data_feed import DataFeed
-from warp_drive.cuda_managers.pycuda_data_manager import PyCUDADataManager
+from warp_drive.utils.env_registrar import EnvironmentRegistrar
 from warp_drive.utils.gpu_environment_context import CUDAEnvironmentContext
 from warp_drive.utils.recursive_obs_dict_to_spaces_dict import (
     BIG_NUMBER
 )
-from envs.crowd_sim.env_wrapper import CUDAEnvWrapper
-from warp_drive.training.data_loader import create_and_push_data_placeholders
 from .utils import *
 
 DELAY_ADVANTAGE_RATIO = 'delay_advantage_ratio'
@@ -73,7 +68,7 @@ VALID_HANDLING_RATIO = "valid_handling_ratio"
 user_override_params = ['env_config', 'dynamic_zero_shot', 'use_2d_state', 'all_random',
                         'num_drones', 'num_cars', 'cut_points', 'fix_target', 'gen_interval',
                         'no_refresh', 'force_allocate', 'emergency_queue_length',
-                        'buffer_in_obs', 'intrinsic_mode']
+                        'buffer_in_obs', 'intrinsic_mode', 'use_random']
 
 grid_size = 10
 
@@ -182,11 +177,13 @@ class CrowdSim:
             force_allocate=False,
             buffer_in_obs=False,
             intrinsic_mode='dis_aoi',
+            use_random=True,
     ):
         self.float_dtype = np.float32
         self.single_type_agent = single_type_agent
         self.int_dtype = np.int32
         self.no_refresh = no_refresh
+        self.use_random = use_random
         self.buffer_in_obs = buffer_in_obs
         self.bool_dtype = np.bool_
         self.scaled_reward = ("scale" in intrinsic_mode) or (intrinsic_mode == 'dis')
@@ -237,9 +234,6 @@ class CrowdSim:
         self.human_df['energy'] = -1  # 加入energy记录energy
         self.max_distance_x = min(self.max_distance_x, max(self.human_df['x']))
         self.max_distance_y = min(self.max_distance_y, max(self.human_df['y']))
-        # self.human_df['x_bin'] = pd.cut(self.human_df['x'], bins=self.num_bins, labels=False).astype(int)
-        # self.human_df['y_bin'] = pd.cut(self.human_df['y'], bins=self.num_bins, labels=False).astype(int)
-        # grouped_counts = self.human_df[self.human_df['timestamp'] == self.start_timestamp].groupby(['x_bin', 'y_bin']).size().reset_index(name='poi_count')
         self.agent_speed = {'car': self.config.env.car_velocity, 'drone': self.config.env.drone_velocity}
         points_x, points_y, self.num_centers, self.num_points, self.num_points_per_center = (None,) * 5
         self.dynamic_zero_shot = dynamic_zero_shot
@@ -255,7 +249,7 @@ class CrowdSim:
             parent_path = os.path.join(get_project_root(), 'datasets', self.dataset_name)
             file_names = os.listdir(parent_path)
             file_names = [file_name for file_name in file_names if file_name.startswith('emergency_time_loc')]
-            if len(file_names) > 0:
+            if len(file_names) > 0 and (not self.use_random):
                 file_names = sorted(file_names)
                 self.file_names = file_names
                 self.all_dataframes = []
@@ -289,24 +283,24 @@ class CrowdSim:
                 self.emergency_centers_x = None
                 self.emergency_centers_y = None
                 self.file_names = self.all_dataframes = self.all_emergency_counts = None
-                if self.dynamic_zero_shot:
-                    self.zero_shot_start = self.num_sensing_targets
-                    self.points_per_gen = self.num_agents - 1 if self.num_agents > 1 else 1
-                    self.aoi_schedule = np.repeat(np.arange(self.gen_interval, self.episode_length, self.gen_interval),
-                                                  repeats=self.points_per_gen)
-                    logging.debug(f"AoI Schedule: {self.aoi_schedule}")
-                    generation_time = int(self.aoi_schedule.shape[0] / self.points_per_gen)
-                    self.num_centers = generation_time * self.points_per_gen
-                    self.num_points_per_center = 1
-                    points_x, points_y = self.generate_emergency(self.num_centers, self.num_points_per_center)
-                    self.emergency_count = (self.num_centers * self.num_points_per_center)
-                    self.num_sensing_targets += self.emergency_count
-                    # add visualization parts of dynamic generated points.
-                else:
-                    self.zero_shot_start = 0
-                    self.emergency_count = 0
-                    self.points_per_gen = 0
-                    self.aoi_schedule = np.zeros(0)
+                # if self.dynamic_zero_shot:
+                self.zero_shot_start = self.num_sensing_targets
+                self.points_per_gen = self.num_agents - 1 if self.num_agents > 1 else 1
+                self.aoi_schedule = np.repeat(np.arange(self.gen_interval, self.episode_length, self.gen_interval),
+                                              repeats=self.points_per_gen)
+                logging.debug(f"AoI Schedule: {self.aoi_schedule}")
+                generation_time = int(self.aoi_schedule.shape[0] / self.points_per_gen)
+                self.num_centers = generation_time * self.points_per_gen
+                self.num_points_per_center = 1
+                points_x, points_y = self.generate_emergency(self.num_centers, self.num_points_per_center)
+                self.emergency_count = (self.num_centers * self.num_points_per_center)
+                self.num_sensing_targets += self.emergency_count
+                # add visualization parts of dynamic generated points.
+                # else:
+                #     self.zero_shot_start = 0
+                #     self.emergency_count = 0
+                #     self.points_per_gen = 0
+                #     self.aoi_schedule = np.zeros(0)
         # human infos
         unique_ids = np.arange(0, self.num_sensing_targets)  # id from 0 to 91
         unique_timestamps = np.arange(self.start_timestamp, self.end_timestamp + self.step_time, self.step_time)
@@ -462,9 +456,9 @@ class CrowdSim:
         # [may not necessary] Copy drones dict for applying at reset (with limited energy reserve)
         # self.drones_at_reset = copy.deepcopy(self.drones)
         # List of available colors excluding orange and red
-        self.available_colors = ['blue', "darkgreen", "darkred", "purple", 'black', "magenta", 'darkblue', "teal",
-                                 "brown", 'gray']
-
+        self.available_colors = ['cadetblue', 'darkgreen', "darkred", 'black',
+                                 "magenta", 'darkblue', "teal", "brown", 'gray']
+        self.surveillance_colors = ['blue', 'green', 'yellow', 'orange', 'red', 'purple']
         # Shuffle the list of available colors
         random.shuffle(self.available_colors)
         # Initialize an index to keep track of the selected color
@@ -678,33 +672,33 @@ class CrowdSim:
             full_queue = np.zeros((self.num_agents, self.queue_feature * self.emergency_queue_length))
         else:
             full_queue = np.zeros((self.num_agents, self.queue_feature))
-        if self.dynamic_zero_shot:
-            current_aoi = self.target_aoi_timelist[self.timestep]
-            valid_zero_shots_mask = (current_aoi > 1) & (np.arange(self.num_sensing_targets) > self.zero_shot_start) & \
-                                    np.concatenate([np.zeros(self.zero_shot_start, dtype=self.bool_dtype),
-                                                    self.timestep > self.aoi_schedule]) & \
-                                    (self.target_coveraged_timelist[self.timestep] == 0)
-            # find valid emergencies only
-            # zero_shot_aois, zero_shot_x, zero_shot_y = (current_aoi[valid_zero_shots_mask],
-            #                                             self.target_x_time_list[self.timestep, valid_zero_shots_mask],
-            #                                             self.target_y_time_list[self.timestep, valid_zero_shots_mask])
-            # select the part of global distance matrix, where distances between all zero_shot points and all agents
-            # are included
-            # zero_shot_distance_matrix = self.global_distance_matrix[self.num_agents:][valid_zero_shots_mask,
-            #                             :self.num_agents]
-            # select the nearest agents for each zero_shot points
-            # zero_shot_nearest_agents_ids = np.argsort(zero_shot_distance_matrix, axis=-1, kind='stable')
-            # calculate distance of each zero_shot points to each agent and argsort
-            # zero_shot_distance_to_agents = np.argsort(zero_shot_distance_matrix, axis=0, kind='stable')[:10]
-            # fill the queue of each agent according to argsort result, features are listed in the order (x,y,aoi,distance)
-            # for agent_id in range(self.num_agents):
-            #     if len(zero_shot_distance_to_agents[:, agent_id]) > 0:
-            #         agent_queue = np.zeros((self.queue_length, self.queue_feature), dtype=self.float_dtype)
-            #         agent_queue[:, 0] = zero_shot_x[zero_shot_distance_to_agents[:, agent_id]]
-            #         agent_queue[:, 1] = zero_shot_y[zero_shot_distance_to_agents[:, agent_id]]
-            #         agent_queue[:, 2] = zero_shot_aois[zero_shot_distance_to_agents[:, agent_id]]
-            #         agent_queue[:, 3] = zero_shot_distance_matrix[zero_shot_distance_to_agents[:, agent_id], agent_id]
-            #         full_queue[agent_id, :] = agent_queue.reshape(-1)
+        # if self.dynamic_zero_shot:
+        #     current_aoi = self.target_aoi_timelist[self.timestep]
+        #     valid_zero_shots_mask = (current_aoi > 1) & (np.arange(self.num_sensing_targets) > self.zero_shot_start) & \
+        #                             np.concatenate([np.zeros(self.zero_shot_start, dtype=self.bool_dtype),
+        #                                             self.timestep > self.aoi_schedule]) & \
+        #                             (self.target_coveraged_timelist[self.timestep] == 0)
+        # find valid emergencies only
+        # zero_shot_aois, zero_shot_x, zero_shot_y = (current_aoi[valid_zero_shots_mask],
+        #                                             self.target_x_time_list[self.timestep, valid_zero_shots_mask],
+        #                                             self.target_y_time_list[self.timestep, valid_zero_shots_mask])
+        # select the part of global distance matrix, where distances between all zero_shot points and all agents
+        # are included
+        # zero_shot_distance_matrix = self.global_distance_matrix[self.num_agents:][valid_zero_shots_mask,
+        #                             :self.num_agents]
+        # select the nearest agents for each zero_shot points
+        # zero_shot_nearest_agents_ids = np.argsort(zero_shot_distance_matrix, axis=-1, kind='stable')
+        # calculate distance of each zero_shot points to each agent and argsort
+        # zero_shot_distance_to_agents = np.argsort(zero_shot_distance_matrix, axis=0, kind='stable')[:10]
+        # fill the queue of each agent according to argsort result, features are listed in the order (x,y,aoi,distance)
+        # for agent_id in range(self.num_agents):
+        #     if len(zero_shot_distance_to_agents[:, agent_id]) > 0:
+        #         agent_queue = np.zeros((self.queue_length, self.queue_feature), dtype=self.float_dtype)
+        #         agent_queue[:, 0] = zero_shot_x[zero_shot_distance_to_agents[:, agent_id]]
+        #         agent_queue[:, 1] = zero_shot_y[zero_shot_distance_to_agents[:, agent_id]]
+        #         agent_queue[:, 2] = zero_shot_aois[zero_shot_distance_to_agents[:, agent_id]]
+        #         agent_queue[:, 3] = zero_shot_distance_matrix[zero_shot_distance_to_agents[:, agent_id], agent_id]
+        #         full_queue[agent_id, :] = agent_queue.reshape(-1)
 
         # Generate global state AoI grid
         state_aoi_grid = self.generate_aoi_grid(self.target_x_time_list[self.timestep, :self.zero_shot_start],
@@ -720,19 +714,18 @@ class CrowdSim:
                                                  hetero_parts.reshape(self.num_agents, -1), full_queue)))
 
         # Global state
-        if self.dynamic_zero_shot:
-            emergency_status = np.where(self.timestep > self.aoi_schedule,
-                                        self.target_coveraged_timelist[self.timestep, self.zero_shot_start:],
-                                        -1)
-            emergency_state = np.vstack([self.target_x_time_list[self.timestep, self.zero_shot_start:] / self.nlon,
-                                         self.target_y_time_list[self.timestep, self.zero_shot_start:] / self.nlat,
-                                         self.target_aoi_timelist[self.timestep, self.zero_shot_start:],
-                                         emergency_status,
-                                         np.zeros_like(emergency_status)]).T
-            # TODO: the fifth dimension is not synced with CUDA
-            vector_state = np.concatenate([agents_state.ravel(), emergency_state.ravel(), np.array([self.timestep])])
-        else:
-            vector_state = np.concatenate([agents_state.ravel(), np.array([self.timestep])])
+        emergency_status = np.where(self.timestep > self.aoi_schedule,
+                                    self.target_coveraged_timelist[self.timestep, self.zero_shot_start:],
+                                    -1)
+        emergency_state = np.vstack([self.target_x_time_list[self.timestep, self.zero_shot_start:] / self.nlon,
+                                     self.target_y_time_list[self.timestep, self.zero_shot_start:] / self.nlat,
+                                     self.target_aoi_timelist[self.timestep, self.zero_shot_start:],
+                                     emergency_status,
+                                     np.zeros_like(emergency_status)]).T
+        # TODO: the fifth dimension is not synced with CUDA
+        vector_state = np.concatenate([agents_state.ravel(), emergency_state.ravel(), np.array([self.timestep])])
+        # else:
+        #     vector_state = np.concatenate([agents_state.ravel(), np.array([self.timestep])])
         if self.use_2d_state:
             self.global_state = {
                 _VECTOR_STATE: self.float_dtype(vector_state),
@@ -979,7 +972,7 @@ class CrowdSim:
             coverage = np.sum(self.target_coveraged_timelist) / (self.episode_length * self.num_sensing_targets)
             info.update({
                 # DATA_METRIC_NAME: self.data_collection / (self.episode_length * self.num_sensing_targets),
-                AOI_METRIC_NAME: mean_aoi,
+                SURVEILLANCE_METRIC: mean_aoi,
                 COVERAGE_METRIC_NAME: coverage,
                 MAIN_METRIC_NAME: freshness_factor * coverage
             })
@@ -1006,13 +999,49 @@ class CrowdSim:
             self.agent_actions_time_list[self.timestep, :] = self.cuda_data_manager.pull_data_from_device(_ACTIONS)[0]
 
         if self.timestep == self.config.env.num_timestep:
+
             # output final trajectory
             # 可将机器人traj，可以载入到human的dataframe中，id从-1开始递减
             mixed_df = self.human_df.copy()
+            mixed_df['aoi'] = self.target_aoi_timelist[:, :self.zero_shot_start].T.ravel()
+            mixed_df['color'] = np.digitize(mixed_df['aoi'].values,
+                                            np.linspace(0, self.aoi_threshold, 6)) - 1
+            # set color level as int
+            mixed_df['color'] = mixed_df['color'].astype(int)
             aoi_list = np.full(self.episode_length + 1, -1, dtype=np.int_)
             timestamp_list = [self.start_timestamp + t * self.step_time for t in range(self.episode_length + 1)]
             max_longitude = abs(self.lower_left[0] - self.upper_right[0])
             max_latitude = abs(self.lower_left[1] - self.upper_right[1])
+            if self.dynamic_zero_shot:
+                self.emergency_allocation_table = self.cuda_data_manager.pull_data_from_device(
+                    "emergency_allocation_table")[0]
+                # add emergency targets.
+                # pull emergency coordinates from device to host, since points in host are already refreshed
+                all_zero_shot_x = self.cuda_data_manager.pull_data_from_device("target_x")[0][:, self.zero_shot_start:]
+                all_zero_shot_y = self.cuda_data_manager.pull_data_from_device("target_y")[0][:, self.zero_shot_start:]
+                self.aoi_schedule = self.cuda_data_manager.pull_data_from_device("aoi_schedule")[0]
+                emergencies_dfs = []
+                print("Constructing emergency targets trajectories...")
+                for i in range(self.zero_shot_start, self.num_sensing_targets):
+                    # logging.debug(f"Creation Time: {self.aoi_schedule[i - self.zero_shot_start]}")
+                    delay_list = np.full_like(self.target_aoi_timelist[:, i], self.target_aoi_timelist[:, i][-1])
+                    x_list = all_zero_shot_x[:, i - self.zero_shot_start]
+                    y_list = all_zero_shot_y[:, i - self.zero_shot_start]
+                    if x_list[0] == 0 and y_list[0] == 0:
+                        continue
+                    id_list = np.full_like(x_list, i)
+                    energy_list = np.zeros_like(x_list)
+                    emergency_df = self.xy_to_dataframe(delay_list, energy_list, id_list, max_latitude,
+                                                        max_longitude, timestamp_list, x_list, y_list)
+                    emergency_df['creation_time'] = self.aoi_schedule[i - self.zero_shot_start]
+                    emergency_df['allocation'] = int(self.emergency_allocation_table[i - self.zero_shot_start])
+                    emergency_df['episode_length'] = self.episode_length
+                    emergency_df['coverage'] = self.target_coveraged_timelist[:, i]
+                    logging.debug(f"Emergency Covered at {np.nonzero(emergency_df['coverage'])[0]}")
+                    emergencies_dfs.append(emergency_df)
+                # all_emergency = pd.concat(emergencies_dfs)
+                mixed_df = pd.concat([mixed_df, *emergencies_dfs])
+
             robot_dfs = []
             for i in range(self.num_agents):
                 x_list = self.agent_x_time_list[:, i]
@@ -1026,39 +1055,9 @@ class CrowdSim:
                 # Add reward timelist for rendering.
                 robot_dfs.append(robot_df)
             mixed_df = pd.concat([mixed_df, *robot_dfs])
-            if self.dynamic_zero_shot:
-                self.emergency_allocation_table = self.cuda_data_manager.pull_data_from_device(
-                    "emergency_allocation_table")[0]
-                # add emergency targets.
-                # pull emergency coordinates from device to host, since points in host are already refreshed
-                all_zero_shot_x = self.cuda_data_manager.pull_data_from_device("target_x")[0][:, self.zero_shot_start:]
-                all_zero_shot_y = self.cuda_data_manager.pull_data_from_device("target_y")[0][:, self.zero_shot_start:]
-                self.aoi_schedule = self.cuda_data_manager.pull_data_from_device("aoi_schedule")[0]
-                emergencies_dfs = []
-                for i in range(self.zero_shot_start, self.num_sensing_targets):
-                    logging.debug(f"Creation Time: {self.aoi_schedule[i - self.zero_shot_start]}")
-                    delay_list = np.full_like(self.target_aoi_timelist[:, i], self.target_aoi_timelist[:, i][-1])
-                    x_list = all_zero_shot_x[:, i - self.zero_shot_start]
-                    y_list = all_zero_shot_y[:, i - self.zero_shot_start]
-                    if x_list[0] == 0 and y_list[0] == 0:
-                        continue
-                    id_list = np.full_like(x_list, i)
-                    energy_list = np.zeros_like(x_list)
-                    emergency_df = self.xy_to_dataframe(delay_list, energy_list, id_list, max_latitude,
-                                                        max_longitude, timestamp_list, x_list, y_list)
-                    emergency_df['creation_time'] = self.aoi_schedule[i - self.zero_shot_start]
-                    if self.dynamic_zero_shot:
-                        emergency_df['allocation'] = int(self.emergency_allocation_table[i - self.zero_shot_start])
-                    else:
-                        emergency_df['allocation'] = -1
-                    emergency_df['episode_length'] = self.episode_length
-                    emergency_df['coverage'] = self.target_coveraged_timelist[:, i]
-                    logging.debug(f"Emergency Covered at {np.nonzero(emergency_df['coverage'])[0]}")
-                    emergencies_dfs.append(emergency_df)
-                # all_emergency = pd.concat(emergencies_dfs)
-                mixed_df = pd.concat([mixed_df, *emergencies_dfs])
+
             # ------------------------------------------------------------------------------------
-            # 建立moving pandas轨迹，也可以选择调用高级API继续清洗轨迹。
+            print("Constructing Geo trajectories...")
             mixed_gdf = gpd.GeoDataFrame(mixed_df, geometry=gpd.points_from_xy(mixed_df.longitude, mixed_df.latitude),
                                          crs=4326)
             mixed_gdf = mixed_gdf.set_index('t').tz_localize(None)  # tz=time zone, 以本地时间为准
@@ -1081,13 +1080,45 @@ class CrowdSim:
             # folium.TileLayer('Stamen Toner',
             #                  attr='Map tiles by Stamen Design, under CC BY 3.0. Data by OpenStreetMap, under ODbL'
             #                  ).add_to(my_render_map)
-
             folium.TileLayer('cartodbpositron',
                              attr='Map tiles by Carto, under CC BY 3.0. Data by OpenStreetMap, under ODbL'
                              ).add_to(my_render_map)
-
             folium.TileLayer('OpenStreetMap', attr='© OpenStreetMap contributors').add_to(my_render_map)
+            hide_progress_bar_js = """
+                var element = document.getElementsByClassName('leaflet-bottom leaflet-left')[0];
+                if (element) {
+                var opacity = element.style.opacity;
+                if(opacity == 1){
+                    element.style.opacity = 0;
+                }
+                else{
+                    element.style.opacity = 1;   
+                }
+                }
+            """
+            hide_progress_bar_js_func = "function toggleProgressBar(btn, map) {" + hide_progress_bar_js + "}"
+            JsButton(
+                title='<i class="fas fa-crosshairs"></i>', function=hide_progress_bar_js_func).add_to(my_render_map)
+            # add custom_js to the map
+            my_render_map.get_root().script.add_child(folium.Element(hide_progress_bar_js))
+            pause_js_func = """
+                function pauseMap(btn, map) {
+                // Select all elements with the specified class name
+                var elements = document.querySelectorAll('.leaflet-control-timecontrol.timecontrol-play.pause');
 
+                // Check if NodeList is empty, then select elements with a different class name
+                if (elements.length === 0) {
+                    elements = document.querySelectorAll('.leaflet-control-timecontrol.timecontrol-play.play');
+                }
+
+                // Simulate click event for each element
+                elements.forEach(function(element) {
+                    element.click();
+                });
+            }
+            """
+            JsButton(
+                title='<i class="fas fa-pause"></i>', function=pause_js_func).add_to(my_render_map)
             # 锁定范围
             grid_geo_json = get_border(self.upper_right, self.lower_left)
             color = "red"
@@ -1100,9 +1131,13 @@ class CrowdSim:
                                         'fillOpacity': 0,
                                     })
             my_render_map.add_child(border)
-            all_features = []
+
+            surveillance_features = []
+            emergency_features = []
             for index, traj in tqdm(enumerate(trajectories)):
-                traj_id = traj.df['id'].iloc[0]
+                traj_id = int(traj.df['id'].iloc[0])
+                # digitize aois into 6 levels, from 0 to 5
+
                 is_car = 0 > traj_id >= (-self.num_cars)
                 is_drone = traj_id < (-self.num_cars)
                 is_emergency = traj_id >= self.zero_shot_start
@@ -1113,19 +1148,22 @@ class CrowdSim:
                 else:
                     name = f"PoI {traj_id}"
 
+                color_levels = traj.df['color'].values.astype(int)
+                is_agent = is_car or is_drone
                 if self.dynamic_zero_shot:
-                    if is_car or is_drone:
+                    if is_agent:
                         color = self.get_next_color()
                     elif is_emergency:
                         color = "red"
                     else:
-                        color = "orange"
+                        color = [self.surveillance_colors[level] for level in color_levels]
                 else:
-                    if is_car or is_drone:
+                    if is_agent:
                         color = self.get_next_color()
                     else:
-                        color = "orange"
+                        color = [self.surveillance_colors[level] for level in color_levels]
 
+                # logging.debug(f"Color: {color}")
                 # Create features for the current trajectory
                 features = traj_to_timestamped_geojson(index,
                                                        traj,
@@ -1133,28 +1171,26 @@ class CrowdSim:
                                                        self.num_drones,
                                                        color,
                                                        index < self.num_agents or is_emergency,
-                                                       self.fix_target,
+                                                       self.fix_target and (not is_agent),
                                                        is_emergency)
-                if is_car or is_drone or is_emergency:
+                if is_agent:
                     # create a feature group
                     kwargs = {'data': {
                         "type": "FeatureCollection",
                         "features": features,
-                    }, 'period': "PT5S", 'add_last_point': True, 'transition_time': 200, 'loop': plot_loop,
-                        'speed_slider': False}
-                    if is_emergency:
-                        kwargs['duration'] = "PT5S"
-                    else:
-                        kwargs['duration'] = "PT10M"
+                    }, 'period': "PT5S", 'add_last_point': True, 'transition_time': 200,
+                        'loop': plot_loop, 'speed_slider': False, "duration": 'PT30M'}
                     TimestampedGeoJson(
                         **kwargs,
                     ).add_to(my_render_map)
+                elif is_emergency:
+                    emergency_features.extend(features)
                 else:
                     # link the name with trajectories
-                    all_features.extend(features)
+                    surveillance_features.extend(features)
 
             # Point Set Mapping:
-            # point_set = folium.FeatureGroup(name="My Point Set")
+
             #
             # # Define the coordinates of your points
             # point_coordinates = [(latitude1, longitude1), (latitude2, longitude2), (latitude3, longitude3)]
@@ -1167,18 +1203,60 @@ class CrowdSim:
             # # Add the FeatureGroup to the map
             # point_set.add_to(my_render_map)
 
-            # Create a single TimestampedGeoJson with all features
+            # Create a single TimestampedGeoJson with all features (surveillance)
+            print("Constructing Surveillance GeoJson...")
             TimestampedGeoJson(
                 {
                     "type": "FeatureCollection",
-                    "features": all_features,
+                    "features": surveillance_features,
                 },
+                duration='PT10S',
                 period="PT5S",  # Adjust the time interval as needed
                 add_last_point=True,
-                transition_time=5,
+                transition_time=200,
                 speed_slider=False,
-                loop=False  # Apply the custom GeoJSON options
+                auto_play=True,
+                loop=plot_loop  # Apply the custom GeoJSON options
             ).add_to(my_render_map)
+            # create surveillance color bar
+            data = {
+                'Point 1': 20,
+                'Point 2': 40,
+                'Point 3': 60,
+                'Point 4': 80,
+                'Point 5': 100
+            }
+
+            # Custom HTML legend for color bar with rectangle markers
+            # legend_colors = self.surveillance_colors
+            # legend_html = f"""
+            #     <div style="position: fixed; bottom: 50px; left: 50px; width: 300px; height: 150px;
+            #                 background-color: white; border: 2px solid grey; z-index:9999; font-size:14px;">
+            #         <p style="text-align:center; margin-top: 10px;"><strong>Legend</strong></p>
+            #         <div style="display: flex; justify-content: space-between; padding: 10px;">
+            #             {"".join([f'<div style="background-color: {color}; width: 50px; height: 20px;"></div>' for color in legend_colors])}
+            #         </div>
+            #         <p style="text-align:center; margin-bottom: 10px;">Low &nbsp;&nbsp;&nbsp; High</p>
+            #     </div>
+            # """
+            #
+            # # Create a custom MacroElement for the legend
+            # legend = MacroElement()
+            # legend._template = Template(legend_html)
+            # my_render_map.get_root().add_child(legend)
+            #
+            # # Add your data to the map
+            # for point, value in data.items():
+            #     folium.Rectangle(bounds=[[-2.5, -2.5], [2.5, 2.5]],
+            #                      popup=f"{point}: {value}", color='black', fill_color=color).add_to(my_render_map)
+
+            if self.dynamic_zero_shot:
+                kwargs = {'data': {
+                    "type": "FeatureCollection",
+                    "features": emergency_features,
+                }, 'period': "PT5S", 'add_last_point': True, 'transition_time': 200,
+                    'loop': plot_loop, 'speed_slider': False, 'duration': "PT5S"}
+                TimestampedGeoJson(**kwargs).add_to(my_render_map)
 
             folium.LayerControl().add_to(my_render_map)
             # collect environment metric info and add it to folium
@@ -1212,12 +1290,13 @@ class CrowdSim:
                            f"Total Reward: {np.sum(self.agent_rewards_time_list):.2f}"
                 # f"Overall AoI: {info[OVERALL_AOI]:.2f}"
             else:
-                info_str = f"Energy Ratio: {info[ENERGY_METRIC_NAME]:.2f}, " \
-                           f"Freshness: {info[FRESHNESS_FACTOR]:.4f}, " \
+                info_str = f"Energy Ratio: {info[ENERGY_METRIC_NAME]:.2f},<br>" \
+                           f"Freshness: {info[FRESHNESS_FACTOR]:.4f},<br>" \
                            f"Coverage: {info[COVERAGE_METRIC_NAME]:.4f},<br>" \
-                           f"Mean AoI: {info[AOI_METRIC_NAME]:.2f},<br>" \
-                           f"Fresh Coverage: {info[MAIN_METRIC_NAME]:.2f}" \
+                           f"Mean AoI: {info[SURVEILLANCE_METRIC]:.2f},<br>" \
+                           f"Fresh Coverage: {info[MAIN_METRIC_NAME]:.2f},<br>" \
                            f"Total Reward: {np.sum(self.agent_rewards_time_list):.2f}"
+
                 # f"Data Collect: {info[DATA_METRIC_NAME]:.4f}, " \
             folium.map.Marker(
                 [self.upper_right[1], self.upper_right[0]],
@@ -1227,41 +1306,6 @@ class CrowdSim:
                     html=f'<div style="font-size: 12pt">{info_str}</div>',
                 )
             ).add_to(my_render_map)
-            hide_progress_bar_js = """
-                var element = document.getElementsByClassName('leaflet-bottom leaflet-left')[0];
-                if (element) {
-                var opacity = element.style.opacity;
-                if(opacity == 1){
-                    element.style.opacity = 0;
-                }
-                else{
-                    element.style.opacity = 1;   
-                }
-                }
-            """
-            hide_progress_bar_js_func = "function toggleProgressBar(btn, map) {" + hide_progress_bar_js + "}"
-            JsButton(
-                title='<i class="fas fa-crosshairs"></i>', function=hide_progress_bar_js_func).add_to(my_render_map)
-            # add custom_js to the map
-            my_render_map.get_root().script.add_child(folium.Element(hide_progress_bar_js))
-            pause_js_func = """
-                function pauseMap(btn, map) {
-                // Select all elements with the specified class name
-                var elements = document.querySelectorAll('.leaflet-control-timecontrol.timecontrol-play.pause');
-            
-                // Check if NodeList is empty, then select elements with a different class name
-                if (elements.length === 0) {
-                    elements = document.querySelectorAll('.leaflet-control-timecontrol.timecontrol-play.play');
-                }
-            
-                // Simulate click event for each element
-                elements.forEach(function(element) {
-                    element.click();
-                });
-            }
-            """
-            JsButton(
-                title='<i class="fas fa-pause"></i>', function=pause_js_func).add_to(my_render_map)
             my_render_map.get_root().render()
             my_render_map.get_root().save(output_file)
             logging.info(f"{output_file} saved!")
@@ -1436,7 +1480,7 @@ class CUDACrowdSim(CrowdSim, CUDAEnvironmentContext):
             "agent_speed",
             "dynamic_zero_shot",
             "buffer_in_obs",
-            "force_allocate",
+            "force_allocate",  # too much commas are forgetted at here.
             "scaled_reward",
             "emergency_threshold",
             "zero_shot_start",
@@ -1491,9 +1535,7 @@ class RLlibCUDACrowdSim(MultiAgentEnv):
 
         logging.debug("received run_config: %s", pprint.pformat(run_config))
         os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"
-        self.eval_interval = 5
-        self.evaluate_count_down: int = self.eval_interval
-        self.trajectory_generated = 0
+
         requirements = ["env_params", "trainer"]
         for requirement in requirements:
             if requirement not in run_config:
@@ -1513,6 +1555,9 @@ class RLlibCUDACrowdSim(MultiAgentEnv):
         self.centralized = additional_params.get("centralized", False)
         self.is_render = additional_params.get("render", False)
         self.is_local = additional_params.get("local_mode", False)
+        self.eval_interval = 5 if (not self.is_local) else 1
+        self.evaluate_count_down: int = self.eval_interval
+        self.trajectory_generated = 0
         self.env_registrar = EnvironmentRegistrar()
         if "mock" not in additional_params:
             self.env_registrar.add_cuda_env_src_path(CUDACrowdSim.name,
