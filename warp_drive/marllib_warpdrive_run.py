@@ -51,7 +51,7 @@ if __name__ == '__main__':
     parser.add_argument("--separate_encoder", action='store_true', help='use separate head for emergency')
     parser.add_argument("--with_programming_optimization", action='store_true')
     parser.add_argument('--no_refresh', action='store_true', help='do not reset randomly generated emergency points')
-    parser.add_argument("--selector_type", type=str, default='NN',
+    parser.add_argument("--selector_type", type=str, default=['NN'],
                         choices=['NN', 'greedy', 'oracle', 'random', 'RL'], nargs='+')
     parser.add_argument("--switch_step", type=int, default=600000, help='switch step for NN selector')
     parser.add_argument("--one_agent_multi_task", action='store_true', help='allocate multiple task for a single agent')
@@ -66,14 +66,14 @@ if __name__ == '__main__':
     parser.add_argument("--sibling_rivalry", action='store_true', help='enable anti-goal distance reward')
     parser.add_argument('--alpha', type=float, default=0.1, help='alpha for anti-goal distance reward')
     parser.add_argument("--buffer_in_obs", action='store_true', help='display entire buffer in the observation')
-    parser.add_argument("--reward_mode", type=str, default='mix',
+    parser.add_argument("--reward_mode", type=str, default='greedy',
                         choices=['mix', 'original', 'intrinsic', 'none', 'greedy'],
                         help='reward type for emergency')
     parser.add_argument('--fail_hint', action='store_true', help='use fail hint for emergency allocation reward')
     parser.add_argument('--prioritized_buffer', action='store_true',
                         help='use prioritized emergency buffer, sorted by distance')
     parser.add_argument('--rl_use_cnn', action='store_true', help='use CNN for RL selector')
-    parser.add_argument('--intrinsic_mode', type=str, default='none', choices=['none', 'dis', 'aoi',
+    parser.add_argument('--intrinsic_mode', type=str, default='scaled_dis_aoi', choices=['none', 'dis', 'aoi',
                                                                                'scaled_dis_aoi', 'dis_aoi'])
     parser.add_argument('--use_random', action='store_true', help='use random emergency generation')
     parser.add_argument('--surveillance_only', action='store_true', help='only use surveillance reward')
@@ -176,7 +176,7 @@ if __name__ == '__main__':
                       'dataset', 'emergency_threshold', 'switch_step', 'one_agent_multi_task',
                       'emergency_queue_length', 'tolerance', 'look_ahead', 'local_mode',
                       'render_file_name', 'buffer_in_obs', 'separate_encoder', 'prioritized_buffer',
-                      'rl_use_cnn', 'intrinsic_mode', 'dynamic_zero_shot'] + restore_ignore_params):
+                      'rl_use_cnn', 'intrinsic_mode', 'dynamic_zero_shot', 'use_random'] + restore_ignore_params):
             load_preferences(custom_preference=model_preference, args=args, this_expr_dir=this_expr_dir)
     model = marl.build_model(env, my_algorithm, model_preference)
     # start learning

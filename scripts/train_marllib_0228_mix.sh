@@ -1,7 +1,7 @@
 #!/bin/bash
-exp_name='75_scratch'
+exp_name='75_mix'
 session_name=$exp_name
-cards=(1 2 3 5 6 7)
+cards=(1 2 1 2 4 1 2 3 4)
 card_num=${#cards[@]}
 dry_run=false
 # Process command-line arguments
