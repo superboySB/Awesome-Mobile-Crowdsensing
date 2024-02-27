@@ -1,8 +1,8 @@
 #!/bin/bash
 
-exp_name='76_pretrain'
+exp_name='103_scratch'
 session_name=$exp_name
-cards=(1 2 3 4 5 6 2 3 4 5)
+cards=(0 1 2)
 card_num=${#cards[@]}
 dry_run=false
 # Process command-line arguments
@@ -18,16 +18,12 @@ while [[ $# -gt 0 ]]; do
 done
 # remove NN share_policy all
 trains=(
-  "--dataset SanFrancisco --selector_type RL --rl_gamma 0 --emergency_queue_length 1 --gen_interval 10 --reward_mode original --rl_use_cnn --ckpt 69d9c 7000 2024-02-22_16-28-54 2024-02-22_16-28-53"
-  "--dataset SanFrancisco --selector_type RL --rl_gamma 0 --emergency_queue_length 1 --gen_interval 10 --reward_mode original --ckpt 69d9c 7000 2024-02-22_16-28-54 2024-02-22_16-28-53"
-  "--dataset SanFrancisco --selector_type RL --rl_gamma 0 --emergency_queue_length 1 --gen_interval 10 --reward_mode greedy --ckpt 69d9c 7000 2024-02-22_16-28-54 2024-02-22_16-28-53"
-  "--dataset SanFrancisco --selector_type RL --rl_gamma 0 --emergency_queue_length 3 --gen_interval 10 --reward_mode greedy --ckpt 69d9c 7000 2024-02-22_16-28-54 2024-02-22_16-28-53"
-  "--dataset SanFrancisco --selector_type RL --rl_gamma 0 --emergency_queue_length 5 --gen_interval 10 --reward_mode greedy --ckpt 69d9c 7000 2024-02-22_16-28-54 2024-02-22_16-28-53"
-  "--dataset Chengdu --selector_type RL --rl_gamma 0 --emergency_queue_length 1 --gen_interval 10 --reward_mode original --rl_use_cnn --ckpt 42045 7000 2024-02-22_14-33-15 2024-02-22_14-33-15"
-  "--dataset Chengdu --selector_type RL --rl_gamma 0 --emergency_queue_length 1 --gen_interval 10 --reward_mode original --ckpt 42045 7000 2024-02-22_14-33-15 2024-02-22_14-33-15"
-  "--dataset Chengdu --selector_type RL --rl_gamma 0 --emergency_queue_length 1 --gen_interval 10 --reward_mode greedy --ckpt 42045 7000 2024-02-22_14-33-15 2024-02-22_14-33-15"
-  "--dataset Chengdu --selector_type RL --rl_gamma 0 --emergency_queue_length 3 --gen_interval 10 --ckpt 42045 7000 2024-02-22_14-33-15 2024-02-22_14-33-15"
-  "--dataset Chengdu --selector_type RL --rl_gamma 0 --emergency_queue_length 5 --gen_interval 10 --ckpt 42045 7000 2024-02-22_14-33-15 2024-02-22_14-33-15"
+  "--dataset SanFrancisco --selector_type RL --rl_gamma 0 --emergency_queue_length 1 --gen_interval 10 --reward_mode greedy"
+  "--dataset SanFrancisco --selector_type RL --rl_gamma 0 --emergency_queue_length 3 --gen_interval 10 --reward_mode greedy"
+  "--dataset SanFrancisco --selector_type RL --rl_gamma 0 --emergency_queue_length 5 --gen_interval 10 --reward_mode greedy"
+  "--dataset Chengdu --selector_type RL --rl_gamma 0 --emergency_queue_length 1 --gen_interval 10 --reward_mode greedy"
+  "--dataset Chengdu --selector_type RL --rl_gamma 0 --emergency_queue_length 3 --gen_interval 10 --reward_mode greedy"
+  "--dataset Chengdu --selector_type RL --rl_gamma 0 --emergency_queue_length 5 --gen_interval 10 --reward_mode greedy"
 )
 
 

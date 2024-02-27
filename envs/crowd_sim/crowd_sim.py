@@ -72,7 +72,8 @@ VALID_HANDLING_RATIO = "valid_handling_ratio"
 
 user_override_params = ['env_config', 'dynamic_zero_shot', 'use_2d_state', 'all_random',
                         'num_drones', 'num_cars', 'cut_points', 'fix_target', 'gen_interval',
-                        'no_refresh', 'force_allocate', 'emergency_queue_length', 'buffer_in_obs']
+                        'no_refresh', 'force_allocate', 'emergency_queue_length',
+                        'buffer_in_obs', 'intrinsic_mode']
 
 grid_size = 10
 
@@ -180,6 +181,7 @@ class CrowdSim:
             emergency_queue_length=1,
             force_allocate=False,
             buffer_in_obs=False,
+            intrinsic_mode='dis_aoi',
     ):
         self.float_dtype = np.float32
         self.single_type_agent = single_type_agent
@@ -187,6 +189,7 @@ class CrowdSim:
         self.no_refresh = no_refresh
         self.buffer_in_obs = buffer_in_obs
         self.bool_dtype = np.bool_
+        self.scaled_reward = ("scale" in intrinsic_mode) or (intrinsic_mode == 'dis')
         # small number to prevent indeterminate cases
         self.eps = self.float_dtype(1e-10)
         self.fix_target = fix_target
@@ -1375,6 +1378,7 @@ class CUDACrowdSim(CrowdSim, CUDAEnvironmentContext):
                                  ("dynamic_zero_shot", self.int_dtype(self.dynamic_zero_shot)),
                                  ("buffer_in_obs", self.int_dtype(self.buffer_in_obs)),
                                  ("force_allocate", self.int_dtype(self.force_allocate)),
+                                 ("scaled_reward", self.int_dtype(self.scaled_reward)),
                                  ("emergency_threshold", self.int_dtype(self.emergency_threshold)),
                                  ("zero_shot_start", self.int_dtype(self.zero_shot_start)),
                                  ("single_type_agent", self.int_dtype(self.single_type_agent)),
@@ -1433,6 +1437,7 @@ class CUDACrowdSim(CrowdSim, CUDAEnvironmentContext):
             "dynamic_zero_shot",
             "buffer_in_obs",
             "force_allocate",
+            "scaled_reward",
             "emergency_threshold",
             "zero_shot_start",
             "single_type_agent",

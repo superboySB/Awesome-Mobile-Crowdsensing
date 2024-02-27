@@ -1,8 +1,9 @@
 #!/bin/bash
 
-exp_name='76_pretrain'
+#dataset_name='Chengdu'
+exp_name='75_attention'
 session_name=$exp_name
-cards=(1 2 3 4 5 6 2 3 4 5)
+cards=(5 6 7 1 2 3)
 card_num=${#cards[@]}
 dry_run=false
 # Process command-line arguments
@@ -18,16 +19,12 @@ while [[ $# -gt 0 ]]; do
 done
 # remove NN share_policy all
 trains=(
-  "--dataset SanFrancisco --selector_type RL --rl_gamma 0 --emergency_queue_length 1 --gen_interval 10 --reward_mode original --rl_use_cnn --ckpt 69d9c 7000 2024-02-22_16-28-54 2024-02-22_16-28-53"
-  "--dataset SanFrancisco --selector_type RL --rl_gamma 0 --emergency_queue_length 1 --gen_interval 10 --reward_mode original --ckpt 69d9c 7000 2024-02-22_16-28-54 2024-02-22_16-28-53"
-  "--dataset SanFrancisco --selector_type RL --rl_gamma 0 --emergency_queue_length 1 --gen_interval 10 --reward_mode greedy --ckpt 69d9c 7000 2024-02-22_16-28-54 2024-02-22_16-28-53"
-  "--dataset SanFrancisco --selector_type RL --rl_gamma 0 --emergency_queue_length 3 --gen_interval 10 --reward_mode greedy --ckpt 69d9c 7000 2024-02-22_16-28-54 2024-02-22_16-28-53"
-  "--dataset SanFrancisco --selector_type RL --rl_gamma 0 --emergency_queue_length 5 --gen_interval 10 --reward_mode greedy --ckpt 69d9c 7000 2024-02-22_16-28-54 2024-02-22_16-28-53"
-  "--dataset Chengdu --selector_type RL --rl_gamma 0 --emergency_queue_length 1 --gen_interval 10 --reward_mode original --rl_use_cnn --ckpt 42045 7000 2024-02-22_14-33-15 2024-02-22_14-33-15"
-  "--dataset Chengdu --selector_type RL --rl_gamma 0 --emergency_queue_length 1 --gen_interval 10 --reward_mode original --ckpt 42045 7000 2024-02-22_14-33-15 2024-02-22_14-33-15"
-  "--dataset Chengdu --selector_type RL --rl_gamma 0 --emergency_queue_length 1 --gen_interval 10 --reward_mode greedy --ckpt 42045 7000 2024-02-22_14-33-15 2024-02-22_14-33-15"
-  "--dataset Chengdu --selector_type RL --rl_gamma 0 --emergency_queue_length 3 --gen_interval 10 --ckpt 42045 7000 2024-02-22_14-33-15 2024-02-22_14-33-15"
-  "--dataset Chengdu --selector_type RL --rl_gamma 0 --emergency_queue_length 5 --gen_interval 10 --ckpt 42045 7000 2024-02-22_14-33-15 2024-02-22_14-33-15"
+  "--dataset SanFrancisco --selector_type RL greedy --emergency_queue_length 1 --gen_interval 10"
+  "--dataset SanFrancisco --selector_type RL greedy --emergency_queue_length 3 --gen_interval 10"
+  "--dataset SanFrancisco --selector_type RL greedy --emergency_queue_length 5 --gen_interval 10"
+  "--dataset Chengdu --selector_type RL greedy --emergency_queue_length 1"
+  "--dataset Chengdu --selector_type RL greedy --emergency_queue_length 3"
+  "--dataset Chengdu --selector_type RL greedy --emergency_queue_length 5"
 )
 
 
@@ -64,7 +61,8 @@ for ((i = 0; i < train_num; i++)); do
   # if want to add $PATH, remember to add / before $
   command="python warp_drive/marllib_warpdrive_run.py --track --core_arch crowdsim_net --dynamic_zero_shot\
   --num_drones 4 --num_cars 0 --group auto_allocation --algo trafficppo --share_policy all --switch_step 60000000\
-  --gpu_id ${cards[card_id]} ${trains[i]} --use_2d_state --tag pretrain --look_ahead --intrinsic_mode dis_aoi"
+  --gpu_id ${cards[card_id]} ${trains[i]} --use_2d_state --tag buffer_in_obs attention --look_ahead --buffer_in_obs\
+   --separate_encoder --intrinsic_mode dis_aoi"
   echo "$command"
   if [ "$dry_run" = "false" ] && [ "$choice" != "n" ]
   then

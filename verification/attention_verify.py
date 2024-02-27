@@ -1,5 +1,5 @@
 emergency_features = 3
-embed_dim = 2
+embed_dim = 8
 agent_count = 4
 emergency_count = 128
 if __name__ == '__main__':

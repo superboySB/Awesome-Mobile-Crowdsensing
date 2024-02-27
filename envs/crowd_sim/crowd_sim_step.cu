@@ -66,6 +66,7 @@ extern "C" {
   ) {
     //     printf("Grid Center: (%f, %f)\n", grid_center_x, grid_center_y);
     const float invEpisodeLength = 1.0f / kEpisodeLength;
+
     // ------------------------------------
     // [Part 3] aoi grid (10 * 10)
     const float x_width = sense_range_x >> 1;
@@ -566,6 +567,7 @@ extern "C" {
                                             int dynamic_zero_shot,
                                             int buffer_in_obs,
                                             int force_allocate,
+                                            int scaled_reward,
                                             int emergency_threshold,
                                             int zero_shot_start,
                                             int single_type_agent,
@@ -609,7 +611,10 @@ extern "C" {
     // Update on 2024.1.2, Double AoI Grid (100 -> 200)
     // Update on 2024.1.10, remove emergency grid. (200 -> 100)
     const int grid_flatten_size = 100;
-    const int emergency_reward = 10;
+    float emergency_reward = 10.0;
+    if (scaled_reward){
+      emergency_reward /= emergency_threshold;
+    }
     const int total_num_grids = grid_flatten_size;
     const int AgentFeature = 4 + kNumAgents;
     // Update on 2024.1.10, add emergency points queue
@@ -619,6 +624,7 @@ extern "C" {
     const int features_per_emergency_in_state = 5;
     const int state_vec_features = StateFullAgentFeature + emergency_count * features_per_emergency_in_state + 1;
     const int state_features = state_vec_features + grid_flatten_size;
+    const float invThreshold = 1.0f / emergency_threshold;
     int obs_vec_features = AgentFeature + (kNumAgentsObserved << 2);
     if (buffer_in_obs){
       obs_vec_features += FeaturesInEmergencyQueue * emergency_queue_length;
@@ -796,6 +802,9 @@ extern "C" {
          }
          else{
           reward_update = reward_increment * invEpisodeLength;
+          if (scaled_reward){
+            reward_update /= emergency_threshold;
+          }
          }
         // print target point x,y, agent_id and reward amount
 
