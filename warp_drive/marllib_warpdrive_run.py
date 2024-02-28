@@ -74,7 +74,8 @@ if __name__ == '__main__':
                         help='use prioritized emergency buffer, sorted by distance')
     parser.add_argument('--rl_use_cnn', action='store_true', help='use CNN for RL selector')
     parser.add_argument('--intrinsic_mode', type=str, default='scaled_dis_aoi', choices=['none', 'dis', 'aoi',
-                                                                               'scaled_dis_aoi', 'dis_aoi'])
+                                                                                         'scaled_dis_aoi', 'dis_aoi',
+                                                                                         'aim'])
     parser.add_argument('--use_random', action='store_true', help='use random emergency generation')
     parser.add_argument('--surveillance_only', action='store_true', help='only use surveillance reward')
     parser.add_argument('--attention_dim', type=int, default=32, help='attention dimension (single head)')

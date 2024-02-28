@@ -6,9 +6,11 @@ if [ "$current_hostname" = "$expected_hostname" ]; then
     echo "Master Server, syncing contents to other servers"
     chmod +x train_marllib*.sh
     cd /workspace
+    rsync -e 'ssh -p 40731' -avuzPr Awesome-Mobile-Crowdsensing root@10.1.114.66:/workspace
     rsync -e 'ssh -p 40731' -avuzPr Awesome-Mobile-Crowdsensing root@10.1.114.75:/workspace
     rsync -e 'ssh -p 40731' -avuzPr Awesome-Mobile-Crowdsensing root@10.1.114.76:/workspace
     rsync -e 'ssh -p 40731' -avuzPr Awesome-Mobile-Crowdsensing root@10.1.114.103:/workspace
+    rsync -e 'ssh -p 40731' -avuzPr root@10.1.114.66:/workspace/saved_data/trajectories /workspace/saved_data
     rsync -e 'ssh -p 40731' -avuzPr root@10.1.114.75:/workspace/saved_data/trajectories /workspace/saved_data
     rsync -e 'ssh -p 40731' -avuzPr root@10.1.114.76:/workspace/saved_data/trajectories /workspace/saved_data
     rsync -e 'ssh -p 40731' -avuzPr root@10.1.114.103:/workspace/saved_data/trajectories /workspace/saved_data
