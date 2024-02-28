@@ -64,7 +64,7 @@ if __name__ == '__main__':
                                                                       'will receive no reward if it is not allocated '
                                                                       'to cover.')
     parser.add_argument("--sibling_rivalry", action='store_true', help='enable anti-goal distance reward')
-    parser.add_argument('--alpha', type=float, default=0.1, help='alpha for anti-goal distance reward')
+    parser.add_argument('--alpha', type=float, default=0.3, help='alpha for anti-goal distance reward')
     parser.add_argument("--buffer_in_obs", action='store_true', help='display entire buffer in the observation')
     parser.add_argument("--reward_mode", type=str, default='greedy',
                         choices=['mix', 'original', 'intrinsic', 'none', 'greedy'],
@@ -77,6 +77,8 @@ if __name__ == '__main__':
                                                                                'scaled_dis_aoi', 'dis_aoi'])
     parser.add_argument('--use_random', action='store_true', help='use random emergency generation')
     parser.add_argument('--surveillance_only', action='store_true', help='only use surveillance reward')
+    parser.add_argument('--attention_dim', type=int, default=32, help='attention dimension (single head)')
+    parser.add_argument('--num_heads', type=int, default=4, help='number of heads for attention')
     args = parser.parse_args()
 
     assert args.encoder_layer is not None and is_valid_format(args.encoder_layer), \
@@ -176,7 +178,8 @@ if __name__ == '__main__':
                       'dataset', 'emergency_threshold', 'switch_step', 'one_agent_multi_task',
                       'emergency_queue_length', 'tolerance', 'look_ahead', 'local_mode',
                       'render_file_name', 'buffer_in_obs', 'separate_encoder', 'prioritized_buffer',
-                      'rl_use_cnn', 'intrinsic_mode', 'dynamic_zero_shot', 'use_random'] + restore_ignore_params):
+                      'rl_use_cnn', 'intrinsic_mode', 'dynamic_zero_shot', 'use_random',
+                      'attention_dim', 'num_heads'] + restore_ignore_params):
             load_preferences(custom_preference=model_preference, args=args, this_expr_dir=this_expr_dir)
     model = marl.build_model(env, my_algorithm, model_preference)
     # start learning

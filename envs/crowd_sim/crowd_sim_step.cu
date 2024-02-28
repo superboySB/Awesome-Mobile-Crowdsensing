@@ -613,7 +613,7 @@ extern "C" {
     const int grid_flatten_size = 100;
     float emergency_reward = 10.0;
     if (scaled_reward){
-      emergency_reward /= emergency_threshold;
+      emergency_reward /= 10;
     }
     const int total_num_grids = grid_flatten_size;
     const int AgentFeature = 4 + kNumAgents;
@@ -624,7 +624,7 @@ extern "C" {
     const int features_per_emergency_in_state = 5;
     const int state_vec_features = StateFullAgentFeature + emergency_count * features_per_emergency_in_state + 1;
     const int state_features = state_vec_features + grid_flatten_size;
-    const float invThreshold = 1.0f / emergency_threshold;
+    const float invThreshold = 1.0f / 10;
     int obs_vec_features = AgentFeature + (kNumAgentsObserved << 2);
     if (buffer_in_obs){
       obs_vec_features += FeaturesInEmergencyQueue * emergency_queue_length;
@@ -810,7 +810,7 @@ extern "C" {
          else{
           reward_update = reward_increment * invEpisodeLength;
           if (scaled_reward){
-            reward_update /= emergency_threshold;
+            reward_update /= 10;
           }
          }
         // print target point x,y, agent_id and reward amount

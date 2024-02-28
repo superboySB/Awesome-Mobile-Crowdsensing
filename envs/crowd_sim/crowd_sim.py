@@ -68,7 +68,7 @@ VALID_HANDLING_RATIO = "valid_handling_ratio"
 user_override_params = ['env_config', 'dynamic_zero_shot', 'use_2d_state', 'all_random',
                         'num_drones', 'num_cars', 'cut_points', 'fix_target', 'gen_interval',
                         'no_refresh', 'force_allocate', 'emergency_queue_length',
-                        'buffer_in_obs', 'intrinsic_mode', 'use_random']
+                        'buffer_in_obs', 'intrinsic_mode', 'use_random', 'emergency_threshold']
 
 grid_size = 10
 
@@ -205,7 +205,9 @@ class CrowdSim:
         self.gen_interval = gen_interval
 
         self.aoi_threshold = self.config.env.aoi_threshold
-        self.emergency_threshold = self.config.env.emergency_threshold
+        self.emergency_threshold = emergency_threshold
+        logging.debug("Emergency Threshold: {}".format(self.emergency_threshold))
+        # self.emergency_threshold = self.config.env.emergency_threshold
         self.num_agents_observed = self.num_agents - 1
         self.all_random = all_random
         self.episode_length = self.config.env.num_timestep
