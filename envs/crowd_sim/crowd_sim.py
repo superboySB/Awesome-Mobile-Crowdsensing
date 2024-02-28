@@ -186,7 +186,7 @@ class CrowdSim:
         self.use_random = use_random
         self.buffer_in_obs = buffer_in_obs
         self.bool_dtype = np.bool_
-        self.scaled_reward = ("scale" in intrinsic_mode) or (intrinsic_mode == 'dis')
+        self.scaled_reward = ("scale" in intrinsic_mode) or (intrinsic_mode == 'dis') or (intrinsic_mode == 'aim')
         # small number to prevent indeterminate cases
         self.eps = self.float_dtype(1e-10)
         self.fix_target = fix_target
