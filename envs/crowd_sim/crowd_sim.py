@@ -68,7 +68,8 @@ VALID_HANDLING_RATIO = "valid_handling_ratio"
 user_override_params = ['env_config', 'dynamic_zero_shot', 'use_2d_state', 'all_random',
                         'num_drones', 'num_cars', 'cut_points', 'fix_target', 'gen_interval',
                         'no_refresh', 'force_allocate', 'emergency_queue_length',
-                        'buffer_in_obs', 'intrinsic_mode', 'use_random', 'emergency_threshold']
+                        'buffer_in_obs', 'intrinsic_mode', 'use_random', 'emergency_threshold',
+                        'speed_action']
 
 grid_size = 10
 
@@ -178,6 +179,7 @@ class CrowdSim:
             buffer_in_obs=False,
             intrinsic_mode='dis_aoi',
             use_random=True,
+            speed_action=False,
     ):
         self.float_dtype = np.float32
         self.single_type_agent = single_type_agent
@@ -374,16 +376,24 @@ class CrowdSim:
         self.car_action_space_dy = self.float_dtype(self.config.env.car_action_space[:, 1])
         self.action_space = spaces.Dict()
         self.emergency_slots = self.points_per_gen
+        self.speed_levels = 3
+        self.speed_action = speed_action
         for agent_id in range(self.num_agents):
             # note one action for not choosing any emergency.
             if self.agent_types[agent_id] == 1:
-                self.action_space[agent_id] = Discrete(len(self.drone_action_space_dx))
-                # self.action_space[agent_id] = MultiDiscrete([len(self.drone_action_space_dx), self.emergency_slots + 1])
+                if self.speed_action:
+                    self.action_space[agent_id] = MultiDiscrete(
+                        [len(self.drone_action_space_dx), self.speed_levels])
+                else:
+                    self.action_space[agent_id] = Discrete(len(self.drone_action_space_dx))
             else:
-                self.action_space[agent_id] = Discrete(len(self.car_action_space_dx))
-                # self.action_space[agent_id] = MultiDiscrete([len(self.car_action_space_dx), self.emergency_slots + 1])
+                if speed_action:
+                    self.action_space[agent_id] = MultiDiscrete(
+                        [len(self.car_action_space_dx), self.speed_levels])
+                else:
+                    self.action_space[agent_id] = Discrete(len(self.car_action_space_dx))
         if isinstance(self.action_space[0], MultiDiscrete):
-            self.action_dim = self.action_space[0].nvec[0]
+            self.action_dim = self.action_space[0].shape[0]
         else:
             self.action_dim = self.action_space[0].n
 
@@ -1045,6 +1055,7 @@ class CrowdSim:
                 mixed_df = pd.concat([mixed_df, *emergencies_dfs])
 
             robot_dfs = []
+            print("Constructing Agents trajectories...")
             for i in range(self.num_agents):
                 x_list = self.agent_x_time_list[:, i]
                 y_list = self.agent_y_time_list[:, i]
@@ -1053,7 +1064,11 @@ class CrowdSim:
                 robot_df = self.xy_to_dataframe(aoi_list, energy_list, id_list, max_latitude,
                                                 max_longitude, timestamp_list, x_list, y_list)
                 robot_df['reward'] = self.agent_rewards_time_list[:, i]
-                robot_df['selection'] = self.agent_actions_time_list[:, i, 0]
+                if self.speed_action:
+                    robot_df['direction'] = self.agent_actions_time_list[:, i, 0]
+                    robot_df['speed'] = self.agent_actions_time_list[:, i, 1]
+                else:
+                    robot_df['direction'] = self.agent_actions_time_list[:, i]
                 # Add reward timelist for rendering.
                 robot_dfs.append(robot_df)
             mixed_df = pd.concat([mixed_df, *robot_dfs])
@@ -1206,7 +1221,7 @@ class CrowdSim:
             # point_set.add_to(my_render_map)
 
             # Create a single TimestampedGeoJson with all features (surveillance)
-            print("Constructing Surveillance GeoJson...")
+            # print("Constructing Surveillance GeoJson...")
             TimestampedGeoJson(
                 {
                     "type": "FeatureCollection",
@@ -1221,13 +1236,13 @@ class CrowdSim:
                 loop=plot_loop  # Apply the custom GeoJSON options
             ).add_to(my_render_map)
             # create surveillance color bar
-            data = {
-                'Point 1': 20,
-                'Point 2': 40,
-                'Point 3': 60,
-                'Point 4': 80,
-                'Point 5': 100
-            }
+            # data = {
+            #     'Point 1': 20,
+            #     'Point 2': 40,
+            #     'Point 3': 60,
+            #     'Point 4': 80,
+            #     'Point 5': 100
+            # }
 
             # Custom HTML legend for color bar with rectangle markers
             # legend_colors = self.surveillance_colors
@@ -1253,6 +1268,7 @@ class CrowdSim:
             #                      popup=f"{point}: {value}", color='black', fill_color=color).add_to(my_render_map)
 
             if self.dynamic_zero_shot:
+                # print("Constructing Emergency GeoJson...")
                 kwargs = {'data': {
                     "type": "FeatureCollection",
                     "features": emergency_features,
@@ -1309,6 +1325,7 @@ class CrowdSim:
                 )
             ).add_to(my_render_map)
             my_render_map.get_root().render()
+            print("Writing Rendered File...")
             my_render_map.get_root().save(output_file)
             logging.info(f"{output_file} saved!")
             # write agent_emergency_table as a tsv file
@@ -1380,6 +1397,7 @@ class CUDACrowdSim(CrowdSim, CUDAEnvironmentContext):
                                  ("car_action_space_dy", self.float_dtype(self.car_action_space_dy)),
                                  ("drone_action_space_dx", self.float_dtype(self.drone_action_space_dx)),
                                  ("drone_action_space_dy", self.float_dtype(self.drone_action_space_dy)),
+                                 ("speed_action", self.int_dtype(self.speed_action)),
                                  ("agent_x", self.float_dtype(np.full([self.num_agents, ], self.starting_location_x)),
                                   True),
                                  ("agent_x_range", self.float_dtype(self.nlon)),
@@ -1445,6 +1463,7 @@ class CUDACrowdSim(CrowdSim, CUDAEnvironmentContext):
             "car_action_space_dy",
             "drone_action_space_dx",
             "drone_action_space_dy",
+            "speed_action",
             "agent_x",
             "agent_x_range",
             "agent_y",

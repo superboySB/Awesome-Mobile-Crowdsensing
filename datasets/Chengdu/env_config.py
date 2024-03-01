@@ -19,7 +19,8 @@ class BaseEnvConfig(object):
     env.emergency_threshold = 10
     env.num_timestep = 120  # num_timestep x step_time = 1800s = 30min
     env.step_time = 15  # second per step
-    env.max_uav_energy = 359640  # 359640 J <-- 359.64 kJ (4500mAh, 22.2v) 大疆经纬
+    env.max_uav_energy = 1000000
+    # 359640 J <-- 359.64 kJ (4500mAh, 22.2v) 大疆经纬
     env.rotation_limit = 360
     env.diameter_of_human_blockers = 0.5  # m
     env.h_rx = 1.3  # m, height of RX

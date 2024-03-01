@@ -52,8 +52,23 @@ np.seterr(invalid='ignore')
 #         if crossPoly(square, new_robot_px, new_robot_py, old_robot_px, old_robot_py):
 #             return True
 #     return False
+direction_map_dict = {
+    0: "Stop",
+    1: "W",
+    2: "E",
+    3: "N",
+    4: "S",
+    5: "NE",
+    6: "SE",
+    7: "NW",
+    8: "SW",
+}
 
-
+speed_map_dict = {
+    0: 18,
+    1: 12,
+    2: 6
+}
 def get_border(ur, lf):
     upper_left = [lf[0], ur[1]]
     upper_right = [ur[0], ur[1]]
@@ -118,7 +133,7 @@ def traj_to_timestamped_geojson(index, trajectory: movingpandas.Trajectory, car_
             radius = 8  # 125(5 units)
             opacity = 0.05
             popup_html = f'<h4> (Car) Agent {car_num + drone_num - index - 1}</h4>' + \
-                         f"<p style='font-size:14px;'>Pos: ({row.x},{row.y})</p>" + \
+                         f"<p style='font-size:14px;'>Pos: ({int(row.x)},{int(row.y)})</p>" + \
                          f"<p style='font-size:14px;'>Timestamp: {i}</p>" + \
                          f"<p style='font-size:14px;'>reward: {row.reward:.4f} </p>" + \
                          f"<p style='font-size:14px;'>energy: {row.energy}J </p>"
@@ -134,7 +149,9 @@ def traj_to_timestamped_geojson(index, trajectory: movingpandas.Trajectory, car_
                          f"<p style='font-size:14px;'>Timestamp: {i}</p>" + \
                          f"<p style='font-size:14px;'>reward: {row.reward:.4f} </p>" + \
                          f"<p style='font-size:14px;'>energy: {row.energy}J </p>" + \
-                         f"<p style='font-size:14px;'>action: {row.selection} </p>"
+                         f"<p style='font-size:14px;'>action: {direction_map_dict[row.direction]} </p>"
+            if hasattr(row, "speed"):
+                popup_html += f"<p style='font-size:14px;'>speed: {row.speed}m/s </p>"
 
             # f'<p>raw coord: {current_point_coordinates}</p>' + \
             # f'<p>grid coord: ({row.x},{row.y})</p>' + \

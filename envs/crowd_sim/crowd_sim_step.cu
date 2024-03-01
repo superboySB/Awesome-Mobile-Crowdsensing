@@ -529,6 +529,7 @@ extern "C" {
         const float * car_action_space_dy_arr,
           const float * drone_action_space_dx_arr,
             const float * drone_action_space_dy_arr,
+            const int speed_action,
               float * agent_x_arr,
               const float kAgentXRange,
                 float * agent_y_arr,
@@ -607,13 +608,30 @@ extern "C" {
 //       }
     const int kThisEnvAgentsOffset = kEnvId * kNumAgents;
     const int kThisAgentArrayIdx = kThisEnvAgentsOffset + kThisAgentId;
-    const int kNumActionDim = 1; // use Discrete instead of MultiDiscrete
+    int kNumActionDim = 1;
+    if (speed_action){
+      kNumActionDim = 2;
+    }
+    int kThisAgentActionIdxOffset = kThisAgentArrayIdx * kNumActionDim;
     // Update on 2024.1.2, Double AoI Grid (100 -> 200)
     // Update on 2024.1.10, remove emergency grid. (200 -> 100)
     const int grid_flatten_size = 100;
     float emergency_reward = 10.0;
     if (scaled_reward){
       emergency_reward /= 10;
+    }
+    if (speed_action){
+     // slower speed means higher reward
+     switch(action_indices_arr[kThisAgentActionIdxOffset + 1]){
+       case 0:
+         emergency_reward *= 0.25;
+         break;
+       case 1:
+         emergency_reward *= 0.5;
+         break;
+       case 2:
+         break;
+     }
     }
     const int total_num_grids = grid_flatten_size;
     const int AgentFeature = 4 + kNumAgents;
@@ -677,7 +695,7 @@ extern "C" {
     }
     __sync_env_threads(); // Make sure all emergency states are refreshed.
     if (kThisAgentId < kNumAgents) {
-      int kThisAgentActionIdxOffset = kThisAgentArrayIdx * kNumActionDim;
+
       float dx, dy;
       bool is_drone = agent_types_arr[kThisAgentId];
       if (!is_drone) { // Car Movement
@@ -695,6 +713,19 @@ extern "C" {
         agent_x_arr[kThisAgentArrayIdx] = new_x;
         agent_y_arr[kThisAgentArrayIdx] = new_y;
         int my_speed = agent_speed_arr[is_drone];
+        if (speed_action){
+          switch (action_indices_arr[kThisAgentActionIdxOffset + 1]){
+            case 0:
+              break;
+            case 1:
+              my_speed *= 0.66666;
+              break;
+            case 2:
+              my_speed *= 0.33333;
+              break;
+          }
+        }
+//         printf("CUDA: Agent %d speed: %f\n", kThisAgentId, my_speed);
         float move_time = distance / my_speed;
         float consume_energy = calculateEnergy(slot_time, move_time, my_speed);
         // printf("agent %d out of energy\n", kThisAgentId);
@@ -806,6 +837,7 @@ extern "C" {
         float reward_update;
          if(is_dyn_point){
           reward_update = emergency_reward;
+//           printf("Emergency Reward: %f\n", reward_update);
          }
          else{
           reward_update = reward_increment * invEpisodeLength;
@@ -1108,6 +1140,7 @@ extern "C" {
       for (int agent_idx = 0; agent_idx < kNumAgents; agent_idx++) {
         if (agent_energy_arr[kThisEnvAgentsOffset + agent_idx] <= 0) {
           no_energy = true;
+//           printf("CUDA: Agent %d out of energy\n", agent_idx);
           break;
         }
       }
