@@ -1,8 +1,9 @@
 #!/bin/bash
-exp_name='66_ablation'
-# not completely edited.
+
+#dataset_name='Chengdu'
+exp_name='66_test_gamma_2'
 session_name=$exp_name
-cards=(1 2 3 4 5 6 1 2)
+cards=(3 4 5 6)
 card_num=${#cards[@]}
 dry_run=false
 # Process command-line arguments
@@ -18,14 +19,10 @@ while [[ $# -gt 0 ]]; do
 done
 # remove NN share_policy all
 trains=(
-  "--dataset SanFrancisco --selector_type RL --rl_gamma 0 --emergency_queue_length 5 --gen_interval 10 --sibling_rivalry"
-  "--dataset SanFrancisco --selector_type RL --rl_gamma 0 --emergency_queue_length 5 --gen_interval 10"
-  "--dataset SanFrancisco --selector_type greedy --emergency_queue_length 5 --gen_interval 10 --sibling_rivalry"
-  "--dataset SanFrancisco --selector_type greedy --emergency_queue_length 5 --gen_interval 10"
-  "--dataset Chengdu --selector_type RL --rl_gamma 0 --emergency_queue_length 4 --gen_interval 10 --sibling_rivalry"
-  "--dataset Chengdu --selector_type RL --rl_gamma 0 --emergency_queue_length 4 --gen_interval 10"
-  "--dataset Chengdu --selector_type greedy --emergency_queue_length 4 --gen_interval 10 --sibling_rivalry"
-  "--dataset Chengdu --selector_type greedy --emergency_queue_length 4 --gen_interval 10"
+  "--dataset SanFrancisco --selector_type RL --rl_gamma 0.9 --emergency_queue_length 5 --gen_interval 10"
+  "--dataset SanFrancisco --selector_type RL --rl_gamma 0.5 --emergency_queue_length 5 --gen_interval 10"
+  "--dataset Chengdu --selector_type RL --rl_gamma 0.9 --emergency_queue_length 4 --gen_interval 10"
+  "--dataset Chengdu --selector_type RL --rl_gamma 0.5 --emergency_queue_length 4 --gen_interval 10"
 )
 
 
@@ -62,7 +59,7 @@ for ((i = 0; i < train_num; i++)); do
   # if want to add $PATH, remember to add / before $
   command="python warp_drive/marllib_warpdrive_run.py --track --core_arch crowdsim_net --dynamic_zero_shot\
   --num_drones 4 --num_cars 0 --group auto_allocation --algo trafficppo --share_policy all --switch_step 60000000\
-  --gpu_id ${cards[card_id]} ${trains[i]} --use_2d_state --tag ablation --look_ahead\
+  --gpu_id ${cards[card_id]} ${trains[i]} --use_2d_state --tag test_gamma --look_ahead\
   --intrinsic_mode scaled_dis_aoi --reward_mode greedy --prioritized_buffer --emergency_threshold 20"
   echo "$command"
   if [ "$dry_run" = "false" ] && [ "$choice" != "n" ]
