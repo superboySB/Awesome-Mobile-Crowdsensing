@@ -77,9 +77,9 @@ if __name__ == '__main__':
                                                                                          'scaled_dis_aoi', 'dis_aoi',
                                                                                          'aim'])
     parser.add_argument('--use_random', action='store_true', help='use random emergency generation')
-    parser.add_argument('--surveillance_only', action='store_true', help='only use surveillance reward')
-    parser.add_argument('--attention_dim', type=int, default=32, help='attention dimension (single head)')
-    parser.add_argument('--num_heads', type=int, default=4, help='number of heads for attention')
+    parser.add_argument('--use_attention', action='store_true', help='use attention mechanism')
+    parser.add_argument('--attention_dim', type=int, default=128, help='attention dimension (single head)')
+    parser.add_argument('--num_heads', type=int, default=1, help='number of heads for attention')
     args = parser.parse_args()
 
     assert args.encoder_layer is not None and is_valid_format(args.encoder_layer), \
@@ -180,7 +180,7 @@ if __name__ == '__main__':
                       'emergency_queue_length', 'tolerance', 'look_ahead', 'local_mode',
                       'render_file_name', 'buffer_in_obs', 'separate_encoder', 'prioritized_buffer',
                       'rl_use_cnn', 'intrinsic_mode', 'dynamic_zero_shot', 'use_random',
-                      'attention_dim', 'num_heads'] + restore_ignore_params):
+                      'attention_dim', 'num_heads', 'use_attention'] + restore_ignore_params):
             load_preferences(custom_preference=model_preference, args=args, this_expr_dir=this_expr_dir)
     model = marl.build_model(env, my_algorithm, model_preference)
     # start learning

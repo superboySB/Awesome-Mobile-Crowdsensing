@@ -3,7 +3,7 @@
 #dataset_name='Chengdu'
 exp_name='77_attention'
 session_name=$exp_name
-cards=(1 2 0 1 2 3 1 2)
+cards=(1 2 3 1 2 3 0 1)
 card_num=${#cards[@]}
 dry_run=false
 # Process command-line arguments
@@ -63,7 +63,7 @@ for ((i = 0; i < train_num; i++)); do
   # if want to add $PATH, remember to add / before $
   command="python warp_drive/marllib_warpdrive_run.py --track --core_arch crowdsim_net --dynamic_zero_shot\
   --num_drones 4 --num_cars 0 --group auto_allocation --algo trafficppo --share_policy all --switch_step 60000000\
-  --gpu_id ${cards[card_id]} ${trains[i]} --use_2d_state --tag buffer_in_obs attention --look_ahead --buffer_in_obs\
+  --gpu_id ${cards[card_id]} ${trains[i]} --use_2d_state --tag buffer_in_obs attention_only --look_ahead --buffer_in_obs\
    --separate_encoder --intrinsic_mode scaled_dis_aoi --reward_mode greedy --emergency_threshold 20"
   echo "$command"
   if [ "$dry_run" = "false" ] && [ "$choice" != "n" ]

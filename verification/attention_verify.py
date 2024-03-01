@@ -48,7 +48,8 @@ if __name__ == '__main__':
             # set mask to True for rows after i
             optimizer.zero_grad()
             query = query_network(batch_observations)
-            value = key = key_network(agent_pos)
+            key = key_network(agent_pos)
+            value = value_network(agent_pos)
             attn_output, attn_output_weights = multihead_attn(query, key, value)
             # calculate regress_loss of attn_output and labels
             regress_loss = criterion(attn_output_weights, batch_distances)
