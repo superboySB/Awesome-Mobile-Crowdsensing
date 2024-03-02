@@ -395,7 +395,7 @@ class CrowdSim:
         if isinstance(self.action_space[0], MultiDiscrete):
             self.action_dim = self.action_space[0].shape[0]
         else:
-            self.action_dim = self.action_space[0].n
+            self.action_dim = 1
 
         self.timestep = 0
         self.starting_location_x = self.nlon / 2
@@ -1049,7 +1049,7 @@ class CrowdSim:
                     emergency_df['allocation'] = int(self.emergency_allocation_table[i - self.zero_shot_start])
                     emergency_df['episode_length'] = self.episode_length
                     emergency_df['coverage'] = self.target_coveraged_timelist[:, i]
-                    logging.debug(f"Emergency Covered at {np.nonzero(emergency_df['coverage'])[0]}")
+                    # logging.debug(f"Emergency Covered at {np.nonzero(emergency_df['coverage'])[0]}")
                     emergencies_dfs.append(emergency_df)
                 # all_emergency = pd.concat(emergencies_dfs)
                 mixed_df = pd.concat([mixed_df, *emergencies_dfs])

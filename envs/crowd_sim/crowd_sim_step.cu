@@ -705,26 +705,30 @@ extern "C" {
         dx = drone_action_space_dx_arr[action_indices_arr[kThisAgentActionIdxOffset]];
         dy = drone_action_space_dy_arr[action_indices_arr[kThisAgentActionIdxOffset]];
       }
-
+      int my_speed = agent_speed_arr[is_drone];
+      if (speed_action){
+          switch (action_indices_arr[kThisAgentActionIdxOffset + 1]){
+            case 0:
+              break;
+            case 1:
+              my_speed *= 0.66666;
+              dx *= 0.66666;
+              dy *= 0.66666;
+              break;
+            case 2:
+              my_speed *= 0.33333;
+              dx *= 0.33333;
+              dy *= 0.33333;
+              break;
+          }
+        }
       float new_x = agent_x_arr[kThisAgentArrayIdx] + dx;
       float new_y = agent_y_arr[kThisAgentArrayIdx] + dy;
       if (new_x < max_distance_x && new_y < max_distance_y && new_x > 0 && new_y > 0) {
         float distance = sqrt(dx * dx + dy * dy);
         agent_x_arr[kThisAgentArrayIdx] = new_x;
         agent_y_arr[kThisAgentArrayIdx] = new_y;
-        int my_speed = agent_speed_arr[is_drone];
-        if (speed_action){
-          switch (action_indices_arr[kThisAgentActionIdxOffset + 1]){
-            case 0:
-              break;
-            case 1:
-              my_speed *= 0.66666;
-              break;
-            case 2:
-              my_speed *= 0.33333;
-              break;
-          }
-        }
+
 //         printf("CUDA: Agent %d speed: %f\n", kThisAgentId, my_speed);
         float move_time = distance / my_speed;
         float consume_energy = calculateEnergy(slot_time, move_time, my_speed);

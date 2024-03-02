@@ -54,8 +54,8 @@ np.seterr(invalid='ignore')
 #     return False
 direction_map_dict = {
     0: "Stop",
-    1: "W",
-    2: "E",
+    1: "E",
+    2: "W",
     3: "N",
     4: "S",
     5: "NE",
@@ -151,7 +151,7 @@ def traj_to_timestamped_geojson(index, trajectory: movingpandas.Trajectory, car_
                          f"<p style='font-size:14px;'>energy: {row.energy}J </p>" + \
                          f"<p style='font-size:14px;'>action: {direction_map_dict[row.direction]} </p>"
             if hasattr(row, "speed"):
-                popup_html += f"<p style='font-size:14px;'>speed: {row.speed}m/s </p>"
+                popup_html += f"<p style='font-size:14px;'>speed: {speed_map_dict[row.speed]}m/s </p>"
 
             # f'<p>raw coord: {current_point_coordinates}</p>' + \
             # f'<p>grid coord: ({row.x},{row.y})</p>' + \
