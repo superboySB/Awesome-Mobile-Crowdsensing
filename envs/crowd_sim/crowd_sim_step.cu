@@ -530,6 +530,8 @@ extern "C" {
           const float * drone_action_space_dx_arr,
             const float * drone_action_space_dy_arr,
             const int speed_action,
+              int * speed_count_down,
+              const float speed_discount,
               float * agent_x_arr,
               const float kAgentXRange,
                 float * agent_y_arr,
@@ -578,6 +580,7 @@ extern "C" {
     const int kEnvId = getEnvID(blockIdx.x);
     const int kThisAgentId = getAgentID(threadIdx.x, blockIdx.x, blockDim.x);
     const int emergency_count = kNumTargets - zero_shot_start;
+    const int speedCountDown = 3;
     // print kNumTargets and emergencies
 //         if (kThisAgentId == 0){
 //           printf("kNumTargets: %d, zero_shot_start: %d, emergency_count: %d\n", kNumTargets, zero_shot_start, emergency_count);
@@ -722,6 +725,12 @@ extern "C" {
               break;
           }
         }
+      if (speed_count_down[kThisAgentArrayIdx] > 0){
+        speed_count_down[kThisAgentArrayIdx]--;
+        my_speed *= speed_discount;
+        dx *= speed_discount;
+        dy *= speed_discount;
+      }
       float new_x = agent_x_arr[kThisAgentArrayIdx] + dx;
       float new_y = agent_y_arr[kThisAgentArrayIdx] + dy;
       if (new_x < max_distance_x && new_y < max_distance_y && new_x > 0 && new_y > 0) {
@@ -899,6 +908,7 @@ extern "C" {
           if (!(is_dyn_point && target_coverage)) {
 //           printf("Target %d Pos: %f, %f, AoI: %d agent %d receives reward %f\n", target_idx, target_x, target_y,
 //           target_aoi_arr[kThisTargetAgeArrayIdxOffset + target_idx], nearest_agent_id, reward_update);
+            speed_count_down[kThisEnvAgentsOffset + nearest_agent_id] = speedCountDown;
             rewards_arr[kThisEnvAgentsOffset + nearest_agent_id] += reward_update;
             if (is_drone && !single_type_agent) {
               int drone_nearest_car_id = neighbor_agent_ids_arr[kThisEnvAgentsOffset + nearest_agent_id];

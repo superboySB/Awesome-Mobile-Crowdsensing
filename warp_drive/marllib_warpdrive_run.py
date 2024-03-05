@@ -81,6 +81,7 @@ if __name__ == '__main__':
     parser.add_argument('--attention_dim', type=int, default=128, help='attention dimension (single head)')
     parser.add_argument('--num_heads', type=int, default=1, help='number of heads for attention')
     parser.add_argument('--speed_action', action='store_true', help='enable speed action')
+    parser.add_argument('--speed_discount', type=float, default=1, help='discount for speed action')
     args = parser.parse_args()
 
     assert args.encoder_layer is not None and is_valid_format(args.encoder_layer), \

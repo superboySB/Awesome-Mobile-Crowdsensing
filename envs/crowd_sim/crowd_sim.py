@@ -69,7 +69,7 @@ user_override_params = ['env_config', 'dynamic_zero_shot', 'use_2d_state', 'all_
                         'num_drones', 'num_cars', 'cut_points', 'fix_target', 'gen_interval',
                         'no_refresh', 'force_allocate', 'emergency_queue_length',
                         'buffer_in_obs', 'intrinsic_mode', 'use_random', 'emergency_threshold',
-                        'speed_action']
+                        'speed_action', 'speed_discount']
 
 grid_size = 10
 
@@ -180,6 +180,7 @@ class CrowdSim:
             intrinsic_mode='dis_aoi',
             use_random=True,
             speed_action=False,
+            speed_discount=1.0,
     ):
         self.float_dtype = np.float32
         self.single_type_agent = single_type_agent
@@ -378,6 +379,7 @@ class CrowdSim:
         self.emergency_slots = self.points_per_gen
         self.speed_levels = 3
         self.speed_action = speed_action
+        self.speed_discount = speed_discount
         for agent_id in range(self.num_agents):
             # note one action for not choosing any emergency.
             if self.agent_types[agent_id] == 1:
@@ -470,7 +472,9 @@ class CrowdSim:
         # List of available colors excluding orange and red
         self.available_colors = ['cadetblue', 'darkgreen', "darkred", 'black',
                                  "magenta", 'darkblue', "teal", "brown", 'gray']
-        self.surveillance_colors = ['blue', 'green', 'yellow', 'orange', 'red', 'purple']
+        # self.surveillance_colors = ['blue', 'green', 'yellow', 'orange', 'red', 'purple']
+        # self.surveillance_colors = ['#cfe2f3', '9fc5e8', '#6fa8dc', '#3d85c6', '#0b5394', '#073763']
+        self.surveillance_colors = ['#fce5cd', '#f9cb9c', '#f6b26b', '#e69138', '#b45f06', '#783f04']
         # Shuffle the list of available colors
         random.shuffle(self.available_colors)
         # Initialize an index to keep track of the selected color
@@ -1398,6 +1402,8 @@ class CUDACrowdSim(CrowdSim, CUDAEnvironmentContext):
                                  ("drone_action_space_dx", self.float_dtype(self.drone_action_space_dx)),
                                  ("drone_action_space_dy", self.float_dtype(self.drone_action_space_dy)),
                                  ("speed_action", self.int_dtype(self.speed_action)),
+                                 ("speed_count_down", self.int_dtype(np.zeros[self.num_agents,]), True),
+                                 ("speed_discount", self.float_dtype(self.speed_discount)),
                                  ("agent_x", self.float_dtype(np.full([self.num_agents, ], self.starting_location_x)),
                                   True),
                                  ("agent_x_range", self.float_dtype(self.nlon)),
@@ -1464,6 +1470,8 @@ class CUDACrowdSim(CrowdSim, CUDAEnvironmentContext):
             "drone_action_space_dx",
             "drone_action_space_dy",
             "speed_action",
+            "speed_count_down",
+            "speed_discount",
             "agent_x",
             "agent_x_range",
             "agent_y",
