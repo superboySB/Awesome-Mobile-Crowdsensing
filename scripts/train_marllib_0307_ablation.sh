@@ -1,8 +1,10 @@
 #!/bin/bash
-exp_name='66_ablation'
+exp_name='77_ablation_small_emergency'
+# exp_name='66_ablation_small_emergency'
 # not completely edited.
 session_name=$exp_name
-cards=(0 1 2 3 4 5 6)
+#cards=(1 2 1 2 5 6 6 4 5 6)
+cards=(0 1 2 3 0 1 2 3 2 3)
 card_num=${#cards[@]}
 dry_run=false
 # Process command-line arguments
@@ -66,7 +68,7 @@ for ((i = 0; i < train_num; i++)); do
   --num_drones 4 --num_cars 0 --group auto_allocation --algo trafficppo --share_policy all --switch_step 60000000\
   --gpu_id ${cards[card_id]} ${trains[i]} --use_2d_state --tag ablation --look_ahead --with_programming_optimization\
   --intrinsic_mode scaled_dis_aoi --reward_mode greedy --prioritized_buffer --emergency_threshold 20\
-  --speed_discount 0.5 --emergency_reward 5"
+  --speed_discount 0.5 --emergency_reward 2 --use_random"
   echo "$command"
   if [ "$dry_run" = "false" ] && [ "$choice" != "n" ]
   then

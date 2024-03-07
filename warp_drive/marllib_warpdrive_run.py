@@ -71,7 +71,7 @@ if __name__ == '__main__':
                         help='reward type for emergency')
     parser.add_argument('--fail_hint', action='store_true', help='use fail hint for emergency allocation reward')
     parser.add_argument('--prioritized_buffer', action='store_true', help='use prioritized buffer for RL selector')
-    parser.add_argument('--NN_buffer', action='store_true', help='use NN buffer for executor')
+    parser.add_argument('--NN_buffer', action='store_true', help='use NN generated weights for RL selector')
     parser.add_argument('--rl_use_cnn', action='store_true', help='use CNN for RL selector')
     parser.add_argument('--intrinsic_mode', type=str, default='scaled_dis_aoi', choices=['none', 'dis', 'aoi',
                                                                                          'scaled_dis_aoi', 'dis_aoi',
@@ -82,6 +82,7 @@ if __name__ == '__main__':
     parser.add_argument('--num_heads', type=int, default=1, help='number of heads for attention')
     parser.add_argument('--speed_action', action='store_true', help='enable speed action')
     parser.add_argument('--speed_discount', type=float, default=1, help='discount for speed action')
+    parser.add_argument('--emergency_reward', type=float, default=10, help='reward for covering emergency')
     args = parser.parse_args()
 
     assert args.encoder_layer is not None and is_valid_format(args.encoder_layer), \

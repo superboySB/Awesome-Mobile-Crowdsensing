@@ -11,7 +11,7 @@ class DistancePredictor(nn.Module):
     def __init__(self):
         super(DistancePredictor, self).__init__()
         self.fc = nn.Sequential(
-            nn.Linear(22, 64),  # 输入是两个点的坐标，总共4个值
+            nn.Linear(23, 64),  # 输入是两个点的坐标，总共4个值
             nn.ReLU(),
             nn.Linear(64, 64),
             nn.ReLU(),
@@ -35,12 +35,14 @@ def train():
         # agent_position = np.tile(np.random.rand(pos_features), reps=num_samples).reshape(num_samples, pos_features)
         agent_position = np.random.rand(num_samples, pos_features)
         pois_position = np.random.rand(num_samples, pos_features)
+        aois = np.random.randint(0, 20, (num_samples, 1))
         noise = np.random.normal(0, 0.1, (num_samples, 18))
         distances = np.linalg.norm(pois_position - agent_position, axis=1)
+        labels = distances * aois[..., 0] / 10.0
         # add noise (which prevent the test loss from reaching low value)
-        distances += np.random.normal(0, 0.1, num_samples)
-        inputs = np.concatenate([agent_position, noise, pois_position], axis=1)
-        return torch.tensor(inputs, dtype=torch.float32), torch.tensor(distances, dtype=torch.float32)
+        # distances += np.random.normal(0, 0.1, num_samples)
+        inputs = np.concatenate([agent_position, noise, pois_position, aois], axis=1)
+        return torch.tensor(inputs, dtype=torch.float32), torch.tensor(labels, dtype=torch.float32)
 
     # 参数设置
     num_samples = 2000

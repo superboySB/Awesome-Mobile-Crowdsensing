@@ -69,7 +69,7 @@ user_override_params = ['env_config', 'dynamic_zero_shot', 'use_2d_state', 'all_
                         'num_drones', 'num_cars', 'cut_points', 'fix_target', 'gen_interval',
                         'no_refresh', 'force_allocate', 'emergency_queue_length',
                         'buffer_in_obs', 'intrinsic_mode', 'use_random', 'emergency_threshold',
-                        'speed_action', 'speed_discount']
+                        'speed_action', 'speed_discount', 'emergency_reward']
 
 grid_size = 10
 
@@ -181,8 +181,10 @@ class CrowdSim:
             use_random=True,
             speed_action=False,
             speed_discount=1.0,
+            emergency_reward=10.0,
     ):
         self.float_dtype = np.float32
+        self.emergency_reward = emergency_reward
         self.single_type_agent = single_type_agent
         self.int_dtype = np.int32
         self.no_refresh = no_refresh
@@ -1420,6 +1422,7 @@ class CUDACrowdSim(CrowdSim, CUDAEnvironmentContext):
                                  ("target_y", self.float_dtype(self.target_y_time_list), True),
                                  # [self.episode_length + 1, self.num_sensing_targets]
                                  ("aoi_schedule", self.int_dtype(self.aoi_schedule), True),
+                                 ("emergency_reward", self.float_dtype(self.emergency_reward)),
                                  ("emergency_queue_length", self.int_dtype(self.emergency_queue_length)),
                                  ("emergency_per_gen", self.int_dtype(self.points_per_gen)),
                                  ("target_aoi", self.int_dtype(np.ones([self.num_sensing_targets, ])), True),
@@ -1483,6 +1486,7 @@ class CUDACrowdSim(CrowdSim, CUDAEnvironmentContext):
             "target_x",
             "target_y",
             "aoi_schedule",
+            "emergency_reward",
             "emergency_queue_length",
             "emergency_per_gen",
             "emergency_allocation_table",

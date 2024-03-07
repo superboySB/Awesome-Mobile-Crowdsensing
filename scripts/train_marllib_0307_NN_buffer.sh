@@ -1,8 +1,9 @@
 #!/bin/bash
-exp_name='66_ablation'
+exp_name='103_NN_buffer'
+# exp_name='66_ablation_small_emergency'
 # not completely edited.
 session_name=$exp_name
-cards=(0 1 2 3 4 5 6)
+cards=(0 1 2 0 1 2 1 2)
 card_num=${#cards[@]}
 dry_run=false
 # Process command-line arguments
@@ -18,16 +19,14 @@ while [[ $# -gt 0 ]]; do
 done
 # remove NN share_policy all
 trains=(
+  "--dataset SanFrancisco --selector_type RL --rl_gamma 0 --emergency_queue_length 3 --gen_interval 10 --sibling_rivalry --alpha 0.1"
   "--dataset SanFrancisco --selector_type RL --rl_gamma 0 --emergency_queue_length 5 --gen_interval 10 --sibling_rivalry --alpha 0.1"
   "--dataset SanFrancisco --selector_type RL --rl_gamma 0 --emergency_queue_length 5 --gen_interval 10 --sibling_rivalry"
   "--dataset SanFrancisco --selector_type RL --rl_gamma 0 --emergency_queue_length 5 --gen_interval 10"
-  "--dataset SanFrancisco --selector_type greedy --emergency_queue_length 5 --gen_interval 10 --sibling_rivalry"
-  "--dataset SanFrancisco --selector_type greedy --emergency_queue_length 5 --gen_interval 10"
+  "--dataset Chengdu --selector_type RL --rl_gamma 0 --emergency_queue_length 3 --gen_interval 10 --sibling_rivalry --alpha 0.1"
   "--dataset Chengdu --selector_type RL --rl_gamma 0 --emergency_queue_length 5 --gen_interval 10 --sibling_rivalry --alpha 0.1"
   "--dataset Chengdu --selector_type RL --rl_gamma 0 --emergency_queue_length 5 --gen_interval 10 --sibling_rivalry"
   "--dataset Chengdu --selector_type RL --rl_gamma 0 --emergency_queue_length 5 --gen_interval 10"
-  "--dataset Chengdu --selector_type greedy --emergency_queue_length 5 --gen_interval 10 --sibling_rivalry"
-  "--dataset Chengdu --selector_type greedy --emergency_queue_length 5 --gen_interval 10"
 )
 
 
@@ -66,7 +65,7 @@ for ((i = 0; i < train_num; i++)); do
   --num_drones 4 --num_cars 0 --group auto_allocation --algo trafficppo --share_policy all --switch_step 60000000\
   --gpu_id ${cards[card_id]} ${trains[i]} --use_2d_state --tag ablation --look_ahead --with_programming_optimization\
   --intrinsic_mode scaled_dis_aoi --reward_mode greedy --prioritized_buffer --emergency_threshold 20\
-  --speed_discount 0.5 --emergency_reward 5"
+  --speed_discount 0.5 --use_random --NN_buffer"
   echo "$command"
   if [ "$dry_run" = "false" ] && [ "$choice" != "n" ]
   then

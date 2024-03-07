@@ -543,6 +543,7 @@ extern "C" {
                         float * target_x_time_list,
                         float * target_y_time_list,
                           const int * aoi_schedule,
+                            float emergency_reward,
                             const int emergency_queue_length,
                             const int emergency_per_gen,
                               int * emergency_allocation_table,
@@ -619,7 +620,6 @@ extern "C" {
     // Update on 2024.1.2, Double AoI Grid (100 -> 200)
     // Update on 2024.1.10, remove emergency grid. (200 -> 100)
     const int grid_flatten_size = 100;
-    float emergency_reward = 10.0;
     if (scaled_reward){
       emergency_reward /= 10;
     }
