@@ -1402,7 +1402,7 @@ class CUDACrowdSim(CrowdSim, CUDAEnvironmentContext):
                                  ("drone_action_space_dx", self.float_dtype(self.drone_action_space_dx)),
                                  ("drone_action_space_dy", self.float_dtype(self.drone_action_space_dy)),
                                  ("speed_action", self.int_dtype(self.speed_action)),
-                                 ("speed_count_down", self.int_dtype(np.zeros[self.num_agents,]), True),
+                                 ("speed_count_down", self.int_dtype(np.zeros([self.num_agents, ])), True),
                                  ("speed_discount", self.float_dtype(self.speed_discount)),
                                  ("agent_x", self.float_dtype(np.full([self.num_agents, ], self.starting_location_x)),
                                   True),

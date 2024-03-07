@@ -40,7 +40,7 @@ class Policy(nn.Module):
 
     def __init__(self):
         super(Policy, self).__init__()
-        self.affine1 = nn.Linear(8, 128)
+        self.affine1 = nn.Linear(34, 128)
 
         # actor's layer
         self.action_head = nn.Linear(128, 4)
@@ -137,7 +137,7 @@ def finish_episode():
 
 
 def main():
-    running_reward = 10
+    running_reward = 0
 
     # run infinitely many episodes
     for i_episode in count(1):
@@ -176,7 +176,7 @@ def main():
                 i_episode, ep_reward, running_reward))
 
         # check if we have "solved" the cart pole problem
-        if running_reward > 250:
+        if running_reward > 60:
             print("Solved! Running reward is now {} and "
                   "the last episode runs to {} time steps!".format(running_reward, t))
             break

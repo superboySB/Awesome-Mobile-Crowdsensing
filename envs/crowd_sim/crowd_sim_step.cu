@@ -708,7 +708,7 @@ extern "C" {
         dx = drone_action_space_dx_arr[action_indices_arr[kThisAgentActionIdxOffset]];
         dy = drone_action_space_dy_arr[action_indices_arr[kThisAgentActionIdxOffset]];
       }
-      int my_speed = agent_speed_arr[is_drone];
+      float my_speed = agent_speed_arr[is_drone];
       if (speed_action){
           switch (action_indices_arr[kThisAgentActionIdxOffset + 1]){
             case 0:
@@ -731,6 +731,7 @@ extern "C" {
         dx *= speed_discount;
         dy *= speed_discount;
       }
+//       printf("CUDA: Agent %d speed: %f\n", kThisAgentId, my_speed);
       float new_x = agent_x_arr[kThisAgentArrayIdx] + dx;
       float new_y = agent_y_arr[kThisAgentArrayIdx] + dy;
       if (new_x < max_distance_x && new_y < max_distance_y && new_x > 0 && new_y > 0) {
@@ -908,7 +909,9 @@ extern "C" {
           if (!(is_dyn_point && target_coverage)) {
 //           printf("Target %d Pos: %f, %f, AoI: %d agent %d receives reward %f\n", target_idx, target_x, target_y,
 //           target_aoi_arr[kThisTargetAgeArrayIdxOffset + target_idx], nearest_agent_id, reward_update);
-            speed_count_down[kThisEnvAgentsOffset + nearest_agent_id] = speedCountDown;
+            if (is_dyn_point){
+              speed_count_down[kThisEnvAgentsOffset + nearest_agent_id] = speedCountDown;
+            }
             rewards_arr[kThisEnvAgentsOffset + nearest_agent_id] += reward_update;
             if (is_drone && !single_type_agent) {
               int drone_nearest_car_id = neighbor_agent_ids_arr[kThisEnvAgentsOffset + nearest_agent_id];

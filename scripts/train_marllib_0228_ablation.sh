@@ -2,7 +2,7 @@
 exp_name='66_ablation'
 # not completely edited.
 session_name=$exp_name
-cards=(1 2 3 4 5 6 1 2)
+cards=(0 1 2 3 4 5 6)
 card_num=${#cards[@]}
 dry_run=false
 # Process command-line arguments
@@ -63,7 +63,7 @@ for ((i = 0; i < train_num; i++)); do
   command="python warp_drive/marllib_warpdrive_run.py --track --core_arch crowdsim_net --dynamic_zero_shot\
   --num_drones 4 --num_cars 0 --group auto_allocation --algo trafficppo --share_policy all --switch_step 60000000\
   --gpu_id ${cards[card_id]} ${trains[i]} --use_2d_state --tag ablation --look_ahead --with_programming_optimization\
-  --intrinsic_mode scaled_dis_aoi --reward_mode greedy --prioritized_buffer --emergency_threshold 20"
+  --intrinsic_mode scaled_dis_aoi --reward_mode greedy --prioritized_buffer --emergency_threshold 20 --speed_discount 0.5"
   echo "$command"
   if [ "$dry_run" = "false" ] && [ "$choice" != "n" ]
   then
