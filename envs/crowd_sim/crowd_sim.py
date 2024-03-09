@@ -5,6 +5,7 @@ import csv
 import logging
 import pprint
 import random
+import re
 import time
 import warnings
 from datetime import datetime
@@ -69,7 +70,7 @@ user_override_params = ['env_config', 'dynamic_zero_shot', 'use_2d_state', 'all_
                         'num_drones', 'num_cars', 'cut_points', 'fix_target', 'gen_interval',
                         'no_refresh', 'force_allocate', 'emergency_queue_length',
                         'buffer_in_obs', 'intrinsic_mode', 'use_random', 'emergency_threshold',
-                        'speed_action', 'speed_discount', 'emergency_reward']
+                        'speed_action', 'speed_discount', 'emergency_reward', 'refill_emergency']
 
 grid_size = 10
 
@@ -182,15 +183,17 @@ class CrowdSim:
             speed_action=False,
             speed_discount=1.0,
             emergency_reward=10.0,
+            refill_emergency=False,
     ):
         self.float_dtype = np.float32
+        self.int_dtype = np.int32
+        self.bool_dtype = np.bool_
         self.emergency_reward = emergency_reward
         self.single_type_agent = single_type_agent
-        self.int_dtype = np.int32
         self.no_refresh = no_refresh
         self.use_random = use_random
         self.buffer_in_obs = buffer_in_obs
-        self.bool_dtype = np.bool_
+        self.refill_emergency = refill_emergency
         self.scaled_reward = ("scale" in intrinsic_mode) or (intrinsic_mode == 'dis') or (intrinsic_mode == 'aim')
         # small number to prevent indeterminate cases
         self.eps = self.float_dtype(1e-10)
@@ -996,7 +999,8 @@ class CrowdSim:
             })
         return info
 
-    def render(self, output_file=None, plot_loop=False, moving_line=False, run_num=0):
+    def render(self, output_file=None, plot_loop=False, moving_line=False, run_num=0,
+               overall_table_name='test_env_metrics.csv'):
 
         def custom_style_function(feature):
             return {
@@ -1289,7 +1293,7 @@ class CrowdSim:
             # append info as a row of csv to existing file.
             # get parent directory of self.render_file_name
             parent_dir = os.path.dirname(output_file)
-            csv_file = os.path.join(parent_dir, "test_env_metrics.csv")
+            csv_file = os.path.join(parent_dir, overall_table_name)
             # if the file does not exist, create it
             if not os.path.exists(csv_file):
                 # write info to the csv
@@ -1422,6 +1426,8 @@ class CUDACrowdSim(CrowdSim, CUDAEnvironmentContext):
                                  ("target_y", self.float_dtype(self.target_y_time_list), True),
                                  # [self.episode_length + 1, self.num_sensing_targets]
                                  ("aoi_schedule", self.int_dtype(self.aoi_schedule), True),
+                                 ("as_emergency", self.int_dtype(np.full([self.num_sensing_targets, ], -1)), True),
+                                 ("mock_emergency_flag", self.int_dtype(np.zeros([self.emergency_count, ])), True),
                                  ("emergency_reward", self.float_dtype(self.emergency_reward)),
                                  ("emergency_queue_length", self.int_dtype(self.emergency_queue_length)),
                                  ("emergency_per_gen", self.int_dtype(self.points_per_gen)),
@@ -1453,6 +1459,7 @@ class CUDACrowdSim(CrowdSim, CUDAEnvironmentContext):
                                  ("force_allocate", self.int_dtype(self.force_allocate)),
                                  ("scaled_reward", self.int_dtype(self.scaled_reward)),
                                  ("emergency_threshold", self.int_dtype(self.emergency_threshold)),
+                                 ("refill_emergency", self.int_dtype(self.refill_emergency)),
                                  ("zero_shot_start", self.int_dtype(self.zero_shot_start)),
                                  ("single_type_agent", self.int_dtype(self.single_type_agent)),
                                  ("agents_over_range", self.bool_dtype(np.zeros([self.num_agents, ])), True),
@@ -1486,6 +1493,8 @@ class CUDACrowdSim(CrowdSim, CUDAEnvironmentContext):
             "target_x",
             "target_y",
             "aoi_schedule",
+            "as_emergency",
+            "mock_emergency_flag",
             "emergency_reward",
             "emergency_queue_length",
             "emergency_per_gen",
@@ -1516,6 +1525,7 @@ class CUDACrowdSim(CrowdSim, CUDAEnvironmentContext):
             "force_allocate",  # too much commas are forgetted at here.
             "scaled_reward",
             "emergency_threshold",
+            "refill_emergency",
             "zero_shot_start",
             "single_type_agent",
             "agents_over_range",
@@ -1584,6 +1594,12 @@ class RLlibCUDACrowdSim(MultiAgentEnv):
             run_config[item] = additional_params[item]
         self.trainer_params = run_config["trainer"]
         self.render_file_name = additional_params.get("render_file_name", None)
+        pattern = r"\d{4}-\d{6}"
+        match = re.search(pattern, self.render_file_name)
+        if match:
+            self.overall_metric_table = match.group(0) + '_test_env_metrics.csv'
+        else:
+            self.overall_metric_table = "test_env_metrics.csv"
         self.logging_config = additional_params.get("logging_config", None)
         self.centralized = additional_params.get("centralized", False)
         self.is_render = additional_params.get("render", False)
@@ -1833,7 +1849,7 @@ class RLlibCUDACrowdSim(MultiAgentEnv):
         # add datetime to trajectory
         datetime_str = datetime.now().strftime("%Y%m%d-%H%M%S")
         self.env.render(f'{self.render_file_name}_{datetime_str}_{self.trajectory_generated}',
-                        True, False, self.trajectory_generated)
+                        True, False, self.trajectory_generated, self.overall_metric_table)
 
     def log_aoi_grid(self):
         pass

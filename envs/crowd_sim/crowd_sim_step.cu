@@ -543,6 +543,8 @@ extern "C" {
                         float * target_x_time_list,
                         float * target_y_time_list,
                           const int * aoi_schedule,
+                            int * as_emergency_arr,
+                            int * mock_emergency_flag,
                             float emergency_reward,
                             const int emergency_queue_length,
                             const int emergency_per_gen,
@@ -573,6 +575,7 @@ extern "C" {
                                             int force_allocate,
                                             int scaled_reward,
                                             int emergency_threshold,
+                                            int refill_emergency,
                                             int zero_shot_start,
                                             int single_type_agent,
                                             bool * agents_over_range
@@ -582,6 +585,7 @@ extern "C" {
     const int kThisAgentId = getAgentID(threadIdx.x, blockIdx.x, blockDim.x);
     const int emergency_count = kNumTargets - zero_shot_start;
     const int speedCountDown = 3;
+    const int surveillance_threshold = 31;
     // print kNumTargets and emergencies
 //         if (kThisAgentId == 0){
 //           printf("kNumTargets: %d, zero_shot_start: %d, emergency_count: %d\n", kNumTargets, zero_shot_start, emergency_count);
@@ -657,10 +661,13 @@ extern "C" {
     const int obs_features = obs_vec_features + total_num_grids;
     const int kThisEnvStateOffset = kEnvId * state_features;
     const int kThisTargetAgeArrayIdxOffset = kEnvId * kNumTargets;
+    const int kThisEmergencyArrayIdxOffset = kEnvId * emergency_count;
     const int kThisTargetPositionTimeListIdxOffset = env_timestep * kNumTargets;
     const float invEpisodeLength = 1.0f / kEpisodeLength;
-    int * this_emergency_allocation_table = emergency_allocation_table + kEnvId * emergency_count;
+    int * this_emergency_allocation_table = emergency_allocation_table + kThisEmergencyArrayIdxOffset;
     int * this_emergency_dis_to_target_index = emergency_dis_to_target_index + kThisEnvAgentsOffset;
+    int * this_as_emergency_arr = as_emergency_arr + kThisTargetAgeArrayIdxOffset;
+    int * this_mock_emergency_flag = mock_emergency_flag + kThisEmergencyArrayIdxOffset;
     float * this_emergency_dis_to_target = emergency_dis_to_target + kThisEnvAgentsOffset;
     float * this_state_arr_emergency = state_arr + kThisEnvStateOffset + StateFullAgentFeature;
     //     printf("Drone Sensing Range: %f\n", kDroneSensingRange);
@@ -917,6 +924,13 @@ extern "C" {
               int drone_nearest_car_id = neighbor_agent_ids_arr[kThisEnvAgentsOffset + nearest_agent_id];
               rewards_arr[kThisEnvAgentsOffset + drone_nearest_car_id] += reward_update;
             }
+            int mock_emergency_idx = this_as_emergency_arr[target_idx];
+            if (mock_emergency_idx != -1){
+              this_state_arr_emergency[mock_emergency_idx * features_per_emergency_in_state + 3] = true;
+              this_as_emergency_arr[target_idx] = -1;
+              this_mock_emergency_flag[mock_emergency_idx] = false;
+//               printf("CUDA: Reset Emergency %d to Surveillance\n", mock_emergency_idx);
+            }
             global_reward += reward_update;
             target_coverage = true;
 //             if(is_dyn_point){
@@ -938,6 +952,31 @@ extern "C" {
           rewards_arr[kThisEnvAgentsOffset + allocate_agent] -= emergency_reward;
           }
         }
+        if (!is_dyn_point && target_aoi > surveillance_threshold && refill_emergency){
+        int mock_emergency_time = target_aoi - surveillance_threshold;
+        if (this_as_emergency_arr[target_idx] == -1){
+        for(int j = 0; j < emergency_count; j++){
+          if (this_state_arr_emergency[j * features_per_emergency_in_state + 3] == 1){
+            // replace covered emergency with surveillance
+          this_as_emergency_arr[target_idx] = j;
+          this_mock_emergency_flag[j] = true;
+          this_state_arr_emergency[j * features_per_emergency_in_state + 0] = target_x / kAgentXRange;
+          this_state_arr_emergency[j * features_per_emergency_in_state + 1] = target_y / kAgentYRange;
+          this_state_arr_emergency[j * features_per_emergency_in_state + 2] = mock_emergency_time;
+          this_state_arr_emergency[j * features_per_emergency_in_state + 3] = false;
+//           printf("CUDA: Replace Emergency %d with Surveillance\n", j);
+          // print new emergency info
+//           printf("CUDA: Emergency %d at %f,%f in env %d, AoI=%d\n", j, target_x, target_y, kEnvId, mock_emergency_time);
+          break;
+          }
+        }
+      }
+      else{
+      int mock_emergency_idx = this_as_emergency_arr[target_idx];
+      this_state_arr_emergency[mock_emergency_idx * features_per_emergency_in_state + 2] = mock_emergency_time;
+//       printf("CUDA: Increase AoI of Emergency %d to %d\n", mock_emergency_idx, mock_emergency_time);
+      }
+    }
           // print aoi increment for first 10 points
 //                       if (target_idx < 10 && env_timestep > 118){
 //                         printf("target %d aoi is %d, coverage arr %d\n", target_idx, target_aoi, target_coverage_arr[kThisTargetAgeArrayIdxOffset + target_idx]);
@@ -1019,11 +1058,15 @@ extern "C" {
         int emergency_idx = i + zero_shot_start;
         int target_aoi = target_aoi_arr[kThisTargetAgeArrayIdxOffset + emergency_idx];
         bool target_coverage = target_coverage_arr[kThisTargetAgeArrayIdxOffset + emergency_idx];
-//         float target_x = this_state_arr_emergency[i * features_per_emergency_in_state + 0];
-//         float target_y = this_state_arr_emergency[i * features_per_emergency_in_state + 1];
-//         printf("emergency %d at %f,%f in env %d\n", emergency_idx, target_x, target_y);
+        // print target_x and target_y, plus target_x（y)_time_list coordinates
+//                 printf("CUDA: Emergency %d Pos: %f, %f, %f, %f\n", emergency_idx, target_x, target_y,
+//                 target_x_time_list[kThisTargetPositionTimeListIdxOffset + emergency_idx],
+//                 target_y_time_list[kThisTargetPositionTimeListIdxOffset + emergency_idx]);
+        if (!this_mock_emergency_flag[i]){
+          // still original emergency, fill in updated aoi.
         this_state_arr_emergency[i * features_per_emergency_in_state + 2] = target_aoi;
         this_state_arr_emergency[i * features_per_emergency_in_state + 3] = env_timestep > aoi_schedule[i] ? target_coverage : -1;
+        }
       }
       state_arr[state_vec_features - 1] = env_timestep;
     }

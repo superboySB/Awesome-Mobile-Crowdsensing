@@ -83,6 +83,7 @@ if __name__ == '__main__':
     parser.add_argument('--speed_action', action='store_true', help='enable speed action')
     parser.add_argument('--speed_discount', type=float, default=1, help='discount for speed action')
     parser.add_argument('--emergency_reward', type=float, default=10, help='reward for covering emergency')
+    parser.add_argument('--refill_emergency', action='store_true', help='fill in uncovered surveillance as emergency')
     args = parser.parse_args()
 
     assert args.encoder_layer is not None and is_valid_format(args.encoder_layer), \
