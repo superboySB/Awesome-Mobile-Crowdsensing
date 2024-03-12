@@ -572,9 +572,9 @@ extern "C" {
                                           const int * agent_speed_arr,
                                             int dynamic_zero_shot,
                                             int buffer_in_obs,
-                                            int force_allocate,
                                             int scaled_reward,
                                             int emergency_threshold,
+                                            int surveillance_threshold,
                                             int refill_emergency,
                                             int zero_shot_start,
                                             int single_type_agent,
@@ -585,7 +585,7 @@ extern "C" {
     const int kThisAgentId = getAgentID(threadIdx.x, blockIdx.x, blockDim.x);
     const int emergency_count = kNumTargets - zero_shot_start;
     const int speedCountDown = 3;
-    const int surveillance_threshold = 31;
+    const int force_allocate = 0;
     // print kNumTargets and emergencies
 //         if (kThisAgentId == 0){
 //           printf("kNumTargets: %d, zero_shot_start: %d, emergency_count: %d\n", kNumTargets, zero_shot_start, emergency_count);
