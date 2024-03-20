@@ -10,6 +10,8 @@ import time
 import warnings
 from datetime import datetime
 from typing import Optional, Tuple, Dict, List, Any, Union
+
+import numpy as np
 from branca.element import Template, MacroElement
 
 import folium
@@ -196,7 +198,7 @@ class CrowdSim:
         self.use_random = use_random
         self.buffer_in_obs = buffer_in_obs
         self.refill_emergency = refill_emergency
-        self.scaled_reward = ("scale" in intrinsic_mode) or (intrinsic_mode == 'dis') or (intrinsic_mode == 'aim')
+        self.scaled_reward = ("scale" in intrinsic_mode) or (intrinsic_mode == 'dis') or (intrinsic_mode == 'none')
         # small number to prevent indeterminate cases
         self.eps = self.float_dtype(1e-10)
         self.fix_target = fix_target
@@ -292,8 +294,6 @@ class CrowdSim:
                 points_x, points_y = self.get_emergencies_from_dataset(unique_emergencies)
                 logging.debug(f"Emergency points: {self.num_centers}")
             else:
-                self.emergency_centers_x = None
-                self.emergency_centers_y = None
                 self.file_names = self.all_dataframes = self.all_emergency_counts = None
                 # if self.dynamic_zero_shot:
                 self.zero_shot_start = self.num_sensing_targets
@@ -304,6 +304,10 @@ class CrowdSim:
                 generation_time = int(self.aoi_schedule.shape[0] / self.points_per_gen)
                 self.num_centers = generation_time * self.points_per_gen
                 self.num_points_per_center = 1
+                all_surveillance = self.human_df[self.human_df['timestamp'] == self.start_timestamp][['x', 'y']].values
+                random_indexes = np.random.choice(all_surveillance.shape[0], self.num_centers, replace=False)
+                self.emergency_centers_x = all_surveillance[random_indexes, 0]
+                self.emergency_centers_y = all_surveillance[random_indexes, 1]
                 points_x, points_y = self.generate_emergency(self.num_centers, self.num_points_per_center)
                 self.emergency_count = (self.num_centers * self.num_points_per_center)
                 self.num_sensing_targets += self.emergency_count
@@ -586,10 +590,13 @@ class CrowdSim:
         if self.dynamic_zero_shot and not self.all_random:
             logging.debug("Emergency points reset completed!")
             if self.emergency_centers_y is not None and self.emergency_centers_x is not None:
-                my_index = np.random.randint(0, len(self.all_dataframes))
-                new_emergencies = self.all_dataframes[my_index]
-                logging.debug(f"newly selected emergency: {self.file_names[my_index]}")
-                points_x, points_y = self.get_emergencies_from_dataset(new_emergencies)
+                if self.all_dataframes is not None:
+                    my_index = np.random.randint(0, len(self.all_dataframes))
+                    new_emergencies = self.all_dataframes[my_index]
+                    logging.debug(f"newly selected emergency: {self.file_names[my_index]}")
+                    points_x, points_y = self.get_emergencies_from_dataset(new_emergencies)
+                else:
+                    points_x, points_y = self.generate_emergency(self.num_centers, self.num_points_per_center)
             else:
                 points_x, points_y = self.generate_emergency(self.num_centers, self.num_points_per_center)
             self.target_x_time_list[:, self.zero_shot_start:] = points_x
@@ -980,11 +987,14 @@ class CrowdSim:
             FRESHNESS_FACTOR: freshness_factor,
         }
         if self.dynamic_zero_shot and not self.all_random:
-            info[SURVEILLANCE_METRIC] = np.mean(self.target_aoi_timelist[self.timestep, :-self.emergency_count])
+            surveillance_aoi_mean = np.mean(self.target_aoi_timelist[self.timestep, :-self.emergency_count])
             valid_mask = self.aoi_schedule < self.episode_length
             emergency_aoi = self.target_aoi_timelist[self.timestep, -self.emergency_count:][valid_mask] - 1
-            info[EMERGENCY_METRIC] = np.mean(emergency_aoi)
-            info[DELAY_ADVANTAGE_RATIO] = 1 - np.mean(emergency_aoi) / self.emergency_threshold
+            emergency_aoi_mean = np.mean(emergency_aoi)
+            info[AOI_METRIC_NAME] = np.mean(emergency_aoi_mean + surveillance_aoi_mean)
+            info[SURVEILLANCE_METRIC] = surveillance_aoi_mean
+            info[EMERGENCY_METRIC] = emergency_aoi_mean
+            info[DELAY_ADVANTAGE_RATIO] = 1 - emergency_aoi_mean / self.emergency_threshold
             info[VALID_HANDLING_RATIO] = np.mean(emergency_aoi < self.emergency_threshold)
             # info[OVERALL_AOI] = (info[SURVEILLANCE_METRIC] + info[EMERGENCY_METRIC]) / 2
             # logging.debug(f"Emergency: {info[EMERGENCY_METRIC]}")
@@ -1430,6 +1440,7 @@ class CUDACrowdSim(CrowdSim, CUDAEnvironmentContext):
                                  ("aoi_schedule", self.int_dtype(self.aoi_schedule), True),
                                  ("as_emergency", self.int_dtype(np.full([self.num_sensing_targets, ], -1)), True),
                                  ("mock_emergency_flag", self.int_dtype(np.zeros([self.emergency_count, ])), True),
+                                 ("refilled_count", self.int_dtype(np.zeros(1)), True),
                                  ("emergency_reward", self.float_dtype(self.emergency_reward)),
                                  ("emergency_queue_length", self.int_dtype(self.emergency_queue_length)),
                                  ("emergency_per_gen", self.int_dtype(self.points_per_gen)),
@@ -1458,7 +1469,7 @@ class CUDACrowdSim(CrowdSim, CUDAEnvironmentContext):
                                  ("agent_speed", self.int_dtype(list(self.agent_speed.values()))),
                                  ("dynamic_zero_shot", self.int_dtype(self.dynamic_zero_shot)),
                                  ("buffer_in_obs", self.int_dtype(self.buffer_in_obs)),
-                                 # ("force_allocate", self.int_dtype(self.force_allocate)),
+                                 ("force_allocate", self.int_dtype(self.force_allocate)),
                                  ("scaled_reward", self.int_dtype(self.scaled_reward)),
                                  ("emergency_threshold", self.int_dtype(self.emergency_threshold)),
                                  ("surveillance_threshold", self.int_dtype(self.aoi_threshold)),
@@ -1498,6 +1509,7 @@ class CUDACrowdSim(CrowdSim, CUDAEnvironmentContext):
             "aoi_schedule",
             "as_emergency",
             "mock_emergency_flag",
+            "refilled_count",
             "emergency_reward",
             "emergency_queue_length",
             "emergency_per_gen",
@@ -1525,7 +1537,7 @@ class CUDACrowdSim(CrowdSim, CUDAEnvironmentContext):
             "agent_speed",
             "dynamic_zero_shot",
             "buffer_in_obs",
-            # "force_allocate",  # too much commas are forgot at here.
+            "force_allocate",  # too much commas are forgot at here.
             "scaled_reward",
             "emergency_threshold",
             "surveillance_threshold",
@@ -1981,9 +1993,11 @@ def setup_wandb(logging_config: dict):
 
 
 def define_metrics_crowdsim():
-    for item in [COVERAGE_METRIC_NAME, DATA_METRIC_NAME, MAIN_METRIC_NAME, FRESHNESS_FACTOR, VALID_HANDLING_RATIO]:
+    for item in [COVERAGE_METRIC_NAME, DATA_METRIC_NAME, MAIN_METRIC_NAME,
+                 FRESHNESS_FACTOR, VALID_HANDLING_RATIO]:
         wandb.define_metric(item, summary="max")
-    for item in [AOI_METRIC_NAME, ENERGY_METRIC_NAME, SURVEILLANCE_METRIC, EMERGENCY_METRIC, OVERALL_AOI]:
+    for item in [AOI_METRIC_NAME, ENERGY_METRIC_NAME, SURVEILLANCE_METRIC, EMERGENCY_METRIC,
+                 SURVEILLANCE_METRIC, EMERGENCY_METRIC]:
         wandb.define_metric(item, summary="min")
 
 

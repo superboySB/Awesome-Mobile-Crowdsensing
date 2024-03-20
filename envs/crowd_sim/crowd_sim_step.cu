@@ -22,11 +22,12 @@ extern "C" {
     const float & move_time,
       const int & agent_speed) {
     float stop_time = slot_time - move_time;
-    if (agent_speed < 10) {
-      float idle_cost = 17.49;
-      float energy_factor = 7.4;
-      return (idle_cost + energy_factor) * agent_speed * move_time + idle_cost * stop_time;
-    } else {
+//     printf("stop_time: %f\n", stop_time);
+//     if (agent_speed < 10) {
+//       float idle_cost = 17.49;
+//       float energy_factor = 7.4;
+//       return (idle_cost + energy_factor) * agent_speed * move_time + idle_cost * stop_time;
+//     } else {
       float P0 = 79.8563; // blade profile power, W
       float P1 = 88.6279; // derived power, W
       float U_tips = 120; // tip speed of the rotor blade of the UAV,m/s
@@ -44,7 +45,7 @@ extern "C" {
         P1 * sqrt(sqrt(1 + vt_4 / (4 * v0_4)) - vt_2 / (2 * v0_2)) + \
         0.5 * d0 * rho * s0 * A * vt_2 * vt;
       return move_time * flying_energy + stop_time * (P0 + P1);
-    }
+//     }
   }
   __device__ void CUDACrowdSimGenerateAoIGrid(
     float * obs_arr,
@@ -545,6 +546,7 @@ extern "C" {
                           const int * aoi_schedule,
                             int * as_emergency_arr,
                             int * mock_emergency_flag,
+                            int * refilled_count,
                             float emergency_reward,
                             const int emergency_queue_length,
                             const int emergency_per_gen,
@@ -572,6 +574,7 @@ extern "C" {
                                           const int * agent_speed_arr,
                                             int dynamic_zero_shot,
                                             int buffer_in_obs,
+                                            int force_allocate,
                                             int scaled_reward,
                                             int emergency_threshold,
                                             int surveillance_threshold,
@@ -585,7 +588,8 @@ extern "C" {
     const int kThisAgentId = getAgentID(threadIdx.x, blockIdx.x, blockDim.x);
     const int emergency_count = kNumTargets - zero_shot_start;
     const int speedCountDown = 3;
-    const int force_allocate = 0;
+    const int refillLimit = 5;
+//     const int force_allocate = 0;
     // print kNumTargets and emergencies
 //         if (kThisAgentId == 0){
 //           printf("kNumTargets: %d, zero_shot_start: %d, emergency_count: %d\n", kNumTargets, zero_shot_start, emergency_count);
@@ -929,6 +933,8 @@ extern "C" {
               this_state_arr_emergency[mock_emergency_idx * features_per_emergency_in_state + 3] = true;
               this_as_emergency_arr[target_idx] = -1;
               this_mock_emergency_flag[mock_emergency_idx] = false;
+              refilled_count[kEnvId]--;
+//               printf("CUDA: refilled_count of env %d decreased: %d\n", kEnvId, refilled_count[kEnvId]);
 //               printf("CUDA: Reset Emergency %d to Surveillance\n", mock_emergency_idx);
             }
             global_reward += reward_update;
@@ -952,7 +958,10 @@ extern "C" {
           rewards_arr[kThisEnvAgentsOffset + allocate_agent] -= emergency_reward;
           }
         }
-        if (!is_dyn_point && target_aoi > surveillance_threshold && refill_emergency){
+        if (!is_dyn_point && target_aoi > surveillance_threshold && refill_emergency &&
+        (refilled_count[kEnvId] < refillLimit)){
+        refilled_count[kEnvId]++;
+//         printf("CUDA: refilled_count of env %d increased: %d\n", kEnvId, refilled_count[kEnvId]);
         int mock_emergency_time = target_aoi - surveillance_threshold;
         if (this_as_emergency_arr[target_idx] == -1){
         for(int j = 0; j < emergency_count; j++){

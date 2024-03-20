@@ -78,7 +78,7 @@ if __name__ == '__main__':
                                                                                          'aim'])
     parser.add_argument('--use_random', action='store_true', help='use random emergency generation')
     # parser.add_argument('--use_attention', action='store_true', help='use attention mechanism')
-    parser.add_argument('--attention_dim', type=int, default=128, help='attention dimension (single head)')
+    parser.add_argument('--attention_dim', type=int, default=32, help='attention dimension (single head)')
     parser.add_argument('--num_heads', type=int, default=1, help='number of heads for attention')
     parser.add_argument('--speed_action', action='store_true', help='enable speed action')
     parser.add_argument('--speed_discount', type=float, default=1, help='discount for speed action')
@@ -210,7 +210,7 @@ if __name__ == '__main__':
                   'share_policy': share_policy,
                   'checkpoint_end': False, 'algo_args': {'resume': args.resume},
                   'checkpoint_freq': args.evaluation_interval,
-                  'stop': {"timesteps_total": 60000000}, 'restore_path': restore_dict,
+                  'stop': {"timesteps_total": 7320000}, 'restore_path': restore_dict,
                   'evaluation_interval': False,
                   'logging_config': logging_config if args.track else None, 'remote_worker_envs': False}
         # 1 if args.local_mode else args.evaluation_interval
