@@ -647,7 +647,7 @@ extern "C" {
     const int total_num_grids = grid_flatten_size;
     const int AgentFeature = 4 + kNumAgents;
     // Update on 2024.1.10, add emergency points queue
-    const int FeaturesInEmergencyQueue = 2;
+    const int FeaturesInEmergencyQueue = 3;
     const int StateFullAgentFeature = kNumAgents * AgentFeature;
     // add timestep to state for neural network resetting.
     const int features_per_emergency_in_state = 5;

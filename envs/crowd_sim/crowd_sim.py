@@ -490,7 +490,7 @@ class CrowdSim:
         random.shuffle(self.available_colors)
         # Initialize an index to keep track of the selected color
         self.selected_color_index = 0
-        self.queue_feature = 2
+        self.queue_feature = 3
         self.emergency_queue_length = emergency_queue_length
 
     def get_emergencies_from_dataset(self, unique_emergencies: pd.DataFrame):
