@@ -174,4 +174,6 @@ Chengdu, optim_greedy, large_reward, with end time
 42045 7000 2024-02-22_14-33-15 2024-02-22_14-33-15
 San, with attention
 07563 6000 2024-02-27_19-40-38 2024-02-27_19-40-38
+San with attention (new)
+c5a57 4000 2024-03-22_15-28-26 2024-03-22_15-28-26
 """
