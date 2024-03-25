@@ -3,7 +3,7 @@ exp_name='75_attention'
 # exp_name='66_ablation_small_emergency'
 # not completely edited.
 session_name=$exp_name
-cards=(1 3 4 5 6)
+cards=(2 3 4 5 6 7)
 card_num=${#cards[@]}
 dry_run=false
 # Process command-line arguments
@@ -19,6 +19,7 @@ while [[ $# -gt 0 ]]; do
 done
 # remove NN share_policy all
 trains=(
+  "--dataset SanFrancisco --tag restore_verify --prioritized_buffer"
   "--dataset SanFrancisco --tag restore_verify --prioritized_buffer --buffer_in_obs"
   "--dataset SanFrancisco --tag attention weight_rank --prioritized_buffer --buffer_in_obs --separate_encoder"
   "--dataset SanFrancisco --tag attention weight_rank --buffer_in_obs --separate_encoder"

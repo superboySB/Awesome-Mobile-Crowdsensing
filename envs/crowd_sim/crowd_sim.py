@@ -990,12 +990,13 @@ class CrowdSim:
             surveillance_aoi_mean = np.mean(self.target_aoi_timelist[self.timestep, :-self.emergency_count])
             valid_mask = self.aoi_schedule < self.episode_length
             emergency_aoi = self.target_aoi_timelist[self.timestep, -self.emergency_count:][valid_mask] - 1
+            valid_emergency_mask = emergency_aoi < self.emergency_threshold
             emergency_aoi_mean = np.mean(emergency_aoi)
-            info[AOI_METRIC_NAME] = np.mean(emergency_aoi_mean + surveillance_aoi_mean)
+            info[AOI_METRIC_NAME] = (emergency_aoi_mean + surveillance_aoi_mean) / 2
             info[SURVEILLANCE_METRIC] = surveillance_aoi_mean
             info[EMERGENCY_METRIC] = emergency_aoi_mean
-            info[DELAY_ADVANTAGE_RATIO] = 1 - emergency_aoi_mean / self.emergency_threshold
-            info[VALID_HANDLING_RATIO] = np.mean(emergency_aoi < self.emergency_threshold)
+            info[DELAY_ADVANTAGE_RATIO] = 1 - np.mean(emergency_aoi) / self.episode_length
+            info[VALID_HANDLING_RATIO] = np.mean(valid_emergency_mask)
             # info[OVERALL_AOI] = (info[SURVEILLANCE_METRIC] + info[EMERGENCY_METRIC]) / 2
             # logging.debug(f"Emergency: {info[EMERGENCY_METRIC]}")
         else:
