@@ -4,7 +4,7 @@
 users=("liuchi" "hanrui" "lishuang" "gaoguangyu" "liguozheng")
 
 # Define the programs for which you want to generate sudo permissions
-programs=("cat" "docker" "tail" "apt" "apt-get" "grep" "less" "find")
+programs=("cat" "docker" "tail" "apt" "apt-get" "grep" "less" "find" "rsync" "mkdir")
 
 # Check if an IP address is provided
 if [ $# -eq 0 ]; then

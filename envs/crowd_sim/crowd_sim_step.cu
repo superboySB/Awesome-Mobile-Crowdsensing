@@ -951,7 +951,7 @@ extern "C" {
           // Note Emergency Points Before Schedule are skipped in prior logic.
           target_aoi++;
         if (is_dyn_point and target_aoi > emergency_threshold){
-//           target_coverage = true;
+          target_coverage = true;
           int allocate_agent = this_emergency_allocation_table[target_idx - zero_shot_start];
           if(allocate_agent != -1){
 //           printf("Coverage Failure of Emergency %d by Agent %d in Env %d\n", target_idx, allocate_agent, kEnvId);
