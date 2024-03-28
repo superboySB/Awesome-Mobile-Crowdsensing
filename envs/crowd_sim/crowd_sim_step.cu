@@ -575,6 +575,7 @@ extern "C" {
                                             int dynamic_zero_shot,
                                             int buffer_in_obs,
                                             int force_allocate,
+                                            int with_end_time,
                                             int scaled_reward,
                                             int emergency_threshold,
                                             int surveillance_threshold,
@@ -867,7 +868,7 @@ extern "C" {
          else{
           reward_update = reward_increment * invEpisodeLength;
           if (scaled_reward){
-            reward_update /= 10;
+              reward_update /= 10;
           }
          }
         // print target point x,y, agent_id and reward amount
@@ -951,7 +952,9 @@ extern "C" {
           // Note Emergency Points Before Schedule are skipped in prior logic.
           target_aoi++;
         if (is_dyn_point and target_aoi > emergency_threshold){
+        if (with_end_time){
           target_coverage = true;
+        }
           int allocate_agent = this_emergency_allocation_table[target_idx - zero_shot_start];
           if(allocate_agent != -1){
 //           printf("Coverage Failure of Emergency %d by Agent %d in Env %d\n", target_idx, allocate_agent, kEnvId);

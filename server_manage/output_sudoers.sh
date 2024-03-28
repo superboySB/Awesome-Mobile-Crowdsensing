@@ -3,6 +3,8 @@
 # List of usernames
 users=("liuchi" "hanrui" "lishuang" "gaoguangyu" "liguozheng")
 
+#!/bin/bash
+
 # Define the programs for which you want to generate sudo permissions
 programs=("cat" "docker" "tail" "apt" "apt-get" "grep" "less" "find" "rsync" "mkdir")
 
@@ -15,10 +17,23 @@ fi
 # The IP address is the first command-line argument
 ip_address=$1
 
-# Function to find the full path of a program using SSH and which
-get_program_path() {
-  ssh admin@"$ip_address" "which $1 2>/dev/null"
+# Function to find the full paths of programs using SSH and which
+# Now it handles multiple programs at once and parses output
+get_program_paths() {
+  local IFS=" " # Setting internal field separator to space for the command
+  ssh admin@"$ip_address" "which ${programs[*]} 2>/dev/null" | while read -r line; do
+    if [[ $line == *"not found"* ]]; then
+      echo -n ""
+    else
+      echo -n "$line "
+    fi
+  done
 }
+
+# Retrieve all program paths at once
+program_paths=$(get_program_paths "${programs[@]}")
+# Convert the program paths string to an array
+read -ra program_paths_arr <<< "$program_paths"
 
 # Additional docker permissions
 docker_permissions="!/usr/bin/docker exec -it mcs /bin/*, \
@@ -33,9 +48,8 @@ for username in "${users[@]}"; do
   # Initialize sudo command permissions string
   sudo_cmd="$username ALL=(ALL) NOPASSWD:"
 
-  # Iterate over each program to find its full path and append it to the sudo command
-  for program in "${programs[@]}"; do
-    program_path=$(get_program_path "$program")
+  # Append found program paths to the sudo command
+  for program_path in "${program_paths_arr[@]}"; do
     if [ -n "$program_path" ]; then
       sudo_cmd+=" $program_path,"
     fi

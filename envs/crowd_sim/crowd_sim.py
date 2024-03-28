@@ -72,7 +72,7 @@ user_override_params = ['env_config', 'dynamic_zero_shot', 'use_2d_state', 'all_
                         'num_drones', 'num_cars', 'cut_points', 'fix_target', 'gen_interval',
                         'no_refresh', 'force_allocate', 'emergency_queue_length',
                         'buffer_in_obs', 'intrinsic_mode', 'use_random', 'emergency_threshold',
-                        'surveillance_threshold',
+                        'surveillance_threshold', 'with_end_time',
                         'speed_action', 'speed_discount', 'emergency_reward', 'refill_emergency']
 
 grid_size = 10
@@ -181,6 +181,7 @@ class CrowdSim:
             surveillance_threshold=30,
             emergency_queue_length=1,
             force_allocate=False,
+            with_end_time=True,
             buffer_in_obs=False,
             intrinsic_mode='dis_aoi',
             use_random=True,
@@ -211,6 +212,7 @@ class CrowdSim:
         self.centralized = centralized
         self.use_2d_state = use_2d_state
         self.force_allocate = force_allocate
+        self.with_end_time = with_end_time
         self.num_drones = num_drones
         self.num_cars = num_cars
         self.num_agents = self.num_drones + self.num_cars
@@ -1473,6 +1475,7 @@ class CUDACrowdSim(CrowdSim, CUDAEnvironmentContext):
                                  ("dynamic_zero_shot", self.int_dtype(self.dynamic_zero_shot)),
                                  ("buffer_in_obs", self.int_dtype(self.buffer_in_obs)),
                                  ("force_allocate", self.int_dtype(self.force_allocate)),
+                                 ("with_end_time", self.int_dtype(self.with_end_time)),
                                  ("scaled_reward", self.int_dtype(self.scaled_reward)),
                                  ("emergency_threshold", self.int_dtype(self.emergency_threshold)),
                                  ("surveillance_threshold", self.int_dtype(self.aoi_threshold)),
@@ -1540,7 +1543,8 @@ class CUDACrowdSim(CrowdSim, CUDAEnvironmentContext):
             "agent_speed",
             "dynamic_zero_shot",
             "buffer_in_obs",
-            "force_allocate",  # too much commas are forgot at here.
+            "force_allocate",  # too many commas are forgotten at here.
+            "with_end_time",
             "scaled_reward",
             "emergency_threshold",
             "surveillance_threshold",
