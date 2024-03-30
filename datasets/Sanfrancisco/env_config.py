@@ -55,6 +55,15 @@ class BaseEnvConfig(object):
     env.drone_action_space = np.array([[0, 0], [hypo, 0], [-hypo, 0],
                                        [0, hypo], [0, -hypo], [leg, leg],
                                        [leg, -leg], [-leg, leg], [-leg, -leg]])
+    # Origin: [0,0]
+    # Quadrant 1: [0,0], [hypo, 0], [0, hypo], [leg, leg]
+    # indices: 0, 1, 3, 5
+    # Quadrant 2: [0,0], [-hypo, 0], [0, hypo], [-leg, leg]
+    # indices: 0, 2, 3, 7
+    # Quadrant 3: [0,0], [-hypo, 0], [0, -hypo], [-leg, -leg]
+    # indices: 0, 2, 4, 8
+    # Quadrant 4: [0,0], [hypo, 0], [0, -hypo], [leg, -leg]
+    # indices: 0, 1, 4, 6
     # env.drone_action_space = np.array([[0, 0],
     #                                    [300, 0], [-300, 0],
     #                                    [0, 300], [0, -300],

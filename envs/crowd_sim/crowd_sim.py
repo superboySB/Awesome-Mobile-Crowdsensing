@@ -72,7 +72,7 @@ user_override_params = ['env_config', 'dynamic_zero_shot', 'use_2d_state', 'all_
                         'num_drones', 'num_cars', 'cut_points', 'fix_target', 'gen_interval',
                         'no_refresh', 'force_allocate', 'emergency_queue_length',
                         'buffer_in_obs', 'intrinsic_mode', 'use_random', 'emergency_threshold',
-                        'surveillance_threshold', 'with_end_time',
+                        'surveillance_threshold',
                         'speed_action', 'speed_discount', 'emergency_reward', 'refill_emergency']
 
 grid_size = 10

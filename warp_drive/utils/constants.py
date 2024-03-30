@@ -29,3 +29,10 @@ class Constants:
     STATE = "state"
     VECTOR_STATE = "agents_state"
     IMAGE_STATE = "grid"
+    ACTION_VALID_DICT = {
+        0: [i for i in range(9)],
+        1: [0, 1, 3, 5],
+        2: [0, 2, 3, 7],
+        3: [0, 2, 4, 8],
+        4: [0, 1, 4, 6],
+    }

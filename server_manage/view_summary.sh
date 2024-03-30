@@ -27,5 +27,9 @@ for ip_address in "${ip_addresses[@]}"; do
         echo "SSH on $ip_address is NOT using PasswordAuthentication"
     fi
 
+    # Display disk usage
+    echo "Disk usage on $ip_address:"
+    ssh "$ssh_user"@"$ip_address" "df -h | grep -vE 'udev|nvme|docker|snap|boot|tmpfs|cdrom'"
+
     echo "-------------------------"
 done

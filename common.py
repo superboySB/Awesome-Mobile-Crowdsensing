@@ -9,10 +9,9 @@ import argparse
 from envs.crowd_sim.crowd_sim import LARGE_DATASET_NAME
 
 # 'encoder_layer', 'core_arch', 'cut_points', 'fix_target', 'num_drones', 'num_cars', 'share_policy',
-# 'gen_interval', 'intrinsic_mode', 'emergency_reward' ’gen_interval'
-display_tags = {'selector_type', 'emergency_queue_length', 'dataset', 'alpha', 'intrinsic_mode'}
+# 'gen_interval', 'intrinsic_mode', 'emergency_reward', 'selector_type'
 ignore_tags = {'dynamic_zero_shot', 'fix_target', 'use_2d_state', 'reward_mode', 'emergency_threshold',
-               'with_programming_optimization', 'use_random'}
+               'with_programming_optimization', 'use_random', 'look_ahead'}
 
 logging_dir = os.path.join("/workspace", "saved_data")
 
@@ -66,7 +65,10 @@ def add_common_arguments(parser: ArgumentParser):
     parser.add_argument('--emergency_threshold', type=int, default=20, help='emergency threshold')
     parser.add_argument('--surveillance_threshold', type=int, default=60, help='emergency threshold')
 
-def customize_experiment(args: argparse.Namespace, run_config: dict = None, yaml_config_path: str = None, ):
+
+def customize_experiment(args: argparse.Namespace, run_config: dict = None, yaml_config_path: str = None,
+                         display_tags={'selector_type', 'emergency_queue_length', 'dataset', 'alpha',
+                                       'intrinsic_mode'}, ):
     """
     Setup tags to update hyperparameters based on argparse arguments and optionally a YAML configuration file.
     The function appends attributes set to True in both argparse and the YAML file as tags.

@@ -63,7 +63,7 @@ if __name__ == '__main__':
     parser.add_argument("--force_allocate", action='store_true', help='force emergencies to be allocated, agent'
                                                                       'will receive no reward if it is not allocated '
                                                                       'to cover.')
-    parser.add_argument("--with_end_time", action='store_true', help='use end time for emergency')
+    # parser.add_argument("--with_end_time", action='store_true', help='use end time for emergency')
     parser.add_argument("--sibling_rivalry", action='store_true', help='enable anti-goal distance reward')
     parser.add_argument('--alpha', type=float, default=0.3, help='alpha for anti-goal distance reward')
     parser.add_argument("--buffer_in_obs", action='store_true', help='display entire buffer in the observation')
@@ -85,11 +85,21 @@ if __name__ == '__main__':
     parser.add_argument('--speed_discount', type=float, default=1, help='discount for speed action')
     parser.add_argument('--emergency_reward', type=float, default=10, help='reward for covering emergency')
     parser.add_argument('--refill_emergency', action='store_true', help='fill in uncovered surveillance as emergency')
+    parser.add_argument('--encoder_core_arch', type=str, default='mlp',
+                        choices=['mlp', 'mlp_residual', 'attention', 'attention_gumbel',
+                                 'attention_gumbel_mock', 'attention_residual'], help='core architecture for encoder')
+    parser.add_argument('--use_action_mask', action='store_true', help='use action mask for emergency')
+    # input display_tags from command line (multiple)
+    parser.add_argument('--display_tags', nargs='+', type=str, default=None,
+                        help='special comments for each experiment')
     args = parser.parse_args()
 
     assert args.encoder_layer is not None and is_valid_format(args.encoder_layer), \
         f"encoder_layer should be in format X-X-X, got {args.encoder_layer}"
-    expr_name = customize_experiment(args)
+    if args.display_tags is not None:
+        expr_name = customize_experiment(args, display_tags=set(args.display_tags))
+    else:
+        expr_name = customize_experiment(args)
     this_expr_dir = os.path.join(logging_dir, 'trajectories', '_'.join([args.algo, args.core_arch, args.dataset]),
                                  expr_name)
     if args.selector_type == 'oracle':
@@ -185,7 +195,8 @@ if __name__ == '__main__':
                       'emergency_queue_length', 'tolerance', 'look_ahead', 'local_mode',
                       'render_file_name', 'buffer_in_obs', 'separate_encoder', 'prioritized_buffer',
                       'rl_use_cnn', 'intrinsic_mode', 'dynamic_zero_shot', 'use_random',
-                      'attention_dim', 'num_heads', 'NN_buffer'] + restore_ignore_params):
+                      'attention_dim', 'num_heads', 'NN_buffer', 'encoder_core_arch', 'use_action_mask'] +
+                     restore_ignore_params):
             load_preferences(custom_preference=model_preference, args=args, this_expr_dir=this_expr_dir)
     model = marl.build_model(env, my_algorithm, model_preference)
     # start learning
