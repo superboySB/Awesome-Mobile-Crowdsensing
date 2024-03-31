@@ -675,9 +675,12 @@ extern "C" {
     int * this_mock_emergency_flag = mock_emergency_flag + kThisEmergencyArrayIdxOffset;
     float * this_emergency_dis_to_target = emergency_dis_to_target + kThisEnvAgentsOffset;
     float * this_state_arr_emergency = state_arr + kThisEnvStateOffset + StateFullAgentFeature;
-    //     printf("Drone Sensing Range: %f\n", kDroneSensingRange);
-    //     printf("features: %d, obs: %d\n", state_features, obs_features);
-    //     printf("total targets: %d fix targets: %d\n", kNumTargets, zero_shot_start);
+    // print state and obs feature number
+//         if (kThisAgentId == 0){
+//         printf("Drone Sensing Range: %f\n", kDroneSensingRange);
+//         printf("features: %d, obs: %d\n", state_features, obs_features);
+//         printf("total targets: %d fix targets: %d\n", kNumTargets, zero_shot_start);
+//         }
     // -------------------------------
     // Load Actions to update agent positions
 //     if (kThisAgentId == 0){
