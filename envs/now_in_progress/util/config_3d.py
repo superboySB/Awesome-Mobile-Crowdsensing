@@ -67,7 +67,7 @@ class Config(object):
             "user_data_amount": 40,  # 1080P 2Mbps * 20s = 40
             "poi_init_data": 20,
 
-            "aoi_threshold": 60,
+            "surveillance_threshold": 60,
             "threshold_penalty": 0.1,
 
             # Manager

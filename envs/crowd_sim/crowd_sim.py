@@ -50,6 +50,10 @@ from warp_drive.utils.recursive_obs_dict_to_spaces_dict import (
 )
 from .utils import *
 
+VALID_SURVEILLANCE_RATIO = 'valid_surveillance_ratio'
+
+VALID_EMERGENCY_DELAY = 'valid_emergency_delay'
+
 DELAY_ADVANTAGE_RATIO = 'delay_advantage_ratio'
 
 state_aoi_caption = "State AoI"
@@ -218,7 +222,7 @@ class CrowdSim:
         self.num_agents = self.num_drones + self.num_cars
         self.gen_interval = gen_interval
 
-        self.aoi_threshold = surveillance_threshold
+        self.surveillance_threshold = surveillance_threshold
         self.emergency_threshold = emergency_threshold
         logging.debug("Emergency Threshold: {}".format(self.emergency_threshold))
         # self.emergency_threshold = self.config.env.emergency_threshold
@@ -980,7 +984,7 @@ class CrowdSim:
 
     def collect_info(self) -> Dict[str, float]:
         freshness_factor = 1 - np.mean(np.clip(self.float_dtype(self.target_aoi_timelist[self.timestep]) /
-                                               self.aoi_threshold, a_min=0, a_max=1) ** 2)
+                                               self.surveillance_threshold, a_min=0, a_max=1) ** 2)
         logging.debug(f"{FRESHNESS_FACTOR}: {freshness_factor}")
         # mean_energy = np.mean(self.agent_energy_timelist[self.timestep])
         # energy_remaining_ratio = mean_energy / self.max_uav_energy
@@ -989,19 +993,22 @@ class CrowdSim:
             FRESHNESS_FACTOR: freshness_factor,
         }
         if self.dynamic_zero_shot and not self.all_random:
-            surveillance_aoi_mean = np.mean(self.target_aoi_timelist[self.timestep, :-self.emergency_count])
+            surveillance_aoi_mean = np.mean(self.target_aoi_timelist[..., :-self.emergency_count], axis=0)
             valid_mask = self.aoi_schedule < self.episode_length
-            emergency_aoi = self.target_aoi_timelist[self.timestep, -self.emergency_count:][valid_mask] - 1
-            valid_emergency_mask = emergency_aoi < self.emergency_threshold
+            emergency_aoi = self.target_aoi_timelist[..., -self.emergency_count:][..., valid_mask] - 1
+            valid_emergency_mask = emergency_aoi[self.timestep] < self.emergency_threshold
+            valid_surveillance_mask = surveillance_aoi_mean < self.surveillance_threshold
             emergency_aoi_mean = np.mean(emergency_aoi)
+            valid_emergency_aoi_mean = np.mean(emergency_aoi[..., valid_emergency_mask])
             info[AOI_METRIC_NAME] = (emergency_aoi_mean + surveillance_aoi_mean) / 2
             # info['peak_surveillance_aoi'] = np.max(self.target_aoi_timelist[self.timestep, :-self.emergency_count])
             # info['peak_emergency_aoi'] = np.max(emergency_aoi)
-            info[SURVEILLANCE_METRIC] = surveillance_aoi_mean
+            info[SURVEILLANCE_METRIC] = np.mean(surveillance_aoi_mean)
             info[EMERGENCY_METRIC] = emergency_aoi_mean
+            info[VALID_EMERGENCY_DELAY] = valid_emergency_aoi_mean
             info[DELAY_ADVANTAGE_RATIO] = 1 - np.mean(emergency_aoi) / self.emergency_threshold
             info[VALID_HANDLING_RATIO] = np.mean(valid_emergency_mask)
-            # info[OVERALL_AOI] = (info[SURVEILLANCE_METRIC] + info[EMERGENCY_METRIC]) / 2
+            info[VALID_SURVEILLANCE_RATIO] = np.mean(valid_surveillance_mask)
             # logging.debug(f"Emergency: {info[EMERGENCY_METRIC]}")
         else:
             mean_aoi = np.mean(self.target_aoi_timelist[self.timestep])
@@ -1044,7 +1051,7 @@ class CrowdSim:
             mixed_df = self.human_df.copy()
             mixed_df['aoi'] = self.target_aoi_timelist[:, :self.zero_shot_start].T.ravel()
             mixed_df['color'] = np.digitize(mixed_df['aoi'].values,
-                                            np.linspace(0, self.aoi_threshold, 6)) - 1
+                                            np.linspace(0, self.surveillance_threshold, 6)) - 1
             # set color level as int
             mixed_df['color'] = mixed_df['color'].astype(int)
             aoi_list = np.full(self.episode_length + 1, -1, dtype=np.int_)
@@ -1478,7 +1485,7 @@ class CUDACrowdSim(CrowdSim, CUDAEnvironmentContext):
                                  ("with_end_time", self.int_dtype(self.with_end_time)),
                                  ("scaled_reward", self.int_dtype(self.scaled_reward)),
                                  ("emergency_threshold", self.int_dtype(self.emergency_threshold)),
-                                 ("surveillance_threshold", self.int_dtype(self.aoi_threshold)),
+                                 ("surveillance_threshold", self.int_dtype(self.surveillance_threshold)),
                                  ("refill_emergency", self.int_dtype(self.refill_emergency)),
                                  ("zero_shot_start", self.int_dtype(self.zero_shot_start)),
                                  ("single_type_agent", self.int_dtype(self.single_type_agent)),
@@ -2001,10 +2008,10 @@ def setup_wandb(logging_config: dict):
 
 def define_metrics_crowdsim():
     for item in [COVERAGE_METRIC_NAME, DATA_METRIC_NAME, MAIN_METRIC_NAME,
-                 FRESHNESS_FACTOR, VALID_HANDLING_RATIO]:
+                 FRESHNESS_FACTOR, VALID_HANDLING_RATIO, VALID_SURVEILLANCE_RATIO]:
         wandb.define_metric(item, summary="max")
     for item in [AOI_METRIC_NAME, ENERGY_METRIC_NAME, SURVEILLANCE_METRIC, EMERGENCY_METRIC,
-                 SURVEILLANCE_METRIC, EMERGENCY_METRIC]:
+                 VALID_EMERGENCY_DELAY]:
         wandb.define_metric(item, summary="min")
 
 

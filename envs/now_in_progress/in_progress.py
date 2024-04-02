@@ -37,7 +37,7 @@ class EnvUCS:
 
         self.CONCAT_OBS = self.config("concat_obs")
         self.POI_INIT_DATA = self.config("poi_init_data")
-        self.AOI_THRESHOLD = self.config("aoi_threshold")
+        self.AOI_THRESHOLD = self.config("surveillance_threshold")
         self.TOTAL_TIME = self.MAX_EPISODE_STEP * self.TIME_SLOT
         self.THRESHOLD_PENALTY = self.config("threshold_penalty")
         self.UAV_HEIGHT = self.config("uav_height")
