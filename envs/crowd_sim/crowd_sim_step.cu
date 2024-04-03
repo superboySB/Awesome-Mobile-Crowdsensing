@@ -579,6 +579,7 @@ extern "C" {
                                             int scaled_reward,
                                             int emergency_threshold,
                                             int surveillance_threshold,
+                                            float surveillance_penalty,
                                             int refill_emergency,
                                             int zero_shot_start,
                                             int single_type_agent,
@@ -964,34 +965,14 @@ extern "C" {
           rewards_arr[kThisEnvAgentsOffset + allocate_agent] -= emergency_reward;
           }
         }
-        if (!is_dyn_point && target_aoi > surveillance_threshold && refill_emergency &&
-        (refilled_count[kEnvId] < refillLimit)){
-        refilled_count[kEnvId]++;
-//         printf("CUDA: refilled_count of env %d increased: %d\n", kEnvId, refilled_count[kEnvId]);
-        int mock_emergency_time = target_aoi - surveillance_threshold;
-        if (this_as_emergency_arr[target_idx] == -1){
-        for(int j = 0; j < emergency_count; j++){
-          if (this_state_arr_emergency[j * features_per_emergency_in_state + 3] == 1){
-            // replace covered emergency with surveillance
-          this_as_emergency_arr[target_idx] = j;
-          this_mock_emergency_flag[j] = true;
-          this_state_arr_emergency[j * features_per_emergency_in_state + 0] = target_x / kAgentXRange;
-          this_state_arr_emergency[j * features_per_emergency_in_state + 1] = target_y / kAgentYRange;
-          this_state_arr_emergency[j * features_per_emergency_in_state + 2] = mock_emergency_time;
-          this_state_arr_emergency[j * features_per_emergency_in_state + 3] = false;
-//           printf("CUDA: Replace Emergency %d with Surveillance\n", j);
-          // print new emergency info
-//           printf("CUDA: Emergency %d at %f,%f in env %d, AoI=%d\n", j, target_x, target_y, kEnvId, mock_emergency_time);
-          break;
-          }
+        if (!is_dyn_point && target_aoi > surveillance_threshold){
+        // global penalty for surveillance points if over surveillance_threshold
+        global_reward -= surveillance_penalty;
+        float split_reward = (surveillance_penalty / kNumAgents);
+        for(int k = 0; k < kNumAgents; k++){
+          rewards_arr[kThisEnvAgentsOffset + k] -= split_reward;
         }
       }
-      else{
-      int mock_emergency_idx = this_as_emergency_arr[target_idx];
-      this_state_arr_emergency[mock_emergency_idx * features_per_emergency_in_state + 2] = mock_emergency_time;
-//       printf("CUDA: Increase AoI of Emergency %d to %d\n", mock_emergency_idx, mock_emergency_time);
-      }
-    }
           // print aoi increment for first 10 points
 //                       if (target_idx < 10 && env_timestep > 118){
 //                         printf("target %d aoi is %d, coverage arr %d\n", target_idx, target_aoi, target_coverage_arr[kThisTargetAgeArrayIdxOffset + target_idx]);
@@ -1197,6 +1178,14 @@ extern "C" {
     // Use only agent 0's thread to set done_arr
     if (kThisAgentId == 0) {
       // debug
+      // print rewards_arr
+//       if (kEnvId == 0){
+//         printf("Step %d, Rewards in Env %d\n", env_timestep, kEnvId);
+//         for (int i = 0; i < kNumAgents; i++){
+//           printf("%f ", rewards_arr[kThisEnvAgentsOffset + i]);
+//         }
+//         printf("\n");
+//       }
 //      // print all agent rewards for environment 0
 //             if (kEnvId >= 120 && kEnvId < 128 && env_timestep > 30){
 //                 printf("%d Agent 0 Reward at %d: %f\n", kEnvId, rewards_arr[kThisEnvAgentsOffset], env_timestep);

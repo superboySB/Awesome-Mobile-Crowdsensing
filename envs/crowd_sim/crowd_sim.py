@@ -76,8 +76,8 @@ user_override_params = ['env_config', 'dynamic_zero_shot', 'use_2d_state', 'all_
                         'num_drones', 'num_cars', 'cut_points', 'fix_target', 'gen_interval',
                         'no_refresh', 'force_allocate', 'emergency_queue_length',
                         'buffer_in_obs', 'intrinsic_mode', 'use_random', 'emergency_threshold',
-                        'surveillance_threshold',
-                        'speed_action', 'speed_discount', 'emergency_reward', 'refill_emergency']
+                        'surveillance_threshold', 'speed_action', 'speed_discount', 'emergency_reward',
+                        'refill_emergency', 'surveillance_penalty']
 
 grid_size = 10
 
@@ -193,11 +193,13 @@ class CrowdSim:
             speed_discount=1.0,
             emergency_reward=10.0,
             refill_emergency=False,
+            surveillance_penalty=0,
     ):
         self.float_dtype = np.float32
         self.int_dtype = np.int32
         self.bool_dtype = np.bool_
         self.emergency_reward = emergency_reward
+        self.surveillance_penalty = surveillance_penalty
         self.single_type_agent = single_type_agent
         self.no_refresh = no_refresh
         self.use_random = use_random
@@ -1486,6 +1488,7 @@ class CUDACrowdSim(CrowdSim, CUDAEnvironmentContext):
                                  ("scaled_reward", self.int_dtype(self.scaled_reward)),
                                  ("emergency_threshold", self.int_dtype(self.emergency_threshold)),
                                  ("surveillance_threshold", self.int_dtype(self.surveillance_threshold)),
+                                 ("surveillance_penalty", self.float_dtype(self.surveillance_penalty)),
                                  ("refill_emergency", self.int_dtype(self.refill_emergency)),
                                  ("zero_shot_start", self.int_dtype(self.zero_shot_start)),
                                  ("single_type_agent", self.int_dtype(self.single_type_agent)),
@@ -1555,6 +1558,7 @@ class CUDACrowdSim(CrowdSim, CUDAEnvironmentContext):
             "scaled_reward",
             "emergency_threshold",
             "surveillance_threshold",
+            "surveillance_penalty",
             "refill_emergency",
             "zero_shot_start",
             "single_type_agent",

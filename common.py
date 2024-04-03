@@ -64,6 +64,7 @@ def add_common_arguments(parser: ArgumentParser):
     parser.add_argument("--cut_points", type=int, default=-1, help='number of points allowed')
     parser.add_argument('--emergency_threshold', type=int, default=20, help='emergency threshold')
     parser.add_argument('--surveillance_threshold', type=int, default=40, help='emergency threshold')
+    parser.add_argument('--surveillance_penalty', type=float, default=1e-6, help='the penalty for surveillance task')
 
 
 def customize_experiment(args: argparse.Namespace, run_config: dict = None, yaml_config_path: str = None,
