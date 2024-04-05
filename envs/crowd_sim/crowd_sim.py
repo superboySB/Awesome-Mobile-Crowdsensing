@@ -72,6 +72,8 @@ SURVEILLANCE_METRIC = "surveillance_aoi"
 
 VALID_HANDLING_RATIO = "valid_handling_ratio"
 
+BOTTLENECK_RATIO = "bottleneck_ratio"
+
 user_override_params = ['env_config', 'dynamic_zero_shot', 'use_2d_state', 'all_random',
                         'num_drones', 'num_cars', 'cut_points', 'fix_target', 'gen_interval',
                         'no_refresh', 'force_allocate', 'emergency_queue_length',
@@ -1011,6 +1013,7 @@ class CrowdSim:
             info[DELAY_ADVANTAGE_RATIO] = 1 - np.mean(emergency_aoi) / self.emergency_threshold
             info[VALID_HANDLING_RATIO] = np.mean(valid_emergency_mask)
             info[VALID_SURVEILLANCE_RATIO] = np.mean(valid_surveillance_mask)
+            info[BOTTLENECK_RATIO] = min(info[VALID_HANDLING_RATIO], info[VALID_SURVEILLANCE_RATIO])
             # logging.debug(f"Emergency: {info[EMERGENCY_METRIC]}")
         else:
             mean_aoi = np.mean(self.target_aoi_timelist[self.timestep])
@@ -2012,7 +2015,8 @@ def setup_wandb(logging_config: dict):
 
 def define_metrics_crowdsim():
     for item in [COVERAGE_METRIC_NAME, DATA_METRIC_NAME, MAIN_METRIC_NAME,
-                 FRESHNESS_FACTOR, VALID_HANDLING_RATIO, VALID_SURVEILLANCE_RATIO]:
+                 FRESHNESS_FACTOR, VALID_HANDLING_RATIO, VALID_SURVEILLANCE_RATIO,
+                 BOTTLENECK_RATIO]:
         wandb.define_metric(item, summary="max")
     for item in [AOI_METRIC_NAME, ENERGY_METRIC_NAME, SURVEILLANCE_METRIC, EMERGENCY_METRIC,
                  VALID_EMERGENCY_DELAY]:

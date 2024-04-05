@@ -90,7 +90,7 @@ if __name__ == '__main__':
                                  'attention_gumbel_mock', 'attention_residual'], help='core architecture for encoder')
     parser.add_argument('--use_action_mask', action='store_true', help='use action mask for emergency')
     parser.add_argument('--use_pcgrad', action='store_true', help='use conflicting gradient projection')
-
+    parser.add_argument('--use_bvn', action='store_true', help='use bilinear value network for lower-level agent')
     # input display_tags from command line (multiple)
     parser.add_argument('--display_tags', nargs='+', type=str, default=None,
                         help='special comments for each experiment')
@@ -198,7 +198,7 @@ if __name__ == '__main__':
                       'render_file_name', 'buffer_in_obs', 'separate_encoder', 'prioritized_buffer',
                       'rl_use_cnn', 'intrinsic_mode', 'dynamic_zero_shot', 'use_random',
                       'attention_dim', 'num_heads', 'NN_buffer', 'encoder_core_arch',
-                      'use_action_mask', 'use_attention', 'use_pcgrad'] +
+                      'use_action_mask', 'use_attention', 'use_pcgrad', 'use_bvn'] +
                      restore_ignore_params):
             load_preferences(custom_preference=model_preference, args=args, this_expr_dir=this_expr_dir)
     model = marl.build_model(env, my_algorithm, model_preference)
