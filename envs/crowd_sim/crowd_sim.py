@@ -1004,7 +1004,7 @@ class CrowdSim:
             valid_surveillance_mask = surveillance_aoi_mean < self.surveillance_threshold
             emergency_aoi_mean = np.mean(emergency_aoi)
             valid_emergency_aoi_mean = np.mean(emergency_aoi[..., valid_emergency_mask])
-            info[AOI_METRIC_NAME] = (emergency_aoi_mean + surveillance_aoi_mean) / 2
+            info[AOI_METRIC_NAME] = (np.mean(emergency_aoi_mean) + np.mean(surveillance_aoi_mean)) / 2
             # info['peak_surveillance_aoi'] = np.max(self.target_aoi_timelist[self.timestep, :-self.emergency_count])
             # info['peak_emergency_aoi'] = np.max(emergency_aoi)
             info[SURVEILLANCE_METRIC] = np.mean(surveillance_aoi_mean)

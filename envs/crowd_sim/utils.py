@@ -9,7 +9,7 @@ from jinja2 import Template
 
 from warp_drive.utils.common import get_project_root
 
-np.seterr(invalid='ignore')
+# np.seterr(invalid='ignore')
 
 
 # from datasets.KAIST.env_config import BaseEnvConfig
