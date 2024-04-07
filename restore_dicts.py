@@ -178,4 +178,6 @@ San with attention (new)
 c5a57 4000 2024-03-22_15-28-26 2024-03-22_15-28-26
 San with attention + gumbel softmax
 78cfd 9000 2024-03-25_15-01-15 2024-03-25_15-01-15
+San with neural ucb
+f8a80 2000 2024-04-06_02-18-59 2024-04-06_02-18-58
 """

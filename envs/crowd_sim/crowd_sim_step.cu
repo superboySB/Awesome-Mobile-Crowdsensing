@@ -577,6 +577,7 @@ extern "C" {
                                             int force_allocate,
                                             int with_end_time,
                                             int scaled_reward,
+                                            float scale_size,
                                             int emergency_threshold,
                                             int surveillance_threshold,
                                             float surveillance_penalty,
@@ -872,7 +873,7 @@ extern "C" {
          else{
           reward_update = reward_increment * invEpisodeLength;
           if (scaled_reward){
-              reward_update /= 10;
+              reward_update /= scale_size;
           }
          }
         // print target point x,y, agent_id and reward amount

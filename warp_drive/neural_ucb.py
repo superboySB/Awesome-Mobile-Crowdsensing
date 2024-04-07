@@ -16,12 +16,13 @@ class Model(nn.Module):
     def __init__(self, input_size, hidden_size, out_size):
         super().__init__()
         self.affine1 = nn.Linear(input_size, hidden_size)
-        self.affine2 = nn.Linear(hidden_size, hidden_size)
-        self.affine2 = nn.Linear(hidden_size, out_size)
+        # self.affine2 = nn.Linear(hidden_size, hidden_size)
+        self.affine3 = nn.Linear(hidden_size, out_size)
 
     def forward(self, x):
         x = F.relu(self.affine1(x))
-        return self.affine2(x)
+        # x = F.relu(self.affine2(x))
+        return F.sigmoid(self.affine3(x))
 
 
 class ReplayBuffer:

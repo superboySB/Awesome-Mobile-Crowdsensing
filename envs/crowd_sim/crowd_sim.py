@@ -79,7 +79,7 @@ user_override_params = ['env_config', 'dynamic_zero_shot', 'use_2d_state', 'all_
                         'no_refresh', 'force_allocate', 'emergency_queue_length',
                         'buffer_in_obs', 'intrinsic_mode', 'use_random', 'emergency_threshold',
                         'surveillance_threshold', 'speed_action', 'speed_discount', 'emergency_reward',
-                        'refill_emergency', 'surveillance_penalty']
+                        'refill_emergency', 'surveillance_penalty', 'scale_size']
 
 grid_size = 10
 
@@ -196,6 +196,7 @@ class CrowdSim:
             emergency_reward=10.0,
             refill_emergency=False,
             surveillance_penalty=0,
+            scale_size=10,
     ):
         self.float_dtype = np.float32
         self.int_dtype = np.int32
@@ -208,6 +209,7 @@ class CrowdSim:
         self.buffer_in_obs = buffer_in_obs
         self.refill_emergency = refill_emergency
         self.scaled_reward = ("scale" in intrinsic_mode) or (intrinsic_mode == 'dis') or (intrinsic_mode == 'none')
+        self.scale_size = scale_size
         # small number to prevent indeterminate cases
         self.eps = self.float_dtype(1e-10)
         self.fix_target = fix_target
@@ -1489,6 +1491,7 @@ class CUDACrowdSim(CrowdSim, CUDAEnvironmentContext):
                                  ("force_allocate", self.int_dtype(self.force_allocate)),
                                  ("with_end_time", self.int_dtype(self.with_end_time)),
                                  ("scaled_reward", self.int_dtype(self.scaled_reward)),
+                                 ("scale_size", self.float_dtype(self.scale_size)),
                                  ("emergency_threshold", self.int_dtype(self.emergency_threshold)),
                                  ("surveillance_threshold", self.int_dtype(self.surveillance_threshold)),
                                  ("surveillance_penalty", self.float_dtype(self.surveillance_penalty)),
@@ -1559,6 +1562,7 @@ class CUDACrowdSim(CrowdSim, CUDAEnvironmentContext):
             "force_allocate",  # too many commas are forgotten at here.
             "with_end_time",
             "scaled_reward",
+            "scale_size",
             "emergency_threshold",
             "surveillance_threshold",
             "surveillance_penalty",
