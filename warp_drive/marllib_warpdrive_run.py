@@ -98,7 +98,8 @@ if __name__ == '__main__':
     parser.add_argument('--use_pcgrad', action='store_true', help='use conflicting gradient projection')
     parser.add_argument('--use_bvn', action='store_true', help='use bilinear value network for lower-level agent')
     parser.add_argument('--scale_size', type=float, default=10, help='scaling factor for surveillance reward')
-    parser.add_argument('--use_relabeling', action='store_true', help='enable relabeling for high level agent')
+    parser.add_argument('--use_relabeling', type=str, default='none',
+                        choices=['none', 'agent', 'emergency'], help='enable relabeling for high level agent')
     parser.add_argument('--relabel_threshold', type=float, default=0, help='threshold reward for relabeling')
     # input display_tags from command line (multiple)
     parser.add_argument('--display_tags', nargs='+', type=str, default=None,

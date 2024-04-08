@@ -1,8 +1,8 @@
 #!/bin/bash
-exp_name='76 agent_test_relabeling'
+exp_name='77_test_relabeling'
 # not completely edited.
 session_name=$exp_name
-cards=(0 1 6 7 7)
+cards=(2 3 0 1 0)
 card_num=${#cards[@]}
 dry_run=false
 # Process command-line arguments
@@ -20,9 +20,9 @@ done
 trains=(
   "--dataset SanFrancisco --tag restore_verify --reward_mode greedy --rl_gamma 0"
   "--dataset SanFrancisco --tag restore_verify --reward_mode original --rl_gamma 0"
-  "--dataset SanFrancisco --reward_mode original --rl_gamma 0 --use_relabeling agent --relabel_threshold 0.25"
-  "--dataset SanFrancisco --reward_mode original --rl_gamma 0 --use_relabeling agent --relabel_threshold 0.5"
-  "--dataset SanFrancisco --reward_mode original --rl_gamma 0 --use_relabeling agent --relabel_threshold 0.75"
+  "--dataset SanFrancisco --reward_mode original --rl_gamma 0 --use_relabeling emergency --relabel_threshold 0.25"
+  "--dataset SanFrancisco --reward_mode original --rl_gamma 0 --use_relabeling emergency --relabel_threshold 0.5"
+  "--dataset SanFrancisco --reward_mode original --rl_gamma 0 --use_relabeling emergency --relabel_threshold 0.75"
 )
 
 
