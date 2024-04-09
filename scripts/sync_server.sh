@@ -1,7 +1,7 @@
 # Define the expected hostname
 expected_hostname="c99244229552"
 current_hostname=$(hostname)
-ip_addresses=("10.1.114.56" "10.1.114.66" "10.1.114.75" "10.1.114.76" "10.1.114.103")
+ip_addresses=("10.1.114.50" "10.1.114.56" "10.1.114.66" "10.1.114.75" "10.1.114.76" "10.1.114.103")
 # Check if the current hostname is equal to the expected hostname
 if [ "$current_hostname" = "$expected_hostname" ]; then
     echo "Master Server, syncing contents to other servers"

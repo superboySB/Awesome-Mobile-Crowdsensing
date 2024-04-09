@@ -368,3 +368,15 @@ class JsButton(MacroElement):
             CssLink('https://use.fontawesome.com/releases/v5.3.1/css/all.css'),  # noqa
             name='Control.FontAwesome.css'
         )
+
+
+def get_emergency_labels(matched_obs, status_dim):
+    emergencies = matched_obs[..., status_dim:status_dim + 2]
+    emergency_x, emergency_y = emergencies[..., 0], emergencies[..., 1]
+    # digitize emergency (x,y) to 4 bins
+    num_bins = 4
+    bins = np.linspace(0, 1, num_bins + 1)
+    emergency_x = np.digitize(emergency_x, bins) - 1
+    emergency_y = np.digitize(emergency_y, bins) - 1
+    labels = emergency_x * num_bins + emergency_y
+    return labels
