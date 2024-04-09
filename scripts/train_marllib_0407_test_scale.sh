@@ -2,7 +2,7 @@
 exp_name='66_test_scale'
 # not completely edited.
 session_name=$exp_name
-cards=(0 3 4)
+cards=(0 1 2 3 4)
 card_num=${#cards[@]}
 dry_run=false
 # Process command-line arguments
@@ -18,12 +18,12 @@ while [[ $# -gt 0 ]]; do
 done
 # remove NN share_policy all
 trains=(
-  "--dataset SanFrancisco --tag restore_verify --reward_mode greedy --rl_gamma 0"
+
+  "--dataset SanFrancisco --reward_mode original --rl_gamma 0 --scale_size 6"
+  "--dataset SanFrancisco --reward_mode original --rl_gamma 0 --scale_size 7"
+  "--dataset SanFrancisco --reward_mode original --rl_gamma 0 --scale_size 8"
+  "--dataset SanFrancisco --reward_mode original --rl_gamma 0 --scale_size 9"
   "--dataset SanFrancisco --tag restore_verify --reward_mode original --rl_gamma 0"
-  "--dataset SanFrancisco --reward_mode original --rl_gamma 0 --scale_size 5"
-  "--dataset SanFrancisco --reward_mode original --rl_gamma 0 --scale_size 2"
-  "--dataset SanFrancisco --reward_mode original --rl_gamma 0 --scale_size 1"
-  "--dataset SanFrancisco --reward_mode original --rl_gamma 0 --scale_size 0.5"
 )
 
 
