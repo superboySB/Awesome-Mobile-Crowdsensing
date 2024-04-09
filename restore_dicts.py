@@ -180,4 +180,6 @@ San with attention + gumbel softmax
 78cfd 9000 2024-03-25_15-01-15 2024-03-25_15-01-15
 San with neural ucb
 f8a80 2000 2024-04-06_02-18-59 2024-04-06_02-18-58
+San restore verify (reward mode original)
+44b2e 10000 2024-04-07_20-35-08 2024-04-07_20-35-08
 """

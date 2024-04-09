@@ -101,7 +101,11 @@ if __name__ == '__main__':
     parser.add_argument('--use_relabeling', type=str, default='none',
                         choices=['none', 'agent', 'emergency'], help='enable relabeling for high level agent')
     parser.add_argument('--relabel_threshold', type=float, default=0, help='threshold reward for relabeling')
-    # input display_tags from command line (multiple)
+    # add a group for variants of GDAN (LSTM and non-LSTM)
+    gdan_group = parser.add_mutually_exclusive_group(required=False)
+    gdan_group.add_argument('--use_gdan', action='store_true', help='use Goal Discriminative Attention Network')
+    gdan_group.add_argument('--use_gdan_lstm', action='store_true',
+                            help='use Goal Discriminative Attention Network with LSTM')
     parser.add_argument('--display_tags', nargs='+', type=str, default=None,
                         help='special comments for each experiment')
     args = parser.parse_args()
@@ -209,7 +213,7 @@ if __name__ == '__main__':
                       'rl_use_cnn', 'intrinsic_mode', 'dynamic_zero_shot', 'use_random',
                       'attention_dim', 'num_heads', 'NN_buffer', 'encoder_core_arch',
                       'use_action_mask', 'use_attention', 'use_neural_ucb', 'use_pcgrad', 'use_bvn',
-                      'use_relabeling', 'relabel_threshold'] +
+                      'use_relabeling', 'relabel_threshold', 'use_gdan', 'use_gdan_lstm'] +
                      restore_ignore_params):
             load_preferences(custom_preference=model_preference, args=args, this_expr_dir=this_expr_dir)
     model = marl.build_model(env, my_algorithm, model_preference)
