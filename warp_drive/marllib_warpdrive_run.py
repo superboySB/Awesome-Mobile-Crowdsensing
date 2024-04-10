@@ -103,6 +103,7 @@ if __name__ == '__main__':
     parser.add_argument('--relabel_threshold', type=float, default=0, help='threshold reward for relabeling')
     # add a group for variants of GDAN (LSTM and non-LSTM)
     gdan_group = parser.add_mutually_exclusive_group(required=False)
+    gdan_group.add_argument('--use_gdan_no_loss', action='store_true', help='use GDAN without cross entropy loss')
     gdan_group.add_argument('--use_gdan', action='store_true', help='use Goal Discriminative Attention Network')
     gdan_group.add_argument('--use_gdan_lstm', action='store_true',
                             help='use Goal Discriminative Attention Network with LSTM')
@@ -213,7 +214,8 @@ if __name__ == '__main__':
                       'rl_use_cnn', 'intrinsic_mode', 'dynamic_zero_shot', 'use_random',
                       'attention_dim', 'num_heads', 'NN_buffer', 'encoder_core_arch',
                       'use_action_mask', 'use_attention', 'use_neural_ucb', 'use_pcgrad', 'use_bvn',
-                      'use_relabeling', 'relabel_threshold', 'use_gdan', 'use_gdan_lstm'] +
+                      'use_relabeling', 'relabel_threshold', 'use_gdan', 'use_gdan_lstm',
+                      'use_gdan_no_loss'] +
                      restore_ignore_params):
             load_preferences(custom_preference=model_preference, args=args, this_expr_dir=this_expr_dir)
     model = marl.build_model(env, my_algorithm, model_preference)
