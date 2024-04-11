@@ -11,11 +11,11 @@ class DistancePredictor(nn.Module):
     def __init__(self):
         super(DistancePredictor, self).__init__()
         self.fc = nn.Sequential(
-            nn.Linear(23, 64),  # 输入是两个点的坐标，总共4个值
+            nn.Linear(23, 32),  # 输入是两个点的坐标，总共4个值
+            # nn.ReLU(),
+            # nn.Linear(64, 64),
             nn.ReLU(),
-            nn.Linear(64, 64),
-            nn.ReLU(),
-            nn.Linear(64, 1)  # 输出是一个值，即两点之间的距离
+            nn.Linear(32, 1)  # 输出是一个值，即两点之间的距离
         )
 
     def forward(self, x):

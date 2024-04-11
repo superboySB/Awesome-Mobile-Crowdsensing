@@ -590,7 +590,7 @@ extern "C" {
     const int kEnvId = getEnvID(blockIdx.x);
     const int kThisAgentId = getAgentID(threadIdx.x, blockIdx.x, blockDim.x);
     const int emergency_count = kNumTargets - zero_shot_start;
-    const int speedCountDown = 3;
+    const int speedCountDown = 1;
     const int refillLimit = 5;
 //     const int force_allocate = 0;
     // print kNumTargets and emergencies
@@ -1062,7 +1062,7 @@ extern "C" {
         if (!this_mock_emergency_flag[i]){
           // still original emergency, fill in updated aoi.
         this_state_arr_emergency[i * features_per_emergency_in_state + 2] = target_aoi;
-        this_state_arr_emergency[i * features_per_emergency_in_state + 3] = env_timestep > aoi_schedule[i] ? target_coverage : -1;
+        this_state_arr_emergency[i * features_per_emergency_in_state + 3] = env_timestep >= aoi_schedule[i] ? target_coverage : -1;
         }
       }
       state_arr[state_vec_features - 1] = env_timestep;

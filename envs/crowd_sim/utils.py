@@ -3,14 +3,14 @@ import os
 import numpy as np
 import movingpandas
 import pandas as pd
-
+from ray.rllib.utils.framework import try_import_torch
 from branca.element import CssLink, Figure, JavascriptLink, MacroElement
 from jinja2 import Template
 
 from warp_drive.utils.common import get_project_root
 
 # np.seterr(invalid='ignore')
-
+torch, nn = try_import_torch()
 
 # from datasets.KAIST.env_config import BaseEnvConfig
 # from shapely.geometry import *
@@ -380,3 +380,29 @@ def get_emergency_labels(matched_obs, status_dim):
     emergency_y = np.digitize(emergency_y, bins) - 1
     labels = emergency_x * num_bins + emergency_y
     return labels
+
+
+def generate_quadrant_labels(agents_pos, emergencies_pos, batch_size):
+    """
+    Compute the quadrant labels for each agent-emergency pair.
+    The labels are as follows:
+    1: (+, +)
+    2: (-, +)
+    3: (-, -)
+    4: (+, -)
+
+    """
+    difference = emergencies_pos - agents_pos
+    if isinstance(difference, np.ndarray):
+        difference = torch.from_numpy(difference)
+    # Compute the signs of the elements in some_array
+    quadrant_x = torch.sign(difference[:, 0]).to(torch.int32)
+    quadrant_y = torch.sign(difference[:, 1]).to(torch.int32)
+    quadrant_labels = torch.zeros(batch_size, dtype=torch.int32)
+    quadrant_labels[(quadrant_x == 1) & (quadrant_y == 1)] = 1
+    quadrant_labels[(quadrant_x == -1) & (quadrant_y == 1)] = 2
+    quadrant_labels[(quadrant_x == -1) & (quadrant_y == -1)] = 3
+    quadrant_labels[(quadrant_x == 1) & (quadrant_y == -1)] = 4
+    # special, invalid emergency label.
+    quadrant_labels[(emergencies_pos[..., 0] == 0) & (emergencies_pos[..., 1] == 0)] = 0
+    return quadrant_labels

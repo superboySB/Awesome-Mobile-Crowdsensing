@@ -79,7 +79,7 @@ user_override_params = ['env_config', 'dynamic_zero_shot', 'use_2d_state', 'all_
                         'no_refresh', 'force_allocate', 'emergency_queue_length',
                         'buffer_in_obs', 'intrinsic_mode', 'use_random', 'emergency_threshold',
                         'surveillance_threshold', 'speed_action', 'speed_discount', 'emergency_reward',
-                        'refill_emergency', 'surveillance_penalty', 'scale_size']
+                        'refill_emergency', 'surveillance_penalty']
 
 grid_size = 10
 
@@ -196,7 +196,6 @@ class CrowdSim:
             emergency_reward=10.0,
             refill_emergency=False,
             surveillance_penalty=0,
-            scale_size=10,
     ):
         self.float_dtype = np.float32
         self.int_dtype = np.int32
@@ -209,7 +208,6 @@ class CrowdSim:
         self.buffer_in_obs = buffer_in_obs
         self.refill_emergency = refill_emergency
         self.scaled_reward = ("scale" in intrinsic_mode) or (intrinsic_mode == 'dis') or (intrinsic_mode == 'none')
-        self.scale_size = scale_size
         # small number to prevent indeterminate cases
         self.eps = self.float_dtype(1e-10)
         self.fix_target = fix_target
@@ -230,8 +228,8 @@ class CrowdSim:
 
         self.surveillance_threshold = surveillance_threshold
         self.emergency_threshold = emergency_threshold
+        self.scale_size = 5 / (self.emergency_threshold / self.surveillance_threshold)
         logging.debug("Emergency Threshold: {}".format(self.emergency_threshold))
-        # self.emergency_threshold = self.config.env.emergency_threshold
         self.num_agents_observed = self.num_agents - 1
         self.all_random = all_random
         self.episode_length = self.config.env.num_timestep

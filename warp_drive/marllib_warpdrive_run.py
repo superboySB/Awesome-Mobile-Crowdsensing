@@ -97,10 +97,13 @@ if __name__ == '__main__':
     parser.add_argument('--use_neural_ucb', action='store_true', help='use neural ucb for upper-level assignment.')
     parser.add_argument('--use_pcgrad', action='store_true', help='use conflicting gradient projection')
     parser.add_argument('--use_bvn', action='store_true', help='use bilinear value network for lower-level agent')
-    parser.add_argument('--scale_size', type=float, default=10, help='scaling factor for surveillance reward')
+    # parser.add_argument('--scale_size', type=float, default=10, help='scaling factor for surveillance reward')
     parser.add_argument('--use_relabeling', type=str, default='none',
                         choices=['none', 'agent', 'emergency'], help='enable relabeling for high level agent')
     parser.add_argument('--relabel_threshold', type=float, default=0, help='threshold reward for relabeling')
+    parser.add_argument('--gdan_eta', type=float, default=1, help='eta for GDAN')
+    parser.add_argument('--use_action_label', action='store_true',
+                        help='use action label for GDAN (only valid when using GDAN)')
     # add a group for variants of GDAN (LSTM and non-LSTM)
     gdan_group = parser.add_mutually_exclusive_group(required=False)
     gdan_group.add_argument('--use_gdan_no_loss', action='store_true', help='use GDAN without cross entropy loss')
@@ -215,7 +218,7 @@ if __name__ == '__main__':
                       'attention_dim', 'num_heads', 'NN_buffer', 'encoder_core_arch',
                       'use_action_mask', 'use_attention', 'use_neural_ucb', 'use_pcgrad', 'use_bvn',
                       'use_relabeling', 'relabel_threshold', 'use_gdan', 'use_gdan_lstm',
-                      'use_gdan_no_loss'] +
+                      'use_gdan_no_loss', 'use_action_label', 'gdan_eta'] +
                      restore_ignore_params):
             load_preferences(custom_preference=model_preference, args=args, this_expr_dir=this_expr_dir)
     model = marl.build_model(env, my_algorithm, model_preference)
