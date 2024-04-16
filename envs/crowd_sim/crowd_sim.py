@@ -74,12 +74,14 @@ VALID_HANDLING_RATIO = "valid_handling_ratio"
 
 BOTTLENECK_RATIO = "bottleneck_ratio"
 
+VALID_RATIO_PER_ENERGY = "valid_ratio_per_energy"
+
 user_override_params = ['env_config', 'dynamic_zero_shot', 'use_2d_state', 'all_random',
                         'num_drones', 'num_cars', 'cut_points', 'fix_target', 'gen_interval',
                         'no_refresh', 'force_allocate', 'emergency_queue_length',
                         'buffer_in_obs', 'intrinsic_mode', 'use_random', 'emergency_threshold',
                         'surveillance_threshold', 'speed_action', 'speed_discount', 'emergency_reward',
-                        'refill_emergency', 'surveillance_penalty']
+                        'refill_emergency', 'surveillance_penalty', 'points_per_gen']
 
 grid_size = 10
 
@@ -196,6 +198,7 @@ class CrowdSim:
             emergency_reward=10.0,
             refill_emergency=False,
             surveillance_penalty=0,
+            points_per_gen=3,
     ):
         self.float_dtype = np.float32
         self.int_dtype = np.int32
@@ -307,7 +310,8 @@ class CrowdSim:
                 self.file_names = self.all_dataframes = self.all_emergency_counts = None
                 # if self.dynamic_zero_shot:
                 self.zero_shot_start = self.num_sensing_targets
-                self.points_per_gen = self.num_agents - 1 if self.num_agents > 1 else 1
+                # note: hard code to 3 for now.
+                self.points_per_gen = points_per_gen
                 self.aoi_schedule = np.repeat(np.arange(self.gen_interval, self.episode_length, self.gen_interval),
                                               repeats=self.points_per_gen)
                 logging.debug(f"AoI Schedule: {self.aoi_schedule}")
@@ -990,10 +994,11 @@ class CrowdSim:
         freshness_factor = 1 - np.mean(np.clip(self.float_dtype(self.target_aoi_timelist[self.timestep]) /
                                                self.surveillance_threshold, a_min=0, a_max=1) ** 2)
         logging.debug(f"{FRESHNESS_FACTOR}: {freshness_factor}")
+        energy_consumption_ratio = 1 - np.mean(self.agent_energy_timelist[self.timestep]) / self.max_uav_energy
         # mean_energy = np.mean(self.agent_energy_timelist[self.timestep])
         # energy_remaining_ratio = mean_energy / self.max_uav_energy
         info = {
-            ENERGY_METRIC_NAME: 1 - np.mean(self.agent_energy_timelist[self.timestep]) / self.max_uav_energy,
+            ENERGY_METRIC_NAME: energy_consumption_ratio,
             FRESHNESS_FACTOR: freshness_factor,
         }
         if self.dynamic_zero_shot and not self.all_random:
@@ -1013,7 +1018,9 @@ class CrowdSim:
             info[DELAY_ADVANTAGE_RATIO] = 1 - np.mean(emergency_aoi) / self.emergency_threshold
             info[VALID_HANDLING_RATIO] = np.mean(valid_emergency_mask)
             info[VALID_SURVEILLANCE_RATIO] = np.mean(valid_surveillance_mask)
-            info[BOTTLENECK_RATIO] = min(info[VALID_HANDLING_RATIO], info[VALID_SURVEILLANCE_RATIO])
+            bottleneck = min(info[VALID_HANDLING_RATIO], info[VALID_SURVEILLANCE_RATIO])
+            info[BOTTLENECK_RATIO] = bottleneck
+            info[VALID_RATIO_PER_ENERGY] = bottleneck / energy_consumption_ratio
             # logging.debug(f"Emergency: {info[EMERGENCY_METRIC]}")
         else:
             mean_aoi = np.mean(self.target_aoi_timelist[self.timestep])
@@ -2018,7 +2025,7 @@ def setup_wandb(logging_config: dict):
 def define_metrics_crowdsim():
     for item in [COVERAGE_METRIC_NAME, DATA_METRIC_NAME, MAIN_METRIC_NAME,
                  FRESHNESS_FACTOR, VALID_HANDLING_RATIO, VALID_SURVEILLANCE_RATIO,
-                 BOTTLENECK_RATIO]:
+                 BOTTLENECK_RATIO, VALID_RATIO_PER_ENERGY]:
         wandb.define_metric(item, summary="max")
     for item in [AOI_METRIC_NAME, ENERGY_METRIC_NAME, SURVEILLANCE_METRIC, EMERGENCY_METRIC,
                  VALID_EMERGENCY_DELAY]:

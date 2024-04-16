@@ -1,9 +1,9 @@
 #!/bin/bash
-exp_name='75_hyperparameters'
+exp_name='50_hyperparameters'
 # not completely edited.
-dataset_name='SanFrancisco'
-session_name=$exp_name
-cards=(0 1 2 3 4 5 6 7)
+dataset_name='Chengdu'
+session_name=$exp_namde
+cards=(1 2 3 4 5 6 7 8)
 card_num=${#cards[@]}
 dry_run=false
 # Process command-line arguments
@@ -23,10 +23,6 @@ trains=(
   "--emergency_queue_length 1 --alpha 0.3"
   "--emergency_queue_length 1 --alpha 0.5"
   "--emergency_queue_length 1 --alpha 0.7"
-  "--emergency_queue_length 2 --alpha 0.1"
-  "--emergency_queue_length 2 --alpha 0.3"
-  "--emergency_queue_length 2 --alpha 0.5"
-  "--emergency_queue_length 2 --alpha 0.7"
   "--emergency_queue_length 3 --alpha 0.1"
   "--emergency_queue_length 3 --alpha 0.3"
   "--emergency_queue_length 3 --alpha 0.5"
@@ -35,6 +31,10 @@ trains=(
   "--emergency_queue_length 5 --alpha 0.3"
   "--emergency_queue_length 5 --alpha 0.5"
   "--emergency_queue_length 5 --alpha 0.7"
+  "--emergency_queue_length 7 --alpha 0.1"
+  "--emergency_queue_length 7 --alpha 0.3"
+  "--emergency_queue_length 7 --alpha 0.5"
+  "--emergency_queue_length 7 --alpha 0.7"
 )
 
 
@@ -76,8 +76,10 @@ for ((i = 0; i < train_num; i++)); do
   command="python warp_drive/marllib_warpdrive_run.py --track --core_arch crowdsim_net --dynamic_zero_shot\
   --num_drones 4 --num_cars 0 --group auto_allocation --algo trafficppo --share_policy all --switch_step 60000000\
   --gpu_id ${cards[card_id]} ${trains[i]} --use_2d_state --tag hyperparameters --look_ahead --with_programming_optimization\
-  --reward_mode greedy --prioritized_buffer --emergency_threshold 20 --speed_discount 0.5 --dataset "$dataset_name"\
-  --selector_type RL --rl_gamma 0 --use_random --gen_interval 10 --intrinsic_mode scaled_dis_aoi --sibling_rivalry"
+  --reward_mode greedy --prioritized_buffer --emergency_threshold 20 --surveillance_threshold 35\
+  --speed_discount 0.8 --dataset "$dataset_name" --NN_buffer --gen_interval 6 --cut_points 300\
+  --selector_type RL --rl_gamma 0 --use_random --intrinsic_mode scaled_dis_aoi --sibling_rivalry\
+  --display_tags dataset emergency_queue_length alpha"
   echo "$command"
   if [ "$dry_run" = "false" ] && [ "$choice" != "n" ]
   then

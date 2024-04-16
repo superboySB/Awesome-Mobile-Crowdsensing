@@ -6,6 +6,7 @@ ip_addresses=("10.1.114.50" "10.1.114.56" "10.1.114.66" "10.1.114.75" "10.1.114.
 if [ "$current_hostname" = "$expected_hostname" ]; then
     echo "Master Server, syncing contents to other servers"
     chmod +x train_marllib*.sh
+    chmod +x paper_experiments/train_marllib*.sh
     # Default values
     upload=false
     download=false

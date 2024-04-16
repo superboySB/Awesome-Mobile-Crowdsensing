@@ -1,8 +1,9 @@
 #!/bin/bash
-exp_name='75_ablate_NN_weight'
+exp_name='75_hyperparameters'
 # not completely edited.
+dataset_name='SanFrancisco'
 session_name=$exp_name
-cards=(0 1 2 3 4 5 6 7)
+cards=(1 2 3 4 5 6 7)
 card_num=${#cards[@]}
 dry_run=false
 # Process command-line arguments
@@ -18,20 +19,27 @@ while [[ $# -gt 0 ]]; do
 done
 # remove NN share_policy all
 trains=(
-  "--dataset SanFrancisco --tag ours --emergency_queue_length 5 --NN_buffer --sibling_rivalry --alpha 0.3 --intrinsic_mode scaled_dis_aoi"
-  "--dataset SanFrancisco --tag restore_verify --emergency_queue_length 5 --sibling_rivalry --alpha 0.3 --intrinsic_mode scaled_dis_aoi"
-  "--dataset SanFrancisco --tag no_buffer --emergency_queue_length 1 --sibling_rivalry --alpha 0.3 --intrinsic_mode scaled_dis_aoi"
-  "--dataset SanFrancisco --tag no_dis --emergency_queue_length 5 --NN_buffer --intrinsic_mode none"
-  "--dataset SanFrancisco --tag no_both --emergency_queue_length 1 --intrinsic_mode none"
-  "--dataset Chengdu --tag ours --emergency_queue_length 5 --NN_buffer --sibling_rivalry --alpha 0.3 --intrinsic_mode scaled_dis_aoi"
-  "--dataset Chengdu --tag restore_verify --emergency_queue_length 5 --sibling_rivalry --alpha 0.3 --intrinsic_mode scaled_dis_aoi"
-  "--dataset Chengdu --tag no_buffer --emergency_queue_length 1 --sibling_rivalry --alpha 0.3 --intrinsic_mode scaled_dis_aoi"
-  "--dataset Chengdu --tag no_dis --emergency_queue_length 5 --NN_buffer --intrinsic_mode none"
-  "--dataset Chengdu --tag no_both --emergency_queue_length 1 --intrinsic_mode none"
+  "--emergency_queue_length 1 --alpha 0.1"
+  "--emergency_queue_length 1 --alpha 0.3"
+  "--emergency_queue_length 1 --alpha 0.5"
+  "--emergency_queue_length 1 --alpha 0.7"
+  "--emergency_queue_length 3 --alpha 0.1"
+  "--emergency_queue_length 3 --alpha 0.3"
+  "--emergency_queue_length 3 --alpha 0.5"
+  "--emergency_queue_length 3 --alpha 0.7"
+  "--emergency_queue_length 5 --alpha 0.1"
+  "--emergency_queue_length 5 --alpha 0.3"
+  "--emergency_queue_length 5 --alpha 0.5"
+  "--emergency_queue_length 5 --alpha 0.7"
+  "--emergency_queue_length 7 --alpha 0.1"
+  "--emergency_queue_length 7 --alpha 0.3"
+  "--emergency_queue_length 7 --alpha 0.5"
+  "--emergency_queue_length 7 --alpha 0.7"
 )
 
 
 train_num=${#trains[@]}
+
 if [ "$dry_run" = "false" ]
 then
     echo "Start running expr $exp_name"
@@ -50,6 +58,9 @@ then
         tmux split-window -h;tmux select-layout tiled;tmux select-pane -l;
         tmux split-window -h;tmux split-window -h;tmux select-layout tiled;
 	      tmux select-pane -l;tmux split-window -h;tmux split-window -h;
+	      tmux split-window -h;tmux select-layout tiled;tmux select-pane -t 0;
+	      tmux split-window -h;tmux select-pane -t 2;tmux split-window -h;
+	      tmux select-pane -t 4;tmux split-window -h;tmux select-pane -t 6;
 	      tmux split-window -h;tmux select-layout tiled;
     fi
 fi
@@ -64,10 +75,11 @@ for ((i = 0; i < train_num; i++)); do
   # if want to add $PATH, remember to add / before $
   command="python warp_drive/marllib_warpdrive_run.py --track --core_arch crowdsim_net --dynamic_zero_shot\
   --num_drones 4 --num_cars 0 --group auto_allocation --algo trafficppo --share_policy all --switch_step 60000000\
-  --gpu_id ${cards[card_id]} ${trains[i]} --use_2d_state --look_ahead --with_programming_optimization\
-  --emergency_threshold 20 --speed_discount 0.8 --selector_type RL --use_random --prioritized_buffer\
-  --gen_interval 6 --cut_points 300 --surveillance_threshold 35\
-  --display_tags dataset intrinsic_mode emergency_queue_length --reward_mode original --rl_gamma 0"
+  --gpu_id ${cards[card_id]} ${trains[i]} --use_2d_state --tag hyperparameters --look_ahead --with_programming_optimization\
+  --reward_mode greedy --prioritized_buffer --emergency_threshold 20 --surveillance_threshold 35\
+  --speed_discount 0.8 --dataset "$dataset_name" --NN_buffer --gen_interval 6 --cut_points 300\
+  --selector_type RL --rl_gamma 0 --use_random --intrinsic_mode scaled_dis_aoi --sibling_rivalry\
+  --display_tags dataset emergency_queue_length alpha"
   echo "$command"
   if [ "$dry_run" = "false" ] && [ "$choice" != "n" ]
   then
@@ -83,4 +95,3 @@ else
   echo "Operations not executed."
   # Add any cleanup or exit code here if needed
 fi
-# End of file

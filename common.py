@@ -60,6 +60,7 @@ def add_common_arguments(parser: ArgumentParser):
     parser.add_argument('--fix_target', action='store_true', default=True, help='fix target')
     parser.add_argument('--gen_interval', type=int, default=10, help='time interval between '
                                                                      'two generations of emergencies')
+    parser.add_argument('--points_per_gen', type=int, default=3, help='number of emergency points per generation')
     parser.add_argument('--evaluation_interval', type=int, default=1000, help='evaluation interval')
     parser.add_argument("--cut_points", type=int, default=-1, help='number of points allowed')
     parser.add_argument('--emergency_threshold', type=int, default=20, help='emergency threshold')

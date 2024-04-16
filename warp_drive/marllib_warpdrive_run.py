@@ -94,6 +94,7 @@ if __name__ == '__main__':
                         choices=['mlp', 'mlp_residual', 'attention', 'attention_gumbel',
                                  'attention_gumbel_mock', 'attention_residual'], help='core architecture for encoder')
     parser.add_argument('--use_action_mask', action='store_true', help='use action mask for emergency')
+    parser.add_argument('--no_task_allocation', action='store_true', help='disable task allocation high-level agent')
     parser.add_argument('--use_neural_ucb', action='store_true', help='use neural ucb for upper-level assignment.')
     parser.add_argument('--use_pcgrad', action='store_true', help='use conflicting gradient projection')
     parser.add_argument('--use_bvn', action='store_true', help='use bilinear value network for lower-level agent')
@@ -218,7 +219,8 @@ if __name__ == '__main__':
                       'attention_dim', 'num_heads', 'NN_buffer', 'encoder_core_arch',
                       'use_action_mask', 'use_attention', 'use_neural_ucb', 'use_pcgrad', 'use_bvn',
                       'use_relabeling', 'relabel_threshold', 'use_gdan', 'use_gdan_lstm',
-                      'use_gdan_no_loss', 'use_action_label', 'gdan_eta'] +
+                      'use_gdan_no_loss', 'use_action_label', 'gdan_eta', 'num_drones',
+                      'points_per_gen', 'no_task_allocation'] +
                      restore_ignore_params):
             load_preferences(custom_preference=model_preference, args=args, this_expr_dir=this_expr_dir)
     model = marl.build_model(env, my_algorithm, model_preference)
@@ -245,7 +247,7 @@ if __name__ == '__main__':
                   'share_policy': share_policy,
                   'checkpoint_end': False, 'algo_args': {'resume': args.resume},
                   'checkpoint_freq': args.evaluation_interval,
-                  'stop': {"timesteps_total": 30000000}, 'restore_path': restore_dict,
+                  'stop': {"timesteps_total": 10000000}, 'restore_path': restore_dict,
                   'evaluation_interval': False,
                   'logging_config': logging_config if args.track else None, 'remote_worker_envs': False}
         # 1 if args.local_mode else args.evaluation_interval
