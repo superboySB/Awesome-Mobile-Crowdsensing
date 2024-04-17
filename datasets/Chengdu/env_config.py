@@ -17,6 +17,7 @@ class BaseEnvConfig(object):
     env.dataset_name = 'Chengdu'
     env.aoi_threshold = 30
     env.emergency_threshold = 10
+    env.emergency_size = 100
     env.num_timestep = 120  # num_timestep x step_time = 1800s = 30min
     env.step_time = 15  # second per step
     env.max_uav_energy = 467856

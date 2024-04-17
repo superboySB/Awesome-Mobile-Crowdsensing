@@ -87,7 +87,8 @@ if __name__ == '__main__':
     parser.add_argument('--attention_dim', type=int, default=32, help='attention dimension (single head)')
     parser.add_argument('--num_heads', type=int, default=1, help='number of heads for attention')
     parser.add_argument('--speed_action', action='store_true', help='enable speed action')
-    parser.add_argument('--speed_discount', type=float, default=1, help='discount for speed action')
+    parser.add_argument('--blur_requirement', type=float, default=5,
+                        help='blur requirement for image, proportional to speed')
     parser.add_argument('--emergency_reward', type=float, default=10, help='reward for covering emergency')
     parser.add_argument('--refill_emergency', action='store_true', help='fill in uncovered surveillance as emergency')
     parser.add_argument('--encoder_core_arch', type=str, default='mlp',

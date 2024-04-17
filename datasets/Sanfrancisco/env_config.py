@@ -15,8 +15,9 @@ class Config(object):
 class BaseEnvConfig(object):
     env = Config()
     env.dataset_name = 'Sanfrancisco'
-    env.aoi_threshold = 30
-    env.emergency_threshold = 15
+    # env.aoi_threshold = 30
+    # env.emergency_threshold = 20
+    env.emergency_size = 100
     env.num_timestep = 120  # num_timestep x step_time = 1800s = 30min
     env.step_time = 15  # second per step
     env.max_uav_energy = 467856

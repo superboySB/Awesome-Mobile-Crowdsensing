@@ -7,6 +7,7 @@ import pprint
 import random
 import re
 import time
+import math
 import warnings
 from datetime import datetime
 from typing import Optional, Tuple, Dict, List, Any, Union
@@ -80,7 +81,7 @@ user_override_params = ['env_config', 'dynamic_zero_shot', 'use_2d_state', 'all_
                         'num_drones', 'num_cars', 'cut_points', 'fix_target', 'gen_interval',
                         'no_refresh', 'force_allocate', 'emergency_queue_length',
                         'buffer_in_obs', 'intrinsic_mode', 'use_random', 'emergency_threshold',
-                        'surveillance_threshold', 'speed_action', 'speed_discount', 'emergency_reward',
+                        'surveillance_threshold', 'speed_action', 'blur_requirement', 'emergency_reward',
                         'refill_emergency', 'surveillance_penalty', 'points_per_gen']
 
 grid_size = 10
@@ -194,7 +195,7 @@ class CrowdSim:
             intrinsic_mode='dis_aoi',
             use_random=True,
             speed_action=False,
-            speed_discount=1.0,
+            blur_requirement=5.0,
             emergency_reward=10.0,
             refill_emergency=False,
             surveillance_penalty=0,
@@ -404,7 +405,15 @@ class CrowdSim:
         self.emergency_slots = self.points_per_gen
         self.speed_levels = 3
         self.speed_action = speed_action
-        self.speed_discount = speed_discount
+        focal_length = 24 * 1e-3
+        required_speed = 1.27 * 1e-6 * self.config.env.h_d * blur_requirement / (focal_length * (1 / 580))
+        self.speed_discount = min(1.0, required_speed / self.config.env.drone_velocity)
+        radius_frame = 4.53 * 1e-3
+        segment_counts = math.ceil(
+            self.config.env.emergency_size / (2 * (radius_frame / focal_length * self.config.env.h_d)))
+        required_time = (self.config.env.emergency_size / required_speed) * segment_counts
+        self.slow_down_slots = math.ceil(required_time / self.config.env.step_time)
+        # constants come from: https://ieeexplore.ieee.org/document/10129049/
         for agent_id in range(self.num_agents):
             # note one action for not choosing any emergency.
             if self.agent_types[agent_id] == 1:
@@ -1446,6 +1455,7 @@ class CUDACrowdSim(CrowdSim, CUDAEnvironmentContext):
                                  ("speed_action", self.int_dtype(self.speed_action)),
                                  ("speed_count_down", self.int_dtype(np.zeros([self.num_agents, ])), True),
                                  ("speed_discount", self.float_dtype(self.speed_discount)),
+                                 ("slow_down_slots", self.int_dtype(self.slow_down_slots)),
                                  ("agent_x", self.float_dtype(np.full([self.num_agents, ], self.starting_location_x)),
                                   True),
                                  ("agent_x_range", self.float_dtype(self.max_distance_x)),
@@ -1523,6 +1533,7 @@ class CUDACrowdSim(CrowdSim, CUDAEnvironmentContext):
             "speed_action",
             "speed_count_down",
             "speed_discount",
+            "slow_down_slots",
             "agent_x",
             "agent_x_range",
             "agent_y",

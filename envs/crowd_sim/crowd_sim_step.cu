@@ -533,6 +533,7 @@ extern "C" {
             const int speed_action,
               int * speed_count_down,
               const float speed_discount,
+              const int slow_down_slots,
               float * agent_x_arr,
               const float kAgentXRange,
                 float * agent_y_arr,
@@ -590,7 +591,6 @@ extern "C" {
     const int kEnvId = getEnvID(blockIdx.x);
     const int kThisAgentId = getAgentID(threadIdx.x, blockIdx.x, blockDim.x);
     const int emergency_count = kNumTargets - zero_shot_start;
-    const int speedCountDown = 1;
     const int refillLimit = 5;
 //     const int force_allocate = 0;
     // print kNumTargets and emergencies
@@ -927,7 +927,7 @@ extern "C" {
 //           printf("Target %d Pos: %f, %f, AoI: %d agent %d receives reward %f\n", target_idx, target_x, target_y,
 //           target_aoi_arr[kThisTargetAgeArrayIdxOffset + target_idx], nearest_agent_id, reward_update);
             if (is_dyn_point){
-              speed_count_down[kThisEnvAgentsOffset + nearest_agent_id] = speedCountDown;
+              speed_count_down[kThisEnvAgentsOffset + nearest_agent_id] = slow_down_slots;
             }
             rewards_arr[kThisEnvAgentsOffset + nearest_agent_id] += reward_update;
             if (is_drone && !single_type_agent) {
