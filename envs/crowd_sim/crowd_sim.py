@@ -341,7 +341,6 @@ class CrowdSim:
         self.target_y_time_list = np.zeros([self.episode_length + 1, self.num_sensing_targets], dtype=np.int_)
         self.target_aoi_timelist = np.ones([self.episode_length + 1, self.num_sensing_targets], dtype=np.int_)
         self.target_coveraged_timelist = np.zeros([self.episode_length + 1, self.num_sensing_targets], dtype=np.bool_)
-
         if self.dynamic_zero_shot:
             if self.all_random:
                 self.target_x_time_list[:, :] = points_x
@@ -875,6 +874,63 @@ class CrowdSim:
                 grid_max[:, None, :] - grid_min[:, None, :]) * grid_size).astype(int)
         return discrete_points_xy
 
+    def _cal_distance(self, pos1, pos2):
+
+        height = self.config.env.h_d
+
+        if isinstance(pos1, np.ndarray) and isinstance(pos2, np.ndarray):
+            while pos1.ndim < 2:
+                pos1 = np.expand_dims(pos1, axis=0)
+            while pos2.ndim < 2:
+                pos2 = np.expand_dims(pos2, axis=0)
+            # expanded to 3dim
+            pos1_all = np.concatenate([pos1, np.zeros((pos1.shape[0], 1))], axis=1)
+            pos2_all = np.concatenate([pos2, np.ones((pos2.shape[0], 1)) * height], axis=1)
+            distance = np.linalg.norm(pos1_all - pos2_all, axis=1)
+        else:
+            assert len(pos1) == len(
+                pos2) == 2, 'cal_distance function only for 2d vector'
+            distance = np.sqrt(
+                np.power(pos1[0] - pos2[0], 2) + np.power(pos1[1] - pos2[1], 2) + np.power(height, 2))
+        return distance
+
+    def _cal_theta(self, pos1, pos2, height=None):
+        if len(pos1) == len(pos2) and len(pos2) == 2:
+            r = np.sqrt(np.power(pos1[0] - pos2[0], 2) + np.power(pos1[1] - pos2[1], 2))
+            h = self.config.env.h_d
+            theta = math.atan2(h, r)
+        elif len(pos1) == 2:
+            repeated_pos1 = np.tile(pos1, len(pos2)).reshape(-1, 2)
+            r = self._cal_distance(repeated_pos1, pos2)
+            h = self.config.env.h_d
+            theta = np.arctan2(h, r)
+        return theta
+
+    def _calculate_data_rate(self, uav_position, poi_position):
+        """
+        Return the data rate according to LoS and NLoS air-to-ground propagation model.
+        return: data rate (in MBits/s)
+        """
+        # eta = 2
+        alpha = 9.6
+        beta = 0.28
+        bandwidth = 2e6
+        eta_los = 1  # dB
+        eta_nlos = 20
+        f = 2e9
+        c = 3e8
+        distance = self._cal_distance(uav_position, poi_position)
+        theta = self._cal_theta(uav_position, poi_position)
+        path_loss = (20 * np.log10(distance * 4 * math.pi * f / c) +
+                     (eta_los - eta_nlos) / (1 + alpha * np.exp(-beta * (theta - alpha))))
+        w_tx = 40
+        w_noise = -174
+        w_s_t = w_tx - path_loss - w_noise
+        # dB to linear conversion.
+        w_w_s_t = np.power(10, (w_s_t - 30) / 10)
+        data_rate = bandwidth * np.log2(1 + w_w_s_t)
+        return data_rate / 1e6
+
     def calculate_energy_consume(self, move_time, agent_id):
         stop_time = self.step_time - move_time
         if agent_id in self.cars:
@@ -1011,12 +1067,13 @@ class CrowdSim:
             FRESHNESS_FACTOR: freshness_factor,
         }
         if self.dynamic_zero_shot and not self.all_random:
-            surveillance_aoi_mean = np.mean(self.target_aoi_timelist[..., :-self.emergency_count], axis=0)
             valid_mask = self.aoi_schedule < self.episode_length
             emergency_aoi = self.target_aoi_timelist[..., -self.emergency_count:][..., valid_mask] - 1
+            surveillance_aoi = self.target_aoi_timelist[..., :-self.emergency_count]
+            surveillance_aoi_mean = np.mean(surveillance_aoi, axis=0)
+            emergency_aoi_mean = np.mean(emergency_aoi)
             valid_emergency_mask = emergency_aoi[self.timestep] < self.emergency_threshold
             valid_surveillance_mask = surveillance_aoi_mean < self.surveillance_threshold
-            emergency_aoi_mean = np.mean(emergency_aoi)
             valid_emergency_aoi_mean = np.mean(emergency_aoi[..., valid_emergency_mask])
             info[AOI_METRIC_NAME] = (np.mean(emergency_aoi_mean) + np.mean(surveillance_aoi_mean)) / 2
             # info['peak_surveillance_aoi'] = np.max(self.target_aoi_timelist[self.timestep, :-self.emergency_count])
@@ -2175,9 +2232,11 @@ class SendAllocationCallback(DefaultCallbacks):
                         **kwargs) -> None:
         if env_index == 0:
             my_env: CUDACrowdSim = base_env.vector_env.env.env
-            allocation_table = worker.policy_map['shared_policy'].model.get_allocation_table()
-            my_env.cuda_data_manager.data_on_device_via_torch("emergency_allocation_table")[:] = (
-                torch.from_numpy(allocation_table))
+            if 'shared_policy' in worker.policy_map:
+                allocation_table = worker.policy_map['shared_policy'].model.get_allocation_table()
+                if allocation_table is not None:
+                    my_env.cuda_data_manager.data_on_device_via_torch("emergency_allocation_table")[:] = (
+                        torch.from_numpy(allocation_table))
 
     def on_postprocess_trajectory(
             self, *, worker: "RolloutWorker", episode: MultiAgentEpisode,

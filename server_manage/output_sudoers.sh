@@ -3,10 +3,8 @@
 # List of usernames
 users=("liuchi" "hanrui" "lishuang" "gaoguangyu" "liguozheng")
 
-#!/bin/bash
-
 # Define the programs for which you want to generate sudo permissions
-programs=("cat" "docker" "tail" "apt" "apt-get" "grep" "less" "find" "rsync" "mkdir")
+programs=("cat" "tail" "apt" "apt-get" "grep" "less" "find" "rsync" "mkdir")
 
 # Check if an IP address is provided
 if [ $# -eq 0 ]; then
@@ -18,7 +16,6 @@ fi
 ip_address=$1
 
 # Function to find the full paths of programs using SSH and which
-# Now it handles multiple programs at once and parses output
 get_program_paths() {
   local IFS=" " # Setting internal field separator to space for the command
   ssh admin@"$ip_address" "which ${programs[*]} 2>/dev/null" | while read -r line; do
@@ -30,18 +27,25 @@ get_program_paths() {
   done
 }
 
+# Function to get the Docker binary path
+get_docker_path() {
+  ssh admin@"$ip_address" "which docker 2>/dev/null"
+}
+
 # Retrieve all program paths at once
-program_paths=$(get_program_paths "${programs[@]}")
+program_paths=$(get_program_paths)
 # Convert the program paths string to an array
 read -ra program_paths_arr <<< "$program_paths"
 
-# Additional docker permissions
-docker_permissions="!/usr/bin/docker exec -it mcs /bin/*, \
-!/usr/bin/docker exec -it mcs_new /bin/*, \
-!/usr/bin/docker stop mcs, \
-!/usr/bin/docker stop mcs_new, \
-!/usr/bin/docker rm -f mcs, \
-!/usr/bin/docker rm -f mcs_new"
+# Retrieve Docker binary path
+docker_path=$(get_docker_path)
+
+# Define docker commands allowing all actions except stopping or removing specific containers
+docker_commands=(
+  "$docker_path"
+  "$docker_path stop \*, ! $docker_path stop mcs, ! $docker_path stop mcs_new"
+  "$docker_path rm -f \*, ! $docker_path rm -f mcs, ! $docker_path rm -f mcs_new"
+)
 
 # Iterate over each username
 for username in "${users[@]}"; do
@@ -56,7 +60,15 @@ for username in "${users[@]}"; do
   done
 
   # Append docker permissions
-  sudo_cmd+=" $docker_permissions"
+  for docker_command in "${docker_commands[@]}"; do
+    sudo_cmd+=" $docker_command,"
+  done
+
+  # Add permission to read Docker config without a password
+  sudo_cmd+=" /bin/cat /home/$username/.docker/config.json,"
+
+  # Trim the last comma
+  sudo_cmd=${sudo_cmd%,}
 
   # Output the generated sudo permissions text
   echo "$sudo_cmd"
