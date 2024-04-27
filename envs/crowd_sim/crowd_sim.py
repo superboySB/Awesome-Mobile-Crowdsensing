@@ -404,14 +404,10 @@ class CrowdSim:
         self.emergency_slots = self.points_per_gen
         self.speed_levels = 3
         self.speed_action = speed_action
-        focal_length = 24 * 1e-3
-        required_speed = 1.27 * 1e-6 * self.config.env.h_d * blur_requirement / (focal_length * (1 / 580))
-        self.speed_discount = min(1.0, required_speed / self.config.env.drone_velocity)
-        radius_frame = 4.53 * 1e-3
-        segment_counts = math.ceil(
-            self.config.env.emergency_size / (2 * (radius_frame / focal_length * self.config.env.h_d)))
-        required_time = (self.config.env.emergency_size / required_speed) * segment_counts
-        self.slow_down_slots = math.ceil(required_time / self.config.env.step_time)
+        env_config = self.config.env
+        slow_down_slots, speed_discount = self.calculate_max_monitor_speed(blur_requirement, env_config)
+        self.speed_discount = speed_discount
+        self.slow_down_slots = slow_down_slots
         # constants come from: https://ieeexplore.ieee.org/document/10129049/
         for agent_id in range(self.num_agents):
             # note one action for not choosing any emergency.
@@ -514,6 +510,17 @@ class CrowdSim:
         self.selected_color_index = 0
         self.queue_feature = 3
         self.emergency_queue_length = emergency_queue_length
+
+    def calculate_max_monitor_speed(self, blur_requirement, env_config):
+        focal_length = 24 * 1e-3
+        required_speed = 1.27 * 1e-6 * self.config.env.h_d * blur_requirement / (focal_length * (1 / 580))
+        speed_discount = min(1.0, required_speed / self.config.env.drone_velocity)
+        radius_frame = 4.53 * 1e-3
+        segment_counts = math.ceil(
+            env_config.emergency_size / (2 * (radius_frame / focal_length * env_config.h_d)))
+        required_time = (self.config.env.emergency_size / required_speed) * segment_counts
+        slow_down_slots = math.ceil(required_time / env_config.step_time)
+        return slow_down_slots, speed_discount
 
     def get_emergencies_from_dataset(self, unique_emergencies: pd.DataFrame):
         self.aoi_schedule = unique_emergencies['start_time'].values
@@ -1755,6 +1762,8 @@ class RLlibCUDACrowdSim(MultiAgentEnv):
                 # pass
                 self.num_envs = 10
                 warnings.warn("local_mode=True, num_envs is always equal to 10, and user input is ignored.")
+            else:
+                print(f"Using num_envs={self.num_envs} from user input.")
             self.env_wrapper: CUDAEnvWrapper = CUDAEnvWrapper(
                 self.env,
                 num_envs=self.num_envs,
