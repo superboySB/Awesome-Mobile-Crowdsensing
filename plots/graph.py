@@ -20,7 +20,11 @@ colors = ['red', 'goldenrod', 'forestgreen', 'teal', 'violet', 'grey', 'turquois
 markers = ['o', '*', '^', 'v', 'd', 's', '+', 'x']
 
 OURS = 'DRL-EMACS'
-TCTSP = 'TC-TSP'
+TRADITIONAL = 'TC-TSP'
+GCRL_SOTA = 'OUTPACE'
+RL_SOTA = 'HAPPO'
+MCS_SOTA = 'DRL-EMS'
+RANDOM = 'Random'
 San = 'SanFrancisco'
 Chengdu = 'Chengdu'
 I_emer = "Valid Handling Ratio For Emergency (I_emer)"
@@ -31,7 +35,7 @@ DATASET = 'dataset'
 DATAS = 'datas'
 Y_RANGE = 'yrange'
 
-X_BLUR = "Blur Reuqirement (delta)"
+X_BLUR = "Blur Requirement (delta)"
 X_UAV = "Number of UAVs (U)"
 X_SURV_THRE = "Surveillance Threshold (Th)"
 X_TASK_TYPE = "Number of Task Types"
@@ -42,7 +46,7 @@ def compare_plot(x_label, y_label, x, yrange, data_dict, dataset):
 
     :param str x_label: The x axis label of the plot
     :param str y_label: The y axis label of the plot
-    :param list[int] x: The x axis values
+    :param list x: The x axis values
     :param list[int] yrange: The range of y axis
     :param dict[str, list[double]] data_dict: dictionary with key as data label, and actual data as values
     :param str group_name:
@@ -90,6 +94,7 @@ def generate_plots(x_label: str, x: list, data_dicts: dict, dataset: str):
 
 def calculate_index(all_methods, data_dict):
     for method in all_methods:
+        assert method in data_dict[I_emer][DATAS], f"method {method} should be in data_dict"
         sur_ratio = data_dict[I_surv][DATAS][method]
         eme_ratio = data_dict[I_emer][DATAS][method]
         energy_ratio = data_dict[eta][DATAS][method]
@@ -102,9 +107,9 @@ def calculate_index(all_methods, data_dict):
 
 
 if __name__ == '__main__':
-    all_data = {}
-    all_data[X_BLUR] = {
-        X_TICKS: [0.5, 1, 2, 3, 5, 7],
+    all_data = {
+        X_BLUR: {
+            X_TICKS: [0.25, 0.5, 0.75, 1, 2, 5],
         San: {
             I_emer: {
                 Y_RANGE: [0.6, 1],
@@ -124,24 +129,91 @@ if __name__ == '__main__':
                     OURS: [0.6576, 0.6617, 0.6592, 0.6595, 0.6722, 0.6768],
                 }
             }
+        }
+        },
+        X_UAV: {
+            X_TICKS: [2, 3, 4, 5, 7, 10],
+            San: {
+                I_emer: {
+                    Y_RANGE: [0.2, 1],
+                    DATAS: {
+                        OURS: [0.4453, 0.7579, 0.9088, 0.9667, 0.973, 0.9853]
+                    }
+                },
+                I_surv: {
+                    Y_RANGE: [0.5, 1],
+                    DATAS: {
+                        OURS: [0.746, 0.8302, 0.8827, 0.8999, 0.9405, 0.9643]
+                    }
+                },
+                eta: {
+                    Y_RANGE: [0.5, 0.7],
+                    DATAS: {
+                        OURS: [0.6728, 0.6675, 0.663, 0.6707, 0.6641, 0.6504]
+                    }
+                }
         },
         Chengdu: {
             I_emer: {
-                Y_RANGE: [0.6, 1],
+                Y_RANGE: [0.5, 1],
                 DATAS: {
-                    OURS: [0.7533, 0.9295, 0.9562, 0.9838, 0.9505, 0.9857],
+                    OURS: [0.6677, 0.8523, 0.9655, 0.9635, 0.9677, 0.9979]
                 }
             },
             I_surv: {
-                Y_RANGE: [0.8, 1],
+                Y_RANGE: [0.5, 1],
                 DATAS: {
-                    OURS: [0.8254, 0.8662, 0.8818, 0.8886, 0.896, 0.8894],
+                    OURS: [0.6902, 0.8671, 0.9673, 0.9617, 0.9847, 0.9941]
                 }
             },
             eta: {
                 Y_RANGE: [0.5, 0.7],
                 DATAS: {
-                    OURS: [0.6576, 0.6617, 0.6592, 0.6595, 0.6722, 0.6768],
+                    OURS: [0.6689, 0.6662, 0.6707, 0.6683, 0.6694, 0.6585]
+                }
+            }
+        }
+        },
+        X_SURV_THRE: {
+            X_TICKS: [15, 20, 25, 30, 35, 40],
+            San: {
+                I_emer: {
+                    Y_RANGE: [0.8, 1],
+                    DATAS: {
+                        OURS: [0.893, 0.9242, 0.8477, 0.9158, 0.9281, 0.926],
+                    }
+                },
+                I_surv: {
+                    Y_RANGE: [0.4, 0.9],
+                    DATAS: {
+                        OURS: [0.487, 0.6599, 0.744, 0.8033, 0.8602, 0.8797],
+                    }
+                },
+                eta: {
+                    Y_RANGE: [0.5, 0.7],
+                    DATAS: {
+                        OURS: [0.6632, 0.6643, 0.6593, 0.6555, 0.6613, 0.6612],
+                    }
+                }
+            },
+            Chengdu: {
+                I_emer: {
+                    Y_RANGE: [0.8, 1],
+                    DATAS: {
+                        OURS: [0.8414, 0.8474, 0.9572, 0.9589, 0.9646, 0.9396],
+                    }
+                },
+                I_surv: {
+                    Y_RANGE: [0.4, 0.9],
+                    DATAS: {
+                        OURS: [0.6086, 0.7649, 0.8557, 0.895, 0.9354, 0.9414],
+                    }
+                },
+                eta: {
+                    Y_RANGE: [0.5, 0.7],
+                    DATAS: {
+                        OURS: [0.6699, 0.6694, 0.6677, 0.6656, 0.6679, 0.6659],
+                    }
                 }
             }
         }
@@ -153,8 +225,9 @@ if __name__ == '__main__':
         xticks = array_data.pop(X_TICKS)
         for dataset, dataset_data in array_data.items():
             calculate_index(all_methods, dataset_data)
-            generate_plots(x_label=x_label,
-                           x=xticks,
-                           data_dicts=dataset_data,
-                           dataset=dataset,
+            generate_plots(
+                x_label=x_label,
+                x=xticks,
+                data_dicts=dataset_data,
+                dataset=dataset,
                            )
