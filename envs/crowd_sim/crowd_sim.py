@@ -1255,6 +1255,32 @@ class CrowdSim:
             """
             JsButton(
                 title='<i class="fas fa-pause"></i>', function=pause_js_func).add_to(my_render_map)
+            pause_js_func = """
+                function backwardMap(btn, map) {
+                // Select all elements with the specified class name
+                var elements = document.querySelectorAll('.leaflet-control-timecontrol.timecontrol-backward');
+
+                // Simulate click event for each element
+                elements.forEach(function(element) {
+                    element.click();
+                });
+            }
+            """
+            JsButton(
+                title='<i class="fas fa-backward"></i>', function=pause_js_func).add_to(my_render_map)
+            pause_js_func = """
+                function forwardMap(btn, map) {
+                // Select all elements with the specified class name
+                var elements = document.querySelectorAll('.leaflet-control-timecontrol.timecontrol-forward');
+
+                // Simulate click event for each element
+                elements.forEach(function(element) {
+                    element.click();
+                });
+            }
+            """
+            JsButton(
+                title='<i class="fas fa-forward"></i>', function=pause_js_func).add_to(my_render_map)
             # 锁定范围
             grid_geo_json = get_border(self.upper_right, self.lower_left)
             color = "red"
@@ -2242,17 +2268,45 @@ class SendAllocationCallback(DefaultCallbacks):
         if env_index == 0:
             my_env: CUDACrowdSim = base_env.vector_env.env.env
             if 'shared_policy' in worker.policy_map:
-                allocation_table = worker.policy_map['shared_policy'].model.get_allocation_table()
+                allocation_table = policies['shared_policy'].model.get_allocation_table()
                 if allocation_table is not None:
                     my_env.cuda_data_manager.data_on_device_via_torch("emergency_allocation_table")[:] = (
                         torch.from_numpy(allocation_table))
 
-    def on_postprocess_trajectory(
-            self, *, worker: "RolloutWorker", episode: MultiAgentEpisode,
-            agent_id: AgentID, policy_id: PolicyID,
-            policies: Dict[PolicyID, Policy], postprocessed_batch: SampleBatch,
-            original_batches: Dict[AgentID, SampleBatch], **kwargs) -> None:
-        pass
+
+class OUTPACECallback(DefaultCallbacks):
+    def on_episode_end(self,
+                       *,
+                       worker: "RolloutWorker",
+                       base_env: BaseEnv,
+                       policies: Optional[Dict[PolicyID, Policy]] = None,
+                       episode: MultiAgentEpisode,
+                       env_index: Optional[int] = None,
+                       **kwargs) -> None:
+        initial_goals = []
+        desired_goals = []
+        # collect s_0, g from T*
+        my_env: CUDACrowdSim = base_env.vector_env.env.env
+        my_policy = policies['shared_policy']
+        hgg_sampler = my_policy.hgg_sampler
+        config = my_policy.config
+        for i in range(20):
+            temp_obs = my_env.convert_obs_to_dict(self.eval_env.reset())
+            goal_a = temp_obs['achieved_goal'].copy()
+            if 'meta_nml' in hgg_sampler.cost_type or 'aim_f' in hgg_sampler.cost_type:
+                # In this case, desired_goal is not used inside
+                # for preventing initial sampled hgg goals to be final goal
+                noise_scale = 0.05
+                noise = np.random.normal(loc=np.zeros_like(goal_a),
+                                         scale=noise_scale * np.ones_like(goal_a))
+                goal_d = goal_a + noise  # These will be meaningless after achieved_goals are accumulated in hgg_achieved_trajectory_pool
+            else:
+                raise NotImplementedError
+            initial_goals.append(goal_a.copy())
+            desired_goals.append(goal_d.copy())
+        hgg_start_time = time.time()
+        hgg_sampler.update(initial_goals, desired_goals, replay_buffer=self.expl_buffer,
+                           meta_nml_epoch=episode)
 
 
 LARGE_DATASET_NAME = 'SanFrancisco'

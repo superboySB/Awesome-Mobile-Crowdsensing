@@ -10,6 +10,8 @@ from tqdm import tqdm
 final_csv_header = ['vehicle_id', 'time', 'longitude', 'latitude', 'timestamp', 'x', 'y']
 
 
+# source: https://github.com/neardws/Vehicular-Trajectories-Processing-for-Didi-Open-Data
+
 def construct_dataframe_for_time_larger_than_0(new_row):
     list_of_rows = []
     for time_index in range(int(new_row.time)):

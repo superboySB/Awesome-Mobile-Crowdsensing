@@ -182,4 +182,6 @@ San with neural ucb
 f8a80 2000 2024-04-06_02-18-59 2024-04-06_02-18-58
 San restore verify (reward mode original)
 44b2e 10000 2024-04-07_20-35-08 2024-04-07_20-35-08
+San Final Solution 
+96f38 8000 2024-04-15_13-18-27 2024-04-15_13-18-27
 """

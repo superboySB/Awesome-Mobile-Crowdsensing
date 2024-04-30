@@ -2,7 +2,7 @@
 exp_name='75_blur_requirement'
 # not completely edited.
 session_name=$exp_name
-cards=(0 1 2 3)
+cards=(0 1 2 3 4 5 6 7)
 card_num=${#cards[@]}
 dry_run=false
 # Process command-line arguments
@@ -70,7 +70,7 @@ for ((i = 0; i < train_num; i++)); do
   --emergency_threshold 20 --selector_type RL --use_random --prioritized_buffer\
   --gen_interval 10 --cut_points 300 --tag change_blur --surveillance_threshold 35\
   --display_tags dataset blur_requirement --reward_mode original --rl_gamma 0\
-  --emergency_queue_length 5 --NN_buffer --sibling_rivalry --alpha 0.3 --intrinsic_mode scaled_dis_aoi"
+  --emergency_queue_length 5 --NN_buffer --sibling_rivalry --alpha 0.3 --intrinsic_mode aim"
   echo "$command"
   if [ "$dry_run" = "false" ] && [ "$choice" != "n" ]
   then

@@ -130,7 +130,7 @@ def traj_to_timestamped_geojson(index, trajectory: movingpandas.Trajectory, car_
         previous_time = [row.previous_time.isoformat()]
 
         if 0 > row.id >= (-car_num):
-            radius = 8  # 125(5 units)
+            radius = 3  # 125(5 units)
             opacity = 0.05
             popup_html = f'<h4> (Car) Agent {car_num + drone_num - index - 1}</h4>' + \
                          f"<p style='font-size:14px;'>Pos: ({int(row.x)},{int(row.y)})</p>" + \
@@ -142,7 +142,7 @@ def traj_to_timestamped_geojson(index, trajectory: movingpandas.Trajectory, car_
             # f'<p>grid coord: ({row.x},{row.y})</p>' + \
             # f'<p>dist coord: ({row.x_distance}m, {row.y_distance}m)</p>' + \
         elif row.id < (-car_num):
-            radius = 6  # 125(5 units)
+            radius = 3  # 125(5 units)
             opacity = 1
             popup_html = f'<h4> (Drone) Agent {car_num + drone_num - index - 1}</h4>' + \
                          f"<p style='font-size:14px;'>Pos: ({row.x},{row.y})</p>" + \
@@ -158,7 +158,7 @@ def traj_to_timestamped_geojson(index, trajectory: movingpandas.Trajectory, car_
             # f'<p>dist coord: ({row.x_distance}m, {row.y_distance}m)</p>' + \
         else:
             if is_emergency:
-                radius = 32
+                radius = 16
                 if row.creation_time < i:
                     if not row.coverage:
                         opacity = 0.5
@@ -172,7 +172,7 @@ def traj_to_timestamped_geojson(index, trajectory: movingpandas.Trajectory, car_
                              f"<p style='font-size:14px;'>Delay: {int(row.aoi)} </p>" + \
                              f"<p style='font-size:14px;'>Allocation: {row.allocation}</p>"
             else:
-                radius = 6
+                radius = 4
                 opacity = 1
                 popup_html = f'<h4> Surveillance {int(row.id)}</h4>' + \
                              f"<p style='font-size:14px;'>grid coord: ({row.x},{row.y})</p>" + \

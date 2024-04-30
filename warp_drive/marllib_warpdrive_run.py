@@ -12,7 +12,7 @@ import setproctitle
 from common import add_common_arguments, logging_dir, customize_experiment, is_valid_format, get_restore_dict
 from envs.crowd_sim.crowd_sim import (RLlibCUDACrowdSim, LARGE_DATASET_NAME,
                                       RLlibCUDACrowdSimWrapper, SendAllocationCallback,
-                                      user_override_params)
+                                      OUTPACECallback, user_override_params)
 
 
 def load_preferences(custom_preference: dict, args: argparse.Namespace, this_expr_dir: str):
@@ -257,6 +257,8 @@ if __name__ == '__main__':
         if args.env == 'crowdsim':
             kwargs['custom_vector_env'] = RLlibCUDACrowdSimWrapper
             kwargs['callbacks'] = SendAllocationCallback
+        if args.algo == 'outpace':
+            kwargs['callbacks'] = OUTPACECallback
         my_algorithm.fit(env, model, **kwargs)
 '''
            --algo qmix --env mpe --dataset simple_spread --num_workers 1

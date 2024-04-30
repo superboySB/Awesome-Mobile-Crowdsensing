@@ -1,7 +1,7 @@
 #!/bin/bash
 exp_name='56_num_drones'
 # not completely edited.
-session_name=$exp_name
+session_name=$exp_name'_2'
 cards=(3 4 5 6 3 4 5 6 0 1)
 card_num=${#cards[@]}
 dry_run=false
@@ -68,7 +68,7 @@ for ((i = 0; i < train_num; i++)); do
   --emergency_threshold 20 --blur_requirement 5 --selector_type RL --use_random --prioritized_buffer\
   --gen_interval 6 --cut_points 300 --surveillance_threshold 35 --tag change_num_drones\
   --display_tags dataset num_drones --reward_mode original --rl_gamma 0\
-  --emergency_queue_length 5 --NN_buffer --sibling_rivalry --alpha 0.3 --intrinsic_mode scaled_dis_aoi"
+  --emergency_queue_length 5 --NN_buffer --sibling_rivalry --alpha 0.3 --intrinsic_mode aim"
   echo "$command"
   if [ "$dry_run" = "false" ] && [ "$choice" != "n" ]
   then
