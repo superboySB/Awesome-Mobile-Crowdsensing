@@ -211,7 +211,8 @@ class CrowdSim:
         self.use_random = use_random
         self.buffer_in_obs = buffer_in_obs
         self.refill_emergency = refill_emergency
-        self.scaled_reward = ("scale" in intrinsic_mode) or (intrinsic_mode == 'dis') or (intrinsic_mode == 'none')
+        self.scaled_reward = (("scale" in intrinsic_mode) or (intrinsic_mode == 'dis')
+                              or (intrinsic_mode == 'none') or (intrinsic_mode == 'aim'))
         # small number to prevent indeterminate cases
         self.eps = self.float_dtype(1e-10)
         self.fix_target = fix_target
@@ -1081,7 +1082,10 @@ class CrowdSim:
             emergency_aoi_mean = np.mean(emergency_aoi)
             valid_emergency_mask = emergency_aoi[self.timestep] < self.emergency_threshold
             valid_surveillance_mask = surveillance_aoi_mean < self.surveillance_threshold
-            valid_emergency_aoi_mean = np.mean(emergency_aoi[..., valid_emergency_mask])
+            if np.any(valid_emergency_mask):
+                valid_emergency_aoi_mean = np.mean(emergency_aoi[..., valid_emergency_mask])
+            else:
+                valid_emergency_aoi_mean = 1
             info[AOI_METRIC_NAME] = (np.mean(emergency_aoi_mean) + np.mean(surveillance_aoi_mean)) / 2
             # info['peak_surveillance_aoi'] = np.max(self.target_aoi_timelist[self.timestep, :-self.emergency_count])
             # info['peak_emergency_aoi'] = np.max(emergency_aoi)
@@ -1755,7 +1759,7 @@ class RLlibCUDACrowdSim(MultiAgentEnv):
         self.evaluate_count_down: int = self.eval_interval
         self.trajectory_generated = 0
         self.env_registrar = EnvironmentRegistrar()
-        if "mock" not in additional_params:
+        if not ('mock' in additional_params and additional_params['mock']):
             self.env_registrar.add_cuda_env_src_path(CUDACrowdSim.name,
                                                      os.path.join(
                                                          get_project_root(),
@@ -1780,7 +1784,7 @@ class RLlibCUDACrowdSim(MultiAgentEnv):
         self.action_space: spaces.Space = next(iter(self.env.action_space.values()))
         # manually setting observation space
         self.agents = []
-        if "mock" not in additional_params:
+        if not ('mock' in additional_params and additional_params['mock']):
             if self.is_render:
                 self.num_envs = 10
                 warnings.warn("render=True, num_envs is always equal to 10, and user input is ignored.")
@@ -1815,7 +1819,8 @@ class RLlibCUDACrowdSim(MultiAgentEnv):
         except AttributeError:
             pass
 
-        if "mock" not in additional_params and self.env_wrapper.env_backend == "pycuda":
+        if (not ('mock' in additional_params and additional_params['mock'])
+                and self.env_wrapper.env_backend == "pycuda"):
             from warp_drive.cuda_managers.pycuda_function_manager import (
                 PyCUDASampler,
             )

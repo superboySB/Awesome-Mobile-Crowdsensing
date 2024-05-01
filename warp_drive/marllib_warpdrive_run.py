@@ -1,6 +1,8 @@
 import argparse
+import csv
 import logging
 import os
+import pprint
 import warnings
 from marllib import marl
 from marllib.marl.common import algo_type_dict
@@ -11,9 +13,10 @@ from marllib.marl import _Algo
 import setproctitle
 
 from common import add_common_arguments, logging_dir, customize_experiment, is_valid_format, get_restore_dict
-from envs.crowd_sim.crowd_sim import (RLlibCUDACrowdSim, LARGE_DATASET_NAME,
+from envs.crowd_sim.crowd_sim import (RLlibCUDACrowdSim, LARGE_DATASET_NAME, CUDACrowdSim,
                                       RLlibCUDACrowdSimWrapper, SendAllocationCallback,
                                       OUTPACECallback, user_override_params)
+from warp_drive.utils.common import get_project_root
 
 
 def load_preferences(custom_preference: dict, args: argparse.Namespace, this_expr_dir: str):
@@ -172,6 +175,9 @@ if __name__ == '__main__':
         logging_config = None
         env_params = {}
 
+    if not os.path.exists(this_expr_dir):
+        os.makedirs(this_expr_dir)
+    logging.debug("experiment name: %s", expr_name)
     if args.algo == 'trafficppo':
         assert args.env == 'crowdsim' and args.core_arch == 'crowdsim_net', \
             f"trafficppo only supports crowdsim env and crowdsim_net core_arch, got {args.env} and {args.core_arch}"
@@ -179,18 +185,46 @@ if __name__ == '__main__':
         new_env = marl.make_env(environment_name=args.env, map_name=args.dataset,
                                 env_params=env_params, mock=False)
         env, env_config = new_env
+        raw_env: CUDACrowdSim = env.env
+        env.reset()
+        # construct a random action with num_agents keys
         if args.algo == 'random':
-            pass
+            # generate a list of dict, each dict with num_agents keys + 'Drones_' prefix
+            routes = []
+            for _ in range(raw_env.episode_length):
+                routes.append({f'Drones_{i}': np.random.randint(0, len(raw_env.action_space))
+                               for i in range(raw_env.num_agents)})
         else:
             from warp_drive.tsp import CrowdSimTSPSolver
 
-            tsp_solver = CrowdSimTSPSolver(env)
-            result = tsp_solver.get_solution()
-            exit(0)
+            tsp_solver = CrowdSimTSPSolver(env, add_surveillance=False)
+            routes = tsp_solver.get_solution(this_expr_dir=this_expr_dir)
+        for action in routes:
+            # step environment
+            env.step(action)
+            env.render()
+        # collect metrics from env
+        env_metrics = raw_env.collect_info()
+        env_metrics['experiment_name'] = expr_name
+        # pprint the env_metrics
+        pprint.pprint(env_metrics)
+        # write to a common file, with experiment_name and all metrics
+        csv_file = os.path.join('/workspace', 'saved_data', 'trajectories', 'misc_results.csv')
+        info = env_metrics
+        if not os.path.exists(csv_file):
+            # write info to the csv
+            with open(csv_file, 'w', newline='') as file:
+                # serialize the info dict
+                writer = csv.DictWriter(file, fieldnames=info.keys())
+                writer.writeheader()
+                writer.writerow(info)
+        else:
+            # open the csv file and write
+            with open(csv_file, 'a', newline='') as file:
+                writer = csv.DictWriter(file, fieldnames=info.keys())
+                writer.writerow(info)
+        exit(0)
 
-    if not os.path.exists(this_expr_dir):
-        os.makedirs(this_expr_dir)
-    logging.debug("experiment name: %s", expr_name)
     if args.dynamic_zero_shot and args.all_random:
         raise ValueError("dynamic_zero_shot and all_random cannot be both true")
     if args.render:
