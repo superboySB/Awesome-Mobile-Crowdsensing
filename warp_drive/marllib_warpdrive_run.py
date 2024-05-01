@@ -9,6 +9,7 @@ from marllib.envs.base_env import ENV_REGISTRY
 from marllib.envs.global_reward_env import COOP_ENV_REGISTRY
 from marllib.marl import _Algo
 import setproctitle
+
 from common import add_common_arguments, logging_dir, customize_experiment, is_valid_format, get_restore_dict
 from envs.crowd_sim.crowd_sim import (RLlibCUDACrowdSim, LARGE_DATASET_NAME,
                                       RLlibCUDACrowdSimWrapper, SendAllocationCallback,
@@ -129,24 +130,7 @@ if __name__ == '__main__':
             f"selector_type {args.selector_type} only works with crowdsim env and share_policy != individual"
     if args.core_arch == 'crowdsim_net':
         warnings.warn("encoder_layer is ignored for crowdsim_net separate encoder")
-    # make dir
-    if args.algo == 'trafficppo':
-        assert args.env == 'crowdsim' and args.core_arch == 'crowdsim_net', \
-            f"trafficppo only supports crowdsim env and crowdsim_net core_arch, got {args.env} and {args.core_arch}"
-    if not os.path.exists(this_expr_dir):
-        os.makedirs(this_expr_dir)
-    logging.debug("experiment name: %s", expr_name)
-    if args.dynamic_zero_shot and args.all_random:
-        raise ValueError("dynamic_zero_shot and all_random cannot be both true")
-    if args.render:
-        logging.getLogger().setLevel(logging.INFO)
-    else:
-        if args.local_mode:
-            logging.getLogger().setLevel(logging.DEBUG)
-            # os.environ['NUMBA_DISABLE_JIT'] = '1'
-        else:
-            logging.getLogger().setLevel(logging.DEBUG)
-    setproctitle.setproctitle(expr_name)
+
     # initialize crowdsim configuration
     if args.env == 'crowdsim':
         # register new env
@@ -187,6 +171,37 @@ if __name__ == '__main__':
         env = marl.make_env(environment_name=args.env, map_name=args.dataset)
         logging_config = None
         env_params = {}
+
+    if args.algo == 'trafficppo':
+        assert args.env == 'crowdsim' and args.core_arch == 'crowdsim_net', \
+            f"trafficppo only supports crowdsim env and crowdsim_net core_arch, got {args.env} and {args.core_arch}"
+    elif args.algo == 'tsp' or args.algo == 'random':
+        new_env = marl.make_env(environment_name=args.env, map_name=args.dataset,
+                                env_params=env_params, mock=False)
+        env, env_config = new_env
+        if args.algo == 'random':
+            pass
+        else:
+            from warp_drive.tsp import CrowdSimTSPSolver
+
+            tsp_solver = CrowdSimTSPSolver(env)
+            result = tsp_solver.get_solution()
+            exit(0)
+
+    if not os.path.exists(this_expr_dir):
+        os.makedirs(this_expr_dir)
+    logging.debug("experiment name: %s", expr_name)
+    if args.dynamic_zero_shot and args.all_random:
+        raise ValueError("dynamic_zero_shot and all_random cannot be both true")
+    if args.render:
+        logging.getLogger().setLevel(logging.INFO)
+    else:
+        if args.local_mode:
+            logging.getLogger().setLevel(logging.DEBUG)
+            # os.environ['NUMBA_DISABLE_JIT'] = '1'
+        else:
+            logging.getLogger().setLevel(logging.DEBUG)
+    setproctitle.setproctitle(expr_name)
 
     # filter all string in tags not in format "key=value"
     custom_algo_params = dict(filter(lambda x: "=" in x, args.tag if args.tag is not None else []))
