@@ -151,14 +151,14 @@ class CrowdSimTSPSolver:
         # calculate distance matrix with all_positions and numpy vectorization in batch
         self.all_positions = all_positions
         self.cost_matrix = np.zeros((len(all_positions), len(all_positions)))
+        self.t_start = np.concatenate([np.array([0]), self.env.aoi_schedule])
+        self.t_end = np.concatenate([np.array([self.env.episode_length]),
+                                     self.env.aoi_schedule + self.env.emergency_threshold])
         for i in range(len(all_positions)):
             for j in range(len(all_positions)):
                 self.cost_matrix[i, j] = np.linalg.norm(
                     all_positions[i] - all_positions[j]
                 ) / (self.env.config.env.drone_velocity * self.env.config.env.step_time)
-        self.t_start = np.concatenate([np.array([0]), self.env.aoi_schedule])
-        self.t_end = np.concatenate([np.array([self.env.episode_length]),
-                                     self.env.aoi_schedule + self.env.emergency_threshold])
         if add_surveillance:
             self.t_start = np.concatenate([self.t_start, np.zeros(optimal_k)])
             self.t_end = np.concatenate([self.t_end, np.full(optimal_k, self.env.episode_length)])

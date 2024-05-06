@@ -104,7 +104,8 @@ def get_border(ur, lf):
 
 
 def traj_to_timestamped_geojson(index, trajectory: movingpandas.Trajectory, car_num, drone_num, color,
-                                connect_line=False, fix_target=False, is_emergency=False):
+                                connect_line=False, fix_target=False, is_emergency=False, zero_shot_start=None):
+    assert zero_shot_start is not None
     point_gdf = trajectory.df.copy()
     point_gdf["previous_geometry"] = point_gdf["geometry"].shift()
     point_gdf["time"] = point_gdf.index
@@ -166,7 +167,7 @@ def traj_to_timestamped_geojson(index, trajectory: movingpandas.Trajectory, car_
                         opacity = 0
                 else:
                     opacity = 0
-                popup_html = f'<h4> Emergency {int(row.id)}</h4>' + \
+                popup_html = f'<h4> Emergency {int(row.id) - zero_shot_start}</h4>' + \
                              f"<p style='font-size:14px;'>grid coord: ({row.x},{row.y})</p>" + \
                              f"<p style='font-size:14px;'>Creation Time: {row.creation_time} </p>" + \
                              f"<p style='font-size:14px;'>Delay: {int(row.aoi)} </p>" + \

@@ -49,8 +49,8 @@ if __name__ == '__main__':
     parser.add_argument("--use_2d_state", action='store_true', help='use 2d state representation')
     parser.add_argument("--encoder_layer", type=str, help='encoder layer config, input in format X-X-X',
                         default='128-128-128')
-    parser.add_argument("--core_arch", type=str, help='core architecture, mlp, gru or lstm',
-                        choices=['mlp', 'gru', 'lstm', 'crowdsim_net'], default='mlp')
+    parser.add_argument("--core_arch", type=str, help='core architecture, mlp, gru, lstm or attention',
+                        choices=['mlp', 'gru', 'lstm', 'crowdsim_net', 'attention'], default='mlp')
     parser.add_argument('--local_mode', action='store_true', help='run in local mode')
     parser.add_argument('--all_random', action='store_true', help='PoIs in the environment '
                                                                   'are completely random')
@@ -88,8 +88,8 @@ if __name__ == '__main__':
                                                                                          'aim'])
     parser.add_argument('--use_random', action='store_true', help='use random emergency generation')
     parser.add_argument('--use_attention', action='store_true', help='use attention mechanism in high level assign')
-    parser.add_argument('--attention_dim', type=int, default=32, help='attention dimension (single head)')
-    parser.add_argument('--num_heads', type=int, default=1, help='number of heads for attention')
+    parser.add_argument('--attention_dim', type=int, default=128, help='attention dimension (single head)')
+    parser.add_argument('--num_heads', type=int, default=2, help='number of heads for attention')
     parser.add_argument('--speed_action', action='store_true', help='enable speed action')
     parser.add_argument('--blur_requirement', type=float, default=5,
                         help='blur requirement for image, proportional to speed')
@@ -179,8 +179,8 @@ if __name__ == '__main__':
         os.makedirs(this_expr_dir)
     logging.debug("experiment name: %s", expr_name)
     if args.algo == 'trafficppo':
-        assert args.env == 'crowdsim' and args.core_arch == 'crowdsim_net', \
-            f"trafficppo only supports crowdsim env and crowdsim_net core_arch, got {args.env} and {args.core_arch}"
+        assert args.env == 'crowdsim', \
+            f"trafficppo only supports crowdsim env, got {args.env}"
     elif args.algo == 'tsp' or args.algo == 'random':
         new_env = marl.make_env(environment_name=args.env, map_name=args.dataset,
                                 env_params=env_params, mock=False)
@@ -192,7 +192,7 @@ if __name__ == '__main__':
             # generate a list of dict, each dict with num_agents keys + 'Drones_' prefix
             routes = []
             for _ in range(raw_env.episode_length):
-                routes.append({f'Drones_{i}': np.random.randint(0, len(raw_env.action_space))
+                routes.append({f'Drones_{i}': np.random.randint(0, raw_env.action_space[0].n)
                                for i in range(raw_env.num_agents)})
         else:
             from warp_drive.tsp import CrowdSimTSPSolver

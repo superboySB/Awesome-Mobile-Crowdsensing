@@ -1220,10 +1220,10 @@ class CrowdSim:
             # folium.TileLayer('Stamen Toner',
             #                  attr='Map tiles by Stamen Design, under CC BY 3.0. Data by OpenStreetMap, under ODbL'
             #                  ).add_to(my_render_map)
+            folium.TileLayer('OpenStreetMap', attr='© OpenStreetMap contributors').add_to(my_render_map)
             folium.TileLayer('cartodbpositron',
                              attr='Map tiles by Carto, under CC BY 3.0. Data by OpenStreetMap, under ODbL'
                              ).add_to(my_render_map)
-            folium.TileLayer('OpenStreetMap', attr='© OpenStreetMap contributors').add_to(my_render_map)
             hide_progress_bar_js = """
                 var element = document.getElementsByClassName('leaflet-bottom leaflet-left')[0];
                 if (element) {
@@ -1338,7 +1338,8 @@ class CrowdSim:
                                                        color,
                                                        index < self.num_agents or is_emergency,
                                                        self.fix_target and (not is_agent),
-                                                       is_emergency)
+                                                       is_emergency,
+                                                       self.zero_shot_start)
                 if is_agent:
                     # create a feature group
                     kwargs = {'data': {
@@ -2272,11 +2273,10 @@ class SendAllocationCallback(DefaultCallbacks):
                         **kwargs) -> None:
         if env_index == 0:
             my_env: CUDACrowdSim = base_env.vector_env.env.env
-            if 'shared_policy' in worker.policy_map:
+            if 'shared_policy' in policies and hasattr(policies['shared_policy'].model, 'get_allocation_table'):
                 allocation_table = policies['shared_policy'].model.get_allocation_table()
-                if allocation_table is not None:
-                    my_env.cuda_data_manager.data_on_device_via_torch("emergency_allocation_table")[:] = (
-                        torch.from_numpy(allocation_table))
+                my_env.cuda_data_manager.data_on_device_via_torch("emergency_allocation_table")[:] = (
+                    torch.from_numpy(allocation_table))
 
 
 class OUTPACECallback(DefaultCallbacks):
