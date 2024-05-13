@@ -1,8 +1,8 @@
 #!/bin/bash
-exp_name='75_surveillance_thre'
+exp_name='56_surveillance_thre_aim'
 # not completely edited.
-session_name=$exp_name'_2'
-cards=(0 1 2 3 4 5 6 7)
+session_name=$exp_name
+cards=(0 1 2 3 4 5)
 card_num=${#cards[@]}
 dry_run=false
 # Process command-line arguments

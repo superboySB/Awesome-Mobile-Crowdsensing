@@ -1,5 +1,5 @@
 #!/bin/bash
-exp_name='50_blur_requirement'
+exp_name='50_blur_requirement_aim'
 # not completely edited.
 session_name=$exp_name
 cards=(0 1 2 3 4 5 6 7 8 9)

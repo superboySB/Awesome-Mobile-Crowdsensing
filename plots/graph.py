@@ -3,43 +3,57 @@
 """
 import os
 import re
+import matplotlib
+
+matplotlib.use('pgf')
 import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
 import numpy as np
-from matplotlib.backends.backend_pdf import PdfPages
 
-X_TICKS = 'x-ticks'
-
-FONTSIZE = 54
+output_chinese = True
+FONTSIZE = 42
 FIG_SIZE = (15, 15)
-MARKER_SIZE = 30
+MARKER_SIZE = 24
 MARKER_WIDTH = 5
 MARKER_FACE_COLOR = 'none'
 LINE_WIDTH = 4
 colors = ['red', 'goldenrod', 'forestgreen', 'teal', 'violet', 'grey', 'turquoise']
 markers = ['o', '*', '^', 'v', 'd', 's', '+', 'x']
 
+X_TICKS = 'x-ticks'
 OURS = 'DRL-MTOCS'
 RL_SOTA = 'HAPPO'
 GCRL_SOTA = 'OUTPACE'
 MCS_SOTA = 'DRL-EMS'
 TRADITIONAL = 'mTSP'
-RANDOM = 'Random'
-San = 'SanFrancisco'
-Chengdu = 'Chengdu'
-I_emer = "Valid Handling Ratio For Emergency ($I_{\mathrm{emer}}$)"
-I_surv = "Valid Handling Ratio For Surveillance ($I_{\mathrm{surv}}$)"
-eta = "Energy Consumption Ratio ($\eta$)"
-I_index = "Valid Handling Index ($I$)"
+if output_chinese:
+    RANDOM = '随机'
+    I_emer = "紧急任务有效处理比率 ($\mathit{I}_{\mathrm{emer}}$)"
+    I_surv = "监控任务有效处理比率 ($\mathit{I}_{\mathrm{surv}}$)"
+    eta = "能耗比率 ($\mathit{\eta}$)"
+    I_index = "有效处理指数 ($\mathit{I}$)"
+    X_BLUR = "模糊要求 ($\mathit{\delta}$)"
+    X_UAV = "无人机数量 (U)"
+    X_SURV_THRE = "监控任务阈值 ($\mathrm{AoI}_\mathrm{th}^\mathrm{surv}$)"
+    X_TASK_TYPE = "任务类型数量"
+else:
+    RANDOM = 'Random'
+    I_emer = "Valid Handling Ratio For Emergency ($\mathit{I}_{\mathrm{emer}}$)"
+    I_surv = "Valid Handling Ratio For Surveillance ($\mathit{I}_{\mathrm{surv}}$)"
+    eta = "Energy Consumption Ratio ($\mathit{\eta}$)"
+    I_index = "Valid Handling Index ($\mathit{I}$)"
+    X_BLUR = "Blur Requirement ($\mathit{\delta}$)"
+    X_UAV = "No. of UAVs (U)"
+    X_SURV_THRE = "Surveillance Threshold ($\mathrm{AoI}_\mathrm{th}^\mathrm{surv}$)"
+    X_TASK_TYPE = "No. of Task Types"
+
 DATASET = 'dataset'
 DATAS = 'datas'
 Y_RANGE = 'yrange'
+San = 'SanFrancisco'
+Chengdu = 'Chengdu'
 
-X_BLUR = "Blur Requirement ($\delta$)"
-X_UAV = "No. of UAVs (U)"
-X_SURV_THRE = "Surveillance Threshold ($\mathrm{AoI}_\mathrm{th}^\mathrm{surv}$)"
-X_TASK_TYPE = "No. of Task Types"
-generate_dir = os.path.join('/Users', 'Charlie', 'Desktop', 'MCS_graph')
+generate_dir = os.path.join('/Users', 'Charlie', 'Desktop', 'MCS_graph', 'zh' if output_chinese else 'en')
 
 
 def compare_plot(x_label, y_label, x, yrange, data_dict, dataset, eps=0.3):
@@ -62,8 +76,13 @@ def compare_plot(x_label, y_label, x, yrange, data_dict, dataset, eps=0.3):
     latex_exclude = r'[\$\{\}\\]'
     raw_x_label = re.sub(latex_exclude, '', x_label)
     raw_y_label = re.sub(latex_exclude, '', y_label)
-    pdf = PdfPages(os.path.join(dataset_sub_dir, '%s-%s.pdf' % (raw_x_label, raw_y_label)))
-    plt.rcParams.update({"text.usetex": True, 'font.size': FONTSIZE})
+
+    plt.rcParams.update(
+        {
+            "text.usetex": True, 'font.size': FONTSIZE, 'pgf.texsystem': 'xelatex',
+            'pgf.preamble': r'\usepackage{xeCJK}\fontsize{36}{42}\selectfont', "pgf.rcfonts": False,
+        }
+    )
     plt.figure(figsize=FIG_SIZE)
     plt.xlabel(x_label, fontsize=FONTSIZE)
     plt.ylabel(y_label, fontsize=FONTSIZE)
@@ -76,18 +95,26 @@ def compare_plot(x_label, y_label, x, yrange, data_dict, dataset, eps=0.3):
     plt.xticks(x, x)
     plt.gca().yaxis.set_major_formatter(ticker.FormatStrFormatter('%.2f'))
     margin = (yrange[1] - yrange[0]) * eps
-    plt.ylim(max(0, yrange[0] - margin), yrange[1] + margin)
+    plt.ylim(max(0, (yrange[0] - margin)), yrange[1] + margin)
     plt.grid(True)
     plt.grid(linestyle='--')
-    plt.legend(loc='upper center', fontsize=25, ncol=2, markerscale=0.9)
+    plt.legend(loc='upper center', ncol=2, markerscale=0.9)
     plt.tight_layout()
-    pdf.savefig()
+    plt.savefig(os.path.join(dataset_sub_dir, f"{raw_x_label}-{raw_y_label}.pdf"), backend='pgf')
     plt.close()
-    pdf.close()
+
+
+EPS = 'eps'
 
 
 def generate_plots(x_label: str, x: list, data_dicts: dict, dataset: str):
+    if EPS in data_dicts:
+        eps = data_dicts.pop(EPS)
+    else:
+        eps = 0.5
     for y_label, data_dict in data_dicts.items():
+        if EPS in data_dict:
+            eps = data_dict.pop(EPS)
         all_values = np.concatenate(list(data_dict.values()))
         y_range = [np.nanmin(all_values), np.nanmax(all_values)]
         compare_plot(x_label=x_label,
@@ -95,7 +122,8 @@ def generate_plots(x_label: str, x: list, data_dicts: dict, dataset: str):
                      x=x,
                      yrange=y_range,
                      data_dict=data_dict,
-                     dataset=dataset)
+                     dataset=dataset,
+                     eps=eps)
 
 
 def calculate_index(all_methods, data_dict):
@@ -115,9 +143,9 @@ if __name__ == '__main__':
             X_TICKS: [2, 3, 4, 5, 7, 10],
             San: {
                 I_emer: {
-                    OURS: [0.4453, 0.7579, 0.9088, 0.9667, 0.973, 0.9853],
+                    OURS: [0.4902, 0.5347, 0.8919, 0.9719, 0.973, 0.9958],
                     RL_SOTA: [0.2193, 0.2481, 0.2705, 0.274, 0.3382, 0.4144],
-                    GCRL_SOTA: [0.2744, 0.2979, 0.3291, 0.3561, 0.9709, 0.494],
+                    GCRL_SOTA: [0.2618, 0.2867, 0.3561, 0.3768, 0.4119, 0.4126],
                     MCS_SOTA: [0.233, 0.2568, 0.3512, 0.36, 0.4288, 0.5853],
                     TRADITIONAL: [
                         np.NaN,
@@ -137,9 +165,9 @@ if __name__ == '__main__':
                     ],
                 },
                 I_surv: {
-                    OURS: [0.746, 0.8302, 0.8827, 0.8999, 0.9405, 0.9643],
+                    OURS: [0.7505, 0.8704, 0.8836, 0.9224, 0.9474, 0.9639],
                     RL_SOTA: [0.4112, 0.5379, 0.6257, 0.6969, 0.76, 0.8329],
-                    GCRL_SOTA: [0.7636, 0.8244, 0.8728, 0.8911, 0.9062, 0.9383],
+                    GCRL_SOTA: [0.7684, 0.8402, 0.8773, 0.8955, 0.9203, 0.8674],
                     MCS_SOTA: [0.6686, 0.79, 0.8426, 0.8698, 0.8915, 0.9293],
                     TRADITIONAL: [
                         np.NaN,
@@ -159,9 +187,9 @@ if __name__ == '__main__':
                     ],
                 },
                 eta: {
-                    OURS: [0.6728, 0.6675, 0.663, 0.6707, 0.6641, 0.6504],
+                    OURS: [0.6679, 0.6719, 0.6548, 0.6572, 0.6471, 0.5869],
                     RL_SOTA: [0.6516, 0.6539, 0.6613, 0.6595, 0.6602, 0.6613],
-                    GCRL_SOTA: [0.6638, 0.6579, 0.6483, 0.6608, 0.6387, 0.6448],
+                    GCRL_SOTA: [0.6432, 0.6719, 0.6609, 0.6621, 0.6131, 0.4718],
                     MCS_SOTA: [0.6641, 0.6675, 0.6693, 0.6688, 0.6704, 0.6663],
                     TRADITIONAL: [
                         np.NaN,
@@ -183,9 +211,9 @@ if __name__ == '__main__':
             },
             Chengdu: {
                 I_emer: {
-                    OURS: [0.6677, 0.8523, 0.9655, 0.9635, 0.9677, 0.9979],
+                    OURS: [0.6007, 0.7326, 0.9547, 0.9765, 0.986, 0.9979],
                     RL_SOTA: [0.2249, 0.2642, 0.2804, 0.3186, 0.373, 0.4646],
-                    GCRL_SOTA: [0.2768, 0.3207, 0.8488, 0.966, 0.9811, 0.9989],
+                    GCRL_SOTA: [0.2414, 0.3193, 0.9249, 0.9793, 0.9214, 0.4975],
                     MCS_SOTA: [0.2702, 0.3723, 0.3744, 0.4116, 0.4895, 0.5737],
                     TRADITIONAL: [
                         np.NaN,
@@ -206,9 +234,9 @@ if __name__ == '__main__':
 
                 },
                 I_surv: {
-                    OURS: [0.6902, 0.8671, 0.9673, 0.9617, 0.9847, 0.9941],
+                    OURS: [0.7729, 0.8923, 0.9449, 0.9785, 0.99, 0.9947],
                     RL_SOTA: [0.395, 0.5174, 0.5995, 0.6563, 0.7682, 0.8557],
-                    GCRL_SOTA: [0.8214, 0.8719, 0.9145, 0.9109, 0.9494, 0.9794],
+                    GCRL_SOTA: [0.8218, 0.901, 0.9391, 0.9521, 0.9652, 0.9594],
                     MCS_SOTA: [0.7313, 0.8382, 0.8847, 0.9312, 0.9702, 0.995],
                     TRADITIONAL: [
                         np.NaN,
@@ -228,9 +256,10 @@ if __name__ == '__main__':
                     ],
                 },
                 eta: {
-                    OURS: [0.6689, 0.6662, 0.6707, 0.6683, 0.6694, 0.6585],
+                    EPS: 0.5,
+                    OURS: [0.6696, 0.666, 0.651, 0.6643, 0.6571, 0.6229],
                     RL_SOTA: [0.6432, 0.6445, 0.6472, 0.6485, 0.6469, 0.6453],
-                    GCRL_SOTA: [0.6783, 0.6747, 0.6715, 0.666, 0.6148, 0.6672],
+                    GCRL_SOTA: [0.6824, 0.6799, 0.6629, 0.6500, 0.6058, 0.5306],
                     MCS_SOTA: [0.6538, 0.6612, 0.6611, 0.6753, 0.658, 0.6767],
                     TRADITIONAL: [
                         np.NaN,
@@ -481,8 +510,14 @@ if __name__ == '__main__':
     for x_label, array_data in all_data.items():
         assert X_TICKS in array_data, "x-ticks should be in array_data"
         xticks = array_data.pop(X_TICKS)
+        if EPS in array_data:
+            eps = array_data.pop(EPS)
+        else:
+            eps = None
         for dataset, dataset_data in array_data.items():
             calculate_index(all_methods, dataset_data)
+            if eps is not None:
+                dataset_data[EPS] = eps
             generate_plots(
                 x_label=x_label,
                 x=xticks,
