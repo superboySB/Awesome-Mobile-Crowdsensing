@@ -2,7 +2,7 @@ import os
 import re
 from argparse import ArgumentParser
 from typing import Union
-
+import warnings
 import yaml
 from datetime import datetime
 import argparse
@@ -201,6 +201,20 @@ def get_restore_dict(args: argparse.Namespace, uuid: str,
     dict: The restore dict for the experiment.
     """
     parent_result_name = os.path.join("/workspace", "saved_data", "marllib_results")
+    restore_dict = construct_checkpoint_dict(args, checkpoint_num, parent_result_name, time_str, uuid, backup_str)
+    if os.path.exists(restore_dict['model_path']):
+        return restore_dict
+    else:
+        warnings.warn(f"Model path {restore_dict['model_path']} does not exist. Try change dataset name.")
+        if args.dataset == 'SanFrancisco':
+            args.dataset = 'Chengdu'
+        else:
+            args.dataset = 'SanFrancisco'
+        restore_dict = construct_checkpoint_dict(args, checkpoint_num, parent_result_name, time_str, uuid, backup_str)
+        return restore_dict
+
+
+def construct_checkpoint_dict(args, checkpoint_num, parent_result_name, time_str, uuid, backup_str):
     sub_folder_name = "_".join([args.algo, args.core_arch, args.dataset])
     restore_dict = {
         'model_path': os.path.join(parent_result_name, sub_folder_name,

@@ -75,7 +75,7 @@ VALID_HANDLING_RATIO = "valid_handling_ratio"
 
 BOTTLENECK_RATIO = "bottleneck_ratio"
 
-VALID_RATIO_PER_ENERGY = "valid_ratio_per_energy"
+VALID_HANDLING_INDEX = "valid_handling_index"
 
 user_override_params = ['env_config', 'dynamic_zero_shot', 'use_2d_state', 'all_random',
                         'num_drones', 'num_cars', 'cut_points', 'fix_target', 'gen_interval',
@@ -440,6 +440,9 @@ class CrowdSim:
                                          fill_value=self.starting_location_x, dtype=self.float_dtype)
         self.agent_y_time_list = np.full([self.episode_length + 1, self.num_agents],
                                          fill_value=self.starting_location_y, dtype=self.float_dtype)
+        # note, anti-goals are normalized values.
+        self.agent_anti_goals = np.full([self.episode_length + 1, self.num_agents, 2], fill_value=-1,
+                                        dtype=self.float_dtype)
         if self.dynamic_zero_shot:
             self.emergency_allocation_table = np.full([self.emergency_count, ], -1, dtype=self.int_dtype)
         # self.agent_emergency_table = np.full([self.episode_length + 1, self.num_agents], fill_value=-1,
@@ -501,13 +504,13 @@ class CrowdSim:
         # [may not necessary] Copy drones dict for applying at reset (with limited energy reserve)
         # self.drones_at_reset = copy.deepcopy(self.drones)
         # List of available colors excluding orange and red
-        self.available_colors = ['cadetblue', 'darkgreen', "darkred", 'black',
-                                 "magenta", 'darkblue', "teal", "brown", 'gray']
+        self.available_colors = ['cadetblue', "darkred", 'black', 'magenta',
+                                 'darkblue', 'teal', "brown", 'gray']
         # self.surveillance_colors = ['blue', 'green', 'yellow', 'orange', 'red', 'purple']
         # self.surveillance_colors = ['#cfe2f3', '9fc5e8', '#6fa8dc', '#3d85c6', '#0b5394', '#073763']
         self.surveillance_colors = ['#fce5cd', '#f9cb9c', '#f6b26b', '#e69138', '#b45f06', '#783f04']
         # Shuffle the list of available colors
-        random.shuffle(self.available_colors)
+        # random.shuffle(self.available_colors)
         # Initialize an index to keep track of the selected color
         self.selected_color_index = 0
         self.queue_feature = 3
@@ -542,7 +545,7 @@ class CrowdSim:
         # Function to get the next color
         # Check if we have used all colors, shuffle again if needed
         if self.selected_color_index >= len(self.available_colors):
-            random.shuffle(self.available_colors)
+            # random.shuffle(self.available_colors)
             self.selected_color_index = 0
         # Get the next color
         next_color = self.available_colors[self.selected_color_index]
@@ -1098,7 +1101,7 @@ class CrowdSim:
             info[VALID_SURVEILLANCE_RATIO] = np.mean(valid_surveillance_mask)
             bottleneck = min(info[VALID_HANDLING_RATIO], info[VALID_SURVEILLANCE_RATIO])
             info[BOTTLENECK_RATIO] = bottleneck
-            info[VALID_RATIO_PER_ENERGY] = bottleneck / energy_consumption_ratio
+            info[VALID_HANDLING_INDEX] = bottleneck / energy_consumption_ratio
             # logging.debug(f"Emergency: {info[EMERGENCY_METRIC]}")
         else:
             mean_aoi = np.mean(self.target_aoi_timelist[self.timestep])
@@ -1170,6 +1173,7 @@ class CrowdSim:
                     emergency_df = self.xy_to_dataframe(delay_list, energy_list, id_list, max_latitude,
                                                         max_longitude, timestamp_list, x_list, y_list)
                     emergency_df['creation_time'] = self.aoi_schedule[i - self.zero_shot_start]
+                    emergency_df['threshold'] = self.emergency_threshold
                     emergency_df['allocation'] = int(self.emergency_allocation_table[i - self.zero_shot_start])
                     emergency_df['episode_length'] = self.episode_length
                     emergency_df['coverage'] = self.target_coveraged_timelist[:, i]
@@ -1287,6 +1291,9 @@ class CrowdSim:
             JsButton(
                 title='<i class="fas fa-forward"></i>', function=pause_js_func).add_to(my_render_map)
             # 锁定范围
+            # strange over range bug in Chengdu, temporary hack.
+            if self.dataset_name == 'Chengdu':
+                self.upper_right[1] += 0.01
             grid_geo_json = get_border(self.upper_right, self.lower_left)
             color = "red"
             border = folium.GeoJson(grid_geo_json,
@@ -1386,37 +1393,6 @@ class CrowdSim:
                 auto_play=True,
                 loop=plot_loop  # Apply the custom GeoJSON options
             ).add_to(my_render_map)
-            # create surveillance color bar
-            # data = {
-            #     'Point 1': 20,
-            #     'Point 2': 40,
-            #     'Point 3': 60,
-            #     'Point 4': 80,
-            #     'Point 5': 100
-            # }
-
-            # Custom HTML legend for color bar with rectangle markers
-            # legend_colors = self.surveillance_colors
-            # legend_html = f"""
-            #     <div style="position: fixed; bottom: 50px; left: 50px; width: 300px; height: 150px;
-            #                 background-color: white; border: 2px solid grey; z-index:9999; font-size:14px;">
-            #         <p style="text-align:center; margin-top: 10px;"><strong>Legend</strong></p>
-            #         <div style="display: flex; justify-content: space-between; padding: 10px;">
-            #             {"".join([f'<div style="background-color: {color}; width: 50px; height: 20px;"></div>' for color in legend_colors])}
-            #         </div>
-            #         <p style="text-align:center; margin-bottom: 10px;">Low &nbsp;&nbsp;&nbsp; High</p>
-            #     </div>
-            # """
-            #
-            # # Create a custom MacroElement for the legend
-            # legend = MacroElement()
-            # legend._template = Template(legend_html)
-            # my_render_map.get_root().add_child(legend)
-            #
-            # # Add your data to the map
-            # for point, value in data.items():
-            #     folium.Rectangle(bounds=[[-2.5, -2.5], [2.5, 2.5]],
-            #                      popup=f"{point}: {value}", color='black', fill_color=color).add_to(my_render_map)
 
             if self.dynamic_zero_shot:
                 # print("Constructing Emergency GeoJson...")
@@ -1424,7 +1400,7 @@ class CrowdSim:
                     "type": "FeatureCollection",
                     "features": emergency_features,
                 }, 'period': "PT5S", 'add_last_point': True, 'transition_time': 200,
-                    'loop': plot_loop, 'speed_slider': False, 'duration': "PT5S"}
+                    'loop': plot_loop, 'speed_slider': False, 'duration': "PT10S"}
                 TimestampedGeoJson(**kwargs).add_to(my_render_map)
 
             folium.LayerControl().add_to(my_render_map)
@@ -1453,9 +1429,11 @@ class CrowdSim:
                 # the metric should include surveillance_aoi, response_delay, overall_aoi, not mean_aoi
                 info_str = f"Energy: {info[ENERGY_METRIC_NAME]:.2f},<br>" \
                            f"Advantage Ratio: {info[DELAY_ADVANTAGE_RATIO]:.2f},<br>" \
-                           f"Surveillance: {info[SURVEILLANCE_METRIC]:.2f},<br>" \
-                           f"Response Delay: {info[EMERGENCY_METRIC]:.2f},<br>" \
-                           f"Valid Ratio: {info[VALID_HANDLING_RATIO]:.2f},<br>" \
+                           f"Surv AoI: {info[SURVEILLANCE_METRIC]:.2f},<br>" \
+                           f"Emer Aoi: {info[EMERGENCY_METRIC]:.2f},<br>" \
+                           f"Emer Valid Ratio: {info[VALID_HANDLING_RATIO]:.2f},<br>" \
+                           f"Surv Valid Ratio: {info[VALID_SURVEILLANCE_RATIO]:.2f},<br>" \
+                           f"Handling Index: {info[VALID_HANDLING_INDEX]:.2f},<br>" \
                            f"Total Reward: {np.sum(self.agent_rewards_time_list):.2f}"
                 # f"Overall AoI: {info[OVERALL_AOI]:.2f}"
             else:
@@ -2135,7 +2113,7 @@ def setup_wandb(logging_config: dict):
 def define_metrics_crowdsim():
     for item in [COVERAGE_METRIC_NAME, DATA_METRIC_NAME, MAIN_METRIC_NAME,
                  FRESHNESS_FACTOR, VALID_HANDLING_RATIO, VALID_SURVEILLANCE_RATIO,
-                 BOTTLENECK_RATIO, VALID_RATIO_PER_ENERGY]:
+                 BOTTLENECK_RATIO, VALID_HANDLING_INDEX]:
         wandb.define_metric(item, summary="max")
     for item in [AOI_METRIC_NAME, ENERGY_METRIC_NAME, SURVEILLANCE_METRIC, EMERGENCY_METRIC,
                  VALID_EMERGENCY_DELAY]:
@@ -2278,6 +2256,7 @@ class SendAllocationCallback(DefaultCallbacks):
                 allocation_table = policies['shared_policy'].model.get_allocation_table()
                 my_env.cuda_data_manager.data_on_device_via_torch("emergency_allocation_table")[:] = (
                     torch.from_numpy(allocation_table))
+                my_env.agent_anti_goals = policies['shared_policy'].model.get_anti_goals()
 
 
 class OUTPACECallback(DefaultCallbacks):

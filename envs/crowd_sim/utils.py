@@ -162,7 +162,7 @@ def traj_to_timestamped_geojson(index, trajectory: movingpandas.Trajectory, car_
                 radius = 16
                 if row.creation_time < i:
                     if not row.coverage:
-                        opacity = (i - row.creation_time) / row.aoi
+                        opacity = (i - row.creation_time) / row.threshold
                     else:
                         opacity = 0
                 else:

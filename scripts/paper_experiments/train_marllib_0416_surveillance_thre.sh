@@ -1,8 +1,8 @@
 #!/bin/bash
-exp_name='50_surveillance_thre'
+exp_name='77_surveillance_thre'
 # not completely edited.
 session_name=$exp_name
-cards=(0 1 2 3 4 5 6 7 8 9)
+cards=(0 1 2 3)
 card_num=${#cards[@]}
 dry_run=false
 # Process command-line arguments
@@ -70,7 +70,7 @@ for ((i = 0; i < train_num; i++)); do
   --emergency_threshold 20 --blur_requirement 5 --selector_type RL --use_random --prioritized_buffer\
   --gen_interval 6 --cut_points 300 --tag change_surveillance_thre\
   --display_tags dataset surveillance_threshold intrinsic_mode --reward_mode original --rl_gamma 0\
-  --emergency_queue_length 5 --NN_buffer --sibling_rivalry --alpha 0.3 --intrinsic_mode scaled_dis_aoi"
+  --emergency_queue_length 3 --NN_buffer --sibling_rivalry --alpha 0.7 --intrinsic_mode scaled_dis_aoi"
   echo "$command"
   if [ "$dry_run" = "false" ] && [ "$choice" != "n" ]
   then
