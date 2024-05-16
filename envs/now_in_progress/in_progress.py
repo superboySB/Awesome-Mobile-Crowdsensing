@@ -401,7 +401,7 @@ class EnvUCS:
                 max_len = max((len(l) for l in self.uav_data_collect[type]))
                 new_matrix = list(
                     map(lambda l: l + [0] * (max_len - len(l)), self.uav_data_collect[type]))
-                temp_info['uav_collect'] = np.sum(new_matrix, axis=0).tolist()
+                temp_info['uav_collect'] = np.sum(new_matrix, axis=0).toItemList()
                 temp_info['reward_history'] = self.episodic_reward_list[type]
                 temp_info['uav_reward'] = self.single_uav_reward_list[type]
 

@@ -186,7 +186,6 @@ if __name__ == '__main__':
                                 env_params=env_params, mock=False)
         env, env_config = new_env
         raw_env: CUDACrowdSim = env.env
-        env.reset()
         # construct a random action with num_agents keys
         if args.algo == 'random':
             # generate a list of dict, each dict with num_agents keys + 'Drones_' prefix
@@ -194,11 +193,17 @@ if __name__ == '__main__':
             for _ in range(raw_env.episode_length):
                 routes.append({f'Drones_{i}': np.random.randint(0, raw_env.action_space[0].n)
                                for i in range(raw_env.num_agents)})
+            env.reset()
         else:
             from warp_drive.tsp import CrowdSimTSPSolver
 
+            raw_env.emergency_threshold = raw_env.episode_length
+            raw_env.aoi_schedule = np.zeros_like(raw_env.aoi_schedule)
+            # raw_env.drone_sensing_range *= 2
+            env.reset()
             tsp_solver = CrowdSimTSPSolver(env, add_surveillance=False)
             routes = tsp_solver.get_solution(this_expr_dir=this_expr_dir)
+
         for action in routes:
             # step environment
             env.step(action)

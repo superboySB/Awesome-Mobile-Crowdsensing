@@ -243,20 +243,19 @@ class CrowdSim:
         self.dataset_name = self.config.env.dataset_name
         self.human_df: pd.DataFrame = pd.read_csv(self.config.env.dataset_dir)
         logging.debug("Finished reading {} rows".format(len(self.human_df)))
-        self.lower_left = [self.human_df['longitude'].min(), self.human_df['latitude'].min()]
-        self.upper_right = [self.human_df['longitude'].max(), self.human_df['latitude'].max()]
         self.start_timestamp = self.human_df['timestamp'].min()
         self.end_timestamp = self.human_df['timestamp'].max()
-        self.nlon = (self.upper_right[0] - self.lower_left[0]) / 1e-5
-        self.nlat = (self.upper_right[1] - self.lower_left[1]) / 1e-5
-
+        self.num_bins = 20
+        if cut_points != -1:
+            self.human_df = self.human_df[self.human_df['id'] < cut_points]
+        self.lower_left = [self.human_df['longitude'].min(), self.human_df['latitude'].min()]
+        self.upper_right = [self.human_df['longitude'].max(), self.human_df['latitude'].max()]
         self.max_distance_x: float = measure_distance_geodesic(Point(self.lower_left[0], self.lower_left[1]),
                                                                Point(self.upper_right[0], self.lower_left[1]))
         self.max_distance_y: float = measure_distance_geodesic(Point(self.lower_left[0], self.lower_left[1]),
                                                                Point(self.lower_left[0], self.upper_right[1]))
-        self.num_bins = 20
-        if cut_points != -1:
-            self.human_df = self.human_df[self.human_df['id'] < cut_points]
+        self.nlon = (self.upper_right[0] - self.lower_left[0]) / 1e-5
+        self.nlat = (self.upper_right[1] - self.lower_left[1]) / 1e-5
         self.num_sensing_targets = self.human_df.shape[0] // (self.episode_length + 1)
         self.human_df['t'] = pd.to_datetime(self.human_df['timestamp'], unit='s')  # s表示时间戳转换
         self.human_df['aoi'] = -1  # 加入aoi记录aoi
@@ -322,6 +321,8 @@ class CrowdSim:
                 self.num_points_per_center = 1
                 all_surveillance = self.human_df[self.human_df['timestamp'] == self.start_timestamp][['x', 'y']].values
                 random_indexes = np.random.choice(all_surveillance.shape[0], self.num_centers, replace=False)
+                # self.emergency_centers_x = np.random.randint(0, self.max_distance_x, self.num_centers)
+                # self.emergency_centers_y = np.random.randint(0, self.max_distance_y, self.num_centers)
                 self.emergency_centers_x = all_surveillance[random_indexes, 0]
                 self.emergency_centers_y = all_surveillance[random_indexes, 1]
                 points_x, points_y = self.generate_emergency(self.num_centers, self.num_points_per_center)

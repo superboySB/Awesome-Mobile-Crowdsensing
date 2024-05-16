@@ -57,7 +57,7 @@ def calculate_route_actions(route, coordinates, aoi_schedule, action_space):
         end = route[i + 1]
         start_loc, end_loc = coordinates[start], coordinates[end]
         # find the closest action in the action space
-        actions = construct_path(action_space, start_loc, end_loc, 200)
+        actions = construct_path(action_space, start_loc, end_loc, 250)
         time += len(actions)
         # if time is smaller than aoi_schedule for the next target, randomly circle around the target
         if time < aoi_schedule[i + 1]:
@@ -207,8 +207,8 @@ class CrowdSimTSPSolver:
         constraints += [u[1:] >= 2]
         constraints += [u[1:] <= n]
         constraints += [u[0] == 1]
-        constraints += [t >= t_start]
-        constraints += [t <= t_end]
+        # constraints += [t >= t_start]
+        # constraints += [t <= t_end]
 
         # Adding time feasibility constraints for sequential city visits
         M = 1000  # A large constant for big-M method
@@ -216,7 +216,7 @@ class CrowdSimTSPSolver:
             for j in range(1, n):
                 if i != j:
                     constraints += [u[i] - u[j] + 1 <= (n - 1) * (1 - X[i, j])]
-                    constraints += [t[j] >= t[i] + C[i, j] - M * (1 - X[i, j])]
+                    # constraints += [t[j] >= t[i] + C[i, j] - M * (1 - X[i, j])]
 
         # Solving the problem
         prob = cp.Problem(objective, constraints)

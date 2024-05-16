@@ -1,5 +1,5 @@
 #!/bin/bash
-exp_name='77_num_drones_tsp'
+exp_name='50_blur_requirement_happo'
 # not completely edited.
 session_name=$exp_name
 cards=(0 1 2 3)
@@ -18,18 +18,16 @@ while [[ $# -gt 0 ]]; do
 done
 # remove NN share_policy all
 trains=(
-  "--dataset SanFrancisco --num_drones 2"
-  "--dataset SanFrancisco --num_drones 3"
-  "--dataset SanFrancisco --num_drones 4"
-  "--dataset SanFrancisco --num_drones 5"
-  "--dataset SanFrancisco --num_drones 7"
-  "--dataset SanFrancisco --num_drones 10"
-  "--dataset Chengdu --num_drones 2"
-  "--dataset Chengdu --num_drones 3"
-  "--dataset Chengdu --num_drones 4"
-  "--dataset Chengdu --num_drones 5"
-  "--dataset Chengdu --num_drones 7"
-  "--dataset Chengdu --num_drones 10"
+  "--dataset SanFrancisco --blur_requirement 2"
+  "--dataset SanFrancisco --blur_requirement 1"
+  "--dataset SanFrancisco --blur_requirement 0.75"
+  "--dataset SanFrancisco --blur_requirement 0.5"
+  "--dataset SanFrancisco --blur_requirement 0.25"
+  "--dataset Chengdu --blur_requirement 2"
+  "--dataset Chengdu --blur_requirement 1"
+  "--dataset Chengdu --blur_requirement 0.75"
+  "--dataset Chengdu --blur_requirement 0.5"
+  "--dataset Chengdu --blur_requirement 0.25"
 )
 
 
@@ -64,13 +62,13 @@ for ((i = 0; i < train_num; i++)); do
   card_id=$((i % card_num))
   # shellcheck disable=SC2004
   # if want to add $PATH, remember to add / before $
-  command="python warp_drive/marllib_warpdrive_run.py --track --core_arch crowdsim_net --dynamic_zero_shot\
-  --num_cars 0 --group baseline --algo tsp --share_policy all --switch_step 60000000\
+  command="python warp_drive/marllib_warpdrive_run.py --track --core_arch mlp --dynamic_zero_shot\
+  --num_cars 0 --num_drones 4 --group baseline --algo random --share_policy all --switch_step 60000000\
   --gpu_id ${cards[card_id]} ${trains[i]} --use_2d_state --look_ahead --with_programming_optimization\
-  --emergency_threshold 20 --blur_requirement 5 --selector_type RL --use_random --prioritized_buffer\
-  --gen_interval 10 --cut_points 300 --surveillance_threshold 35 --tag change_num_drones\
-  --display_tags dataset num_drones --reward_mode original --rl_gamma 0\
-  --emergency_queue_length 5 --NN_buffer --sibling_rivalry --alpha 0.3 --intrinsic_mode scaled_dis_aoi"
+  --emergency_threshold 20 --selector_type RL --use_random --prioritized_buffer\
+  --gen_interval 10 --cut_points 300 --tag change_blur --surveillance_threshold 35\
+  --display_tags dataset blur_requirement core_arch --reward_mode original --rl_gamma 0\
+  --emergency_queue_length 5 --NN_buffer --sibling_rivalry --alpha 0.3"
   echo "$command"
   if [ "$dry_run" = "false" ] && [ "$choice" != "n" ]
   then

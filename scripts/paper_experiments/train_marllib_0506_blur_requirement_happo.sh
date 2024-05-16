@@ -2,7 +2,7 @@
 exp_name='50_blur_requirement_happo'
 # not completely edited.
 session_name=$exp_name
-cards=(0 1 2 3 4 5 6 7 8 9)
+cards=(2 3 4 5 6 7 8 9 8 9)
 card_num=${#cards[@]}
 dry_run=false
 # Process command-line arguments

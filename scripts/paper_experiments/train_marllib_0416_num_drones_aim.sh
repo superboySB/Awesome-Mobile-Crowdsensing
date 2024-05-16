@@ -1,8 +1,8 @@
 #!/bin/bash
-exp_name='75_num_drones_aim'
+exp_name='50_num_drones_aim'
 # not completely edited.
 session_name=$exp_name
-cards=(0 3 0 3 0 1 2 3 4 5 6 7)
+cards=(0 1 2 3 4 5 6 7 0 1 2 3)
 card_num=${#cards[@]}
 dry_run=false
 # Process command-line arguments
@@ -67,7 +67,7 @@ for ((i = 0; i < train_num; i++)); do
   command="python warp_drive/marllib_warpdrive_run.py --track --core_arch crowdsim_net --dynamic_zero_shot\
   --num_cars 0 --group baseline --algo trafficppo --share_policy all --switch_step 60000000\
   --gpu_id ${cards[card_id]} ${trains[i]} --use_2d_state --look_ahead --with_programming_optimization\
-  --emergency_threshold 20 --blur_requirement 5 --selector_type greedy --use_random\
+  --emergency_threshold 20 --blur_requirement 2 --selector_type greedy --use_random\
   --gen_interval 6 --cut_points 300 --surveillance_threshold 35 --tag change_num_drones\
   --display_tags dataset num_drones intrinsic_mode --reward_mode original --rl_gamma 0\
   --emergency_queue_length 1 --sibling_rivalry --alpha 0.3 --intrinsic_mode aim"

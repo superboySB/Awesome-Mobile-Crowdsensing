@@ -2,7 +2,7 @@
 exp_name='77_num_drones'
 # not completely edited.
 session_name=$exp_name
-cards=(0 1 2 3)
+cards=(2 3 0 1 2 3 2 3 0 1 2 3)
 card_num=${#cards[@]}
 dry_run=false
 # Process command-line arguments
