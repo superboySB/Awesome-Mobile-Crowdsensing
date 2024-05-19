@@ -114,6 +114,7 @@ def traj_to_timestamped_geojson(index, trajectory: movingpandas.Trajectory, car_
     point_gdf.loc[point_gdf["time"].iloc[0], "previous_time"] = point_gdf['time'].iloc[0]
     # pd.Timedelta(days=0, hours=0, minutes=15))
     features = []
+    is_anti_goal = False
     if isinstance(color, list):
         colors = color
     else:
@@ -142,7 +143,7 @@ def traj_to_timestamped_geojson(index, trajectory: movingpandas.Trajectory, car_
             # f'<p>raw coord: {current_point_coordinates}</p>' + \
             # f'<p>grid coord: ({row.x},{row.y})</p>' + \
             # f'<p>dist coord: ({row.x_distance}m, {row.y_distance}m)</p>' + \
-        elif row.id < (-car_num):
+        elif -(car_num + drone_num) < row.id < (-car_num):
             radius = 3  # 125(5 units)
             opacity = 1
             popup_html = f'<h4> (Drone) Agent {car_num + drone_num - index - 1}</h4>' + \
@@ -153,10 +154,12 @@ def traj_to_timestamped_geojson(index, trajectory: movingpandas.Trajectory, car_
                          f"<p style='font-size:14px;'>action: {direction_map_dict[row.direction]} </p>"
             if hasattr(row, "speed"):
                 popup_html += f"<p style='font-size:14px;'>speed: {speed_map_dict[row.speed]}m/s </p>"
-
-            # f'<p>raw coord: {current_point_coordinates}</p>' + \
-            # f'<p>grid coord: ({row.x},{row.y})</p>' + \
-            # f'<p>dist coord: ({row.x_distance}m, {row.y_distance}m)</p>' + \
+        elif row.id <= -(car_num + drone_num):
+            radius = 4
+            opacity = 1
+            is_anti_goal = True
+            popup_html = f'<h4> Anti-Goal {int(row.id) - drone_num - car_num}</h4>' + \
+                         f"<p style='font-size:14px;'>grid coord: ({row.x},{row.y})</p>"
         else:
             if is_emergency:
                 radius = 16
@@ -188,15 +191,23 @@ def traj_to_timestamped_geojson(index, trajectory: movingpandas.Trajectory, car_
                 current_color = colors[i]
             else:
                 current_color = color
+            icon = 'circle'
+            # if is_anti_goal:
+            #     icon = 'car'
+            # elif is_emergency:
+            #     icon = 'circle'
+            # else:
+            #     icon = 'tree'
             feature_dict = create_point_feature(current_color,
                                                 current_point_coordinates,
                                                 current_time, opacity,
-                                                popup_html, radius)
+                                                popup_html, radius, icon)
         features.append(feature_dict)
     return features
 
 
-def create_point_feature(color, current_point_coordinates, current_time, opacity, popup_html, radius):
+def create_point_feature(color, current_point_coordinates, current_time,
+                         opacity, popup_html, radius, icon='circle'):
     feature_dict = {
         "type": "Feature",
         "geometry": {
@@ -206,7 +217,7 @@ def create_point_feature(color, current_point_coordinates, current_time, opacity
         "properties": {
             "times": current_time,
             'popup': popup_html,
-            "icon": 'circle',  # point
+            "icon": icon,  # point
             "iconstyle": {
                 'fillColor': color,
                 'fillOpacity': opacity,  # 透明度
@@ -221,6 +232,22 @@ def create_point_feature(color, current_point_coordinates, current_time, opacity
             "code": 11,
         },
     }
+    # if icon == 'triangle':
+    #     feature_dict["properties"].update({
+    #         "icon": "custom",  # point icon
+    #         "iconstyle": {
+    #             'iconUrl': os.path.join(get_project_root(), "envs",
+    #                                     "crowd_sim", "triangle.svg"),  # URL or path to the custom icon
+    #             'iconSize': [30, 30],  # Size of the icon
+    #             'iconAnchor': [15, 30],  # Anchor point of the icon
+    #             'popupAnchor': [0, -30],  # Anchor point for the popup
+    #             'fillColor': color,
+    #             'fillOpacity': opacity,  # transparency
+    #             'stroke': 'true',
+    #             'radius': radius,
+    #             'weight': 1 if opacity > 0 else 0
+    #         },
+    #     })
     return feature_dict
 
 

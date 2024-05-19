@@ -25,6 +25,7 @@ from folium.plugins import TimestampedGeoJson
 from gym import spaces
 from gym.spaces import Discrete, Box, MultiDiscrete
 from movingpandas.geometry_utils import measure_distance_geodesic
+import matplotlib.colors as mcolors
 from pytorch_lightning import seed_everything
 from ray.rllib import BaseEnv, Policy, SampleBatch
 from ray.rllib.agents.callbacks import DefaultCallbacks
@@ -113,6 +114,14 @@ policy_mapping_dict = {
 }
 excluded_keys = {"trainer", "env_params", "map_name"}
 logging.getLogger().setLevel(logging.WARN)
+
+
+def generate_shades(base_color, n):
+    """Generate n shades of the base color."""
+    base_rgb = mcolors.hex2color(base_color)
+    hsv_base = mcolors.rgb_to_hsv(base_rgb)
+    shades = [mcolors.rgb2hex(mcolors.hsv_to_rgb((hsv_base[0], hsv_base[1], v))) for v in np.linspace(0.5, 1, n)]
+    return shades
 
 
 def convert_to_lat_lon_units(distance, latitude):
@@ -504,8 +513,14 @@ class CrowdSim:
         # [may not necessary] Copy drones dict for applying at reset (with limited energy reserve)
         # self.drones_at_reset = copy.deepcopy(self.drones)
         # List of available colors excluding orange and red
-        self.available_colors = ['cadetblue', "darkred", 'black', 'magenta',
-                                 'darkblue', 'teal', "brown", 'gray']
+        self.available_colors = ['#d01c8b', '#7b3294', '#0571b0', '#4dac26']
+        # self.available_colors = ['lightblue', 'blue', 'green', 'darkgreen', 'teal', 'darkred']
+        # self.available_colors = ['cadetblue', "darkred", 'black', 'magenta',
+        #                          'darkblue', 'teal', "brown", 'gray']
+        # base_color = '#87CEFA'
+        # Number of shades
+        # num_shades = 10
+        # self.available_colors = generate_shades(base_color, num_shades)
         # self.surveillance_colors = ['blue', 'green', 'yellow', 'orange', 'red', 'purple']
         # self.surveillance_colors = ['#cfe2f3', '9fc5e8', '#6fa8dc', '#3d85c6', '#0b5394', '#073763']
         self.surveillance_colors = ['#fce5cd', '#f9cb9c', '#f6b26b', '#e69138', '#b45f06', '#783f04']
@@ -549,7 +564,7 @@ class CrowdSim:
             self.selected_color_index = 0
         # Get the next color
         next_color = self.available_colors[self.selected_color_index]
-        self.selected_color_index += 1
+        self.selected_color_index += len(self.available_colors) // self.num_agents
         return next_color
 
     def generate_emergency(self, num_centers, num_points_per_center, centers_x=None, centers_y=None):
@@ -1200,7 +1215,19 @@ class CrowdSim:
                 # Add reward timelist for rendering.
                 robot_dfs.append(robot_df)
             mixed_df = pd.concat([mixed_df, *robot_dfs])
-
+            # construct position for anti-goals
+            # self.agent_anti_goals[0].fill(0.5)
+            # anti_goal_dfs = []
+            # for i in range(self.num_agents):
+            #     x_list, y_list = (self.agent_anti_goals[:, i, 0] * self.max_distance_x,
+            #                                 self.agent_anti_goals[:, i, 1] * self.max_distance_y)
+            #     id_list = np.full_like(x_list, - self.num_agents - i - 1)
+            #     delay_list = np.full(self.episode_length + 1, -1)
+            #     energy_list = np.zeros_like(x_list)
+            #     anti_goal_df = self.xy_to_dataframe(delay_list, energy_list, id_list, max_latitude,
+            #                          max_longitude, timestamp_list, x_list, y_list)
+            #     anti_goal_dfs.append(anti_goal_df)
+            # mixed_df = pd.concat([mixed_df, *anti_goal_dfs])
             # ------------------------------------------------------------------------------------
             print("Constructing Geo trajectories...")
             mixed_gdf = gpd.GeoDataFrame(mixed_df, geometry=gpd.points_from_xy(mixed_df.longitude, mixed_df.latitude),
@@ -1215,119 +1242,33 @@ class CrowdSim:
             my_render_map: folium.Map = folium.Map(location=[start_point.y, start_point.x], tiles="cartodbpositron",
                                                    zoom_start=14, max_zoom=24, control_scale=True, prefer_canvas=True)
 
-            my_render_map.add_child(folium.LatLngPopup())
-            minimap = folium.plugins.MiniMap()
-            my_render_map.add_child(minimap)
-            # folium.TileLayer('Stamen Terrain',
-            #                  attr='Map tiles by Stamen Design, under CC BY 3.0. Data by OpenStreetMap, under ODbL'
-            #                  ).add_to(my_render_map)
-            #
-            # folium.TileLayer('Stamen Toner',
-            #                  attr='Map tiles by Stamen Design, under CC BY 3.0. Data by OpenStreetMap, under ODbL'
-            #                  ).add_to(my_render_map)
-            folium.TileLayer('OpenStreetMap', attr='© OpenStreetMap contributors').add_to(my_render_map)
-            folium.TileLayer('cartodbpositron',
-                             attr='Map tiles by Carto, under CC BY 3.0. Data by OpenStreetMap, under ODbL'
-                             ).add_to(my_render_map)
-            hide_progress_bar_js = """
-                var element = document.getElementsByClassName('leaflet-bottom leaflet-left')[0];
-                if (element) {
-                var opacity = element.style.opacity;
-                if(opacity == 1){
-                    element.style.opacity = 0;
-                }
-                else{
-                    element.style.opacity = 1;   
-                }
-                }
-            """
-            hide_progress_bar_js_func = "function toggleProgressBar(btn, map) {" + hide_progress_bar_js + "}"
-            JsButton(
-                title='<i class="fas fa-crosshairs"></i>', function=hide_progress_bar_js_func).add_to(my_render_map)
-            # add custom_js to the map
-            my_render_map.get_root().script.add_child(folium.Element(hide_progress_bar_js))
-            pause_js_func = """
-                function pauseMap(btn, map) {
-                // Select all elements with the specified class name
-                var elements = document.querySelectorAll('.leaflet-control-timecontrol.timecontrol-play.pause');
-
-                // Check if NodeList is empty, then select elements with a different class name
-                if (elements.length === 0) {
-                    elements = document.querySelectorAll('.leaflet-control-timecontrol.timecontrol-play.play');
-                }
-
-                // Simulate click event for each element
-                elements.forEach(function(element) {
-                    element.click();
-                });
-            }
-            """
-            JsButton(
-                title='<i class="fas fa-pause"></i>', function=pause_js_func).add_to(my_render_map)
-            pause_js_func = """
-                function backwardMap(btn, map) {
-                // Select all elements with the specified class name
-                var elements = document.querySelectorAll('.leaflet-control-timecontrol.timecontrol-backward');
-
-                // Simulate click event for each element
-                elements.forEach(function(element) {
-                    element.click();
-                });
-            }
-            """
-            JsButton(
-                title='<i class="fas fa-backward"></i>', function=pause_js_func).add_to(my_render_map)
-            pause_js_func = """
-                function forwardMap(btn, map) {
-                // Select all elements with the specified class name
-                var elements = document.querySelectorAll('.leaflet-control-timecontrol.timecontrol-forward');
-
-                // Simulate click event for each element
-                elements.forEach(function(element) {
-                    element.click();
-                });
-            }
-            """
-            JsButton(
-                title='<i class="fas fa-forward"></i>', function=pause_js_func).add_to(my_render_map)
-            # 锁定范围
-            # strange over range bug in Chengdu, temporary hack.
-            if self.dataset_name == 'Chengdu':
-                self.upper_right[1] += 0.01
-            grid_geo_json = get_border(self.upper_right, self.lower_left)
-            color = "red"
-            border = folium.GeoJson(grid_geo_json,
-                                    style_function=lambda feature, clr=color: {
-                                        # 'fillColor': color,
-                                        'color': "black",
-                                        'weight': 2,
-                                        'dashArray': '5,5',
-                                        'fillOpacity': 0,
-                                    })
-            my_render_map.add_child(border)
-
+            self.render_support_component(my_render_map)
             surveillance_features = []
             emergency_features = []
+            anti_goal_features = []
             for index, traj in tqdm(enumerate(trajectories)):
                 traj_id = int(traj.df['id'].iloc[0])
                 # digitize aois into 6 levels, from 0 to 5
 
                 is_car = 0 > traj_id >= (-self.num_cars)
-                is_drone = traj_id < (-self.num_cars)
+                is_drone = -self.num_cars > traj_id >= -self.num_agents
+                is_anti_goal = traj_id < -self.num_agents
                 is_emergency = traj_id >= self.zero_shot_start
-                if is_car:
-                    name = f"Agent {self.num_agents - index - 1} (Car)"
-                elif is_drone:
-                    name = f"Agent {self.num_agents - index - 1} (Drone)"
-                else:
-                    name = f"PoI {traj_id}"
+                # if is_car:
+                #     name = f"Agent {self.num_agents - index - 1} (Car)"
+                # elif is_drone:
+                #     name = f"Agent {self.num_agents - index - 1} (Drone)"
+                # elif is_anti_goal:
+                #     name = f'Anti Goal {traj_id + self.num_agents}'
+                # else:
+                #     name = f"PoI {traj_id}"
 
                 color_levels = traj.df['color'].values.astype(int)
                 is_agent = is_car or is_drone
                 if self.dynamic_zero_shot:
                     if is_agent:
                         color = self.get_next_color()
-                    elif is_emergency:
+                    elif is_emergency or is_anti_goal:
                         color = "red"
                     else:
                         color = [self.surveillance_colors[level] for level in color_levels]
@@ -1344,8 +1285,8 @@ class CrowdSim:
                                                        self.num_cars,
                                                        self.num_drones,
                                                        color,
-                                                       index < self.num_agents or is_emergency,
-                                                       self.fix_target and (not is_agent),
+                                                       is_agent or is_emergency or is_anti_goal,
+                                                       self.fix_target and (not (is_agent or is_anti_goal)),
                                                        is_emergency,
                                                        self.zero_shot_start)
                 if is_agent:
@@ -1354,32 +1295,18 @@ class CrowdSim:
                         "type": "FeatureCollection",
                         "features": features,
                     }, 'period': "PT5S", 'add_last_point': True, 'transition_time': 200,
-                        'loop': plot_loop, 'speed_slider': False, "duration": 'PT30M'}
+                        'loop': plot_loop, 'speed_slider': False, "duration": 'PT7M30S'}
                     TimestampedGeoJson(
                         **kwargs,
                     ).add_to(my_render_map)
                 elif is_emergency:
                     emergency_features.extend(features)
+                elif is_anti_goal:
+                    anti_goal_features.extend(features)
                 else:
                     # link the name with trajectories
                     surveillance_features.extend(features)
 
-            # Point Set Mapping:
-
-            #
-            # # Define the coordinates of your points
-            # point_coordinates = [(latitude1, longitude1), (latitude2, longitude2), (latitude3, longitude3)]
-            #
-            # # Add points to the FeatureGroup
-            # for coord in point_coordinates:
-            #     folium.CircleMarker(location=coord, radius=6, color='blue', fill=True, fill_color='blue').add_to(
-            #         point_set)
-            #
-            # # Add the FeatureGroup to the map
-            # point_set.add_to(my_render_map)
-
-            # Create a single TimestampedGeoJson with all features (surveillance)
-            # print("Constructing Surveillance GeoJson...")
             TimestampedGeoJson(
                 {
                     "type": "FeatureCollection",
@@ -1394,8 +1321,22 @@ class CrowdSim:
                 loop=plot_loop  # Apply the custom GeoJSON options
             ).add_to(my_render_map)
 
+            # TimestampedGeoJson(
+            #     {
+            #         "type": "FeatureCollection",
+            #         "features": anti_goal_features,
+            #     },
+            #     duration='PT2M',
+            #     period="PT5S",  # Adjust the time interval as needed
+            #     add_last_point=True,
+            #     transition_time=200,
+            #     speed_slider=False,
+            #     auto_play=True,
+            #     loop=plot_loop  # Apply the custom GeoJSON options
+            # ).add_to(my_render_map)
+
+
             if self.dynamic_zero_shot:
-                # print("Constructing Emergency GeoJson...")
                 kwargs = {'data': {
                     "type": "FeatureCollection",
                     "features": emergency_features,
@@ -1464,6 +1405,98 @@ class CrowdSim:
             #     emergency_table = pd.concat([emergency_table, pd.DataFrame(self.agent_actions_time_list[:, :, 1])],
             #                                 axis=1)
             #     emergency_table.to_csv(output_file.replace(".html", ".tsv"), sep='\t')
+
+    def render_support_component(self, my_render_map):
+        my_render_map.add_child(folium.LatLngPopup())
+        minimap = folium.plugins.MiniMap()
+        my_render_map.add_child(minimap)
+        # folium.TileLayer('Stamen Terrain',
+        #                  attr='Map tiles by Stamen Design, under CC BY 3.0. Data by OpenStreetMap, under ODbL'
+        #                  ).add_to(my_render_map)
+        #
+        # folium.TileLayer('Stamen Toner',
+        #                  attr='Map tiles by Stamen Design, under CC BY 3.0. Data by OpenStreetMap, under ODbL'
+        #                  ).add_to(my_render_map)
+        folium.TileLayer('OpenStreetMap', attr='© OpenStreetMap contributors').add_to(my_render_map)
+        folium.TileLayer('cartodbpositron',
+                         attr='Map tiles by Carto, under CC BY 3.0. Data by OpenStreetMap, under ODbL'
+                         ).add_to(my_render_map)
+        hide_progress_bar_js = """
+                var element = document.getElementsByClassName('leaflet-bottom leaflet-left')[0];
+                if (element) {
+                var opacity = element.style.opacity;
+                if(opacity == 1){
+                    element.style.opacity = 0;
+                }
+                else{
+                    element.style.opacity = 1;   
+                }
+                }
+            """
+        hide_progress_bar_js_func = "function toggleProgressBar(btn, map) {" + hide_progress_bar_js + "}"
+        JsButton(
+            title='<i class="fas fa-crosshairs"></i>', function=hide_progress_bar_js_func).add_to(my_render_map)
+        # add custom_js to the map
+        my_render_map.get_root().script.add_child(folium.Element(hide_progress_bar_js))
+        pause_js_func = """
+                function pauseMap(btn, map) {
+                // Select all elements with the specified class name
+                var elements = document.querySelectorAll('.leaflet-control-timecontrol.timecontrol-play.pause');
+
+                // Check if NodeList is empty, then select elements with a different class name
+                if (elements.length === 0) {
+                    elements = document.querySelectorAll('.leaflet-control-timecontrol.timecontrol-play.play');
+                }
+
+                // Simulate click event for each element
+                elements.forEach(function(element) {
+                    element.click();
+                });
+            }
+            """
+        JsButton(
+            title='<i class="fas fa-pause"></i>', function=pause_js_func).add_to(my_render_map)
+        pause_js_func = """
+                function backwardMap(btn, map) {
+                // Select all elements with the specified class name
+                var elements = document.querySelectorAll('.leaflet-control-timecontrol.timecontrol-backward');
+
+                // Simulate click event for each element
+                elements.forEach(function(element) {
+                    element.click();
+                });
+            }
+            """
+        JsButton(
+            title='<i class="fas fa-backward"></i>', function=pause_js_func).add_to(my_render_map)
+        pause_js_func = """
+                function forwardMap(btn, map) {
+                // Select all elements with the specified class name
+                var elements = document.querySelectorAll('.leaflet-control-timecontrol.timecontrol-forward');
+
+                // Simulate click event for each element
+                elements.forEach(function(element) {
+                    element.click();
+                });
+            }
+            """
+        JsButton(
+            title='<i class="fas fa-forward"></i>', function=pause_js_func).add_to(my_render_map)
+        # 锁定范围
+        # strange over range bug in Chengdu, temporary hack.
+        if self.dataset_name == 'Chengdu':
+            self.upper_right[1] += 0.01
+        grid_geo_json = get_border(self.upper_right, self.lower_left)
+        color = "red"
+        border = folium.GeoJson(grid_geo_json,
+                                style_function=lambda feature, clr=color: {
+                                    # 'fillColor': color,
+                                    'color': "black",
+                                    'weight': 2,
+                                    'dashArray': '5,5',
+                                    'fillOpacity': 0,
+                                })
+        my_render_map.add_child(border)
 
     def xy_to_dataframe(self, aoi_list, energy_list, id_list, max_latitude, max_longitude, timestamp_list, x_list,
                         y_list):
@@ -2256,7 +2289,7 @@ class SendAllocationCallback(DefaultCallbacks):
                 allocation_table = policies['shared_policy'].model.get_allocation_table()
                 my_env.cuda_data_manager.data_on_device_via_torch("emergency_allocation_table")[:] = (
                     torch.from_numpy(allocation_table))
-                my_env.agent_anti_goals = policies['shared_policy'].model.get_anti_goals()
+                # my_env.agent_anti_goals[my_env.timestep] = policies['shared_policy'].model.get_anti_goals()[:my_env.num_agents]
 
 
 class OUTPACECallback(DefaultCallbacks):
