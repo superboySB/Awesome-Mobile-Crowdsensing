@@ -10,7 +10,7 @@ import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
 import numpy as np
 
-output_chinese = True
+output_chinese = False
 FONTSIZE = 40
 FIG_SIZE = (15, 15)
 MARKER_SIZE = 24
@@ -30,9 +30,9 @@ if output_chinese:
     RANDOM = '随机'
     I_emer = "紧急任务有效处理比率 ($\mathit{I}_{\mathrm{emer}}$)"
     I_surv = "监控任务有效处理比率 ($\mathit{I}_{\mathrm{surv}}$)"
-    eta = "能耗比率 ($\mathit{\eta}$)"
+    eta = "能耗比率 (\scalebox{2}{$\eta$})"
     I_index = "有效处理指数 ($\mathit{I}$)"
-    X_BLUR = "模糊要求 ($\mathit{\delta}$)"
+    X_BLUR = "模糊要求 (\scalebox{2}{$\delta$}$\scriptstyle\mathrm{max}$)"
     X_UAV = "无人机数量 (U)"
     X_SURV_THRE = "监控任务阈值 ($\mathrm{AoI}_\mathrm{th}^\mathrm{surv}$)"
     X_TASK_TYPE = "任务类型数量"
@@ -40,10 +40,10 @@ else:
     RANDOM = 'Random'
     I_emer = "Valid Handling Ratio For Emergency ($\mathit{I}_{\mathrm{emer}}$)"
     I_surv = "Valid Handling Ratio For Surveillance ($\mathit{I}_{\mathrm{surv}}$)"
-    eta = "Energy Consumption Ratio ($\mathit{\eta}$)"
+    eta = r"Energy Consumption Ratio (\scalebox{2}{$\eta$})"
     I_index = "Valid Handling Index ($\mathit{I}$)"
-    X_BLUR = "Blur Requirement ($\mathit{\delta}$)"
-    X_UAV = "No. of UAVs (U)"
+    X_BLUR = "Blur Requirement (\scalebox{2}{$\delta$}$\scriptstyle\mathrm{max}$)"
+    X_UAV = "No. of UAVs ($\mathit{U}$)"
     X_SURV_THRE = "Surveillance Threshold ($\mathrm{AoI}_\mathrm{th}^\mathrm{surv}$)"
     X_TASK_TYPE = "No. of Task Types"
 
@@ -73,19 +73,35 @@ def compare_plot(x_label, y_label, x, yrange, data_dict, dataset, eps=0.3):
     if os.path.exists(dataset_sub_dir) is False:
         os.makedirs(dataset_sub_dir)
     # strip $, \, {, } using re
-    latex_exclude = r'[\$\{\}\\]'
+    latex_exclude = r'[\$\{\}\\0-9]|scalebox|small|scriptstyle|mathit|mathrm'
     raw_x_label = re.sub(latex_exclude, '', x_label)
     raw_y_label = re.sub(latex_exclude, '', y_label)
 
     plt.rcParams.update(
         {
-            "text.usetex": True, 'font.size': FONTSIZE, 'pgf.texsystem': 'xelatex',
-            'pgf.preamble': r'\usepackage{xeCJK}\fontsize{36}{42}\selectfont', "pgf.rcfonts": False,
+            "text.usetex": True,
+            'font.size': FONTSIZE,
+            'font.family': 'serif',
+            'pgf.texsystem': 'xelatex',
+            'pgf.preamble': r'''
+                % \usepackage{luatexja-fontspec}
+                % \setmainfont{FandolSong}
+                \usepackage{xeCJK}
+                \usepackage{amsmath, amssymb}
+                % \setCJKmainfont{SimSong} % Replace with your desired CJK font
+                \renewcommand{\rmdefault}{ptm}
+                \renewcommand{\sfdefault}{phv}
+                \renewcommand{\ttdefault}{pcr}
+                % \fontsize{36}{42}\selectfont
+            ''',
+            "pgf.rcfonts": False,
         }
     )
     plt.figure(figsize=FIG_SIZE)
-    plt.xlabel(x_label, fontsize=FONTSIZE + 8)
-    plt.ylabel(y_label, fontsize=FONTSIZE + 8)
+    plt.xlabel(x_label, fontsize=FONTSIZE + 16)
+    plt.ylabel(y_label, fontsize=FONTSIZE + 12)
+    plt.xticks(fontsize=FONTSIZE + 16)
+    plt.yticks(fontsize=FONTSIZE + 12)
     for index, data_name in enumerate(data_dict):
         assert len(data_dict[data_name]) == len(x), (f"Data length should be equal to x={x}, "
                                                      f"get {data_dict[data_name]}")
@@ -98,7 +114,7 @@ def compare_plot(x_label, y_label, x, yrange, data_dict, dataset, eps=0.3):
     plt.ylim(max(0, (yrange[0] - margin)), yrange[1] + margin)
     plt.grid(True)
     plt.grid(linestyle='--')
-    plt.legend(loc='upper center', ncol=2, markerscale=0.9)
+    plt.legend(loc='upper center', ncol=2, markerscale=0.9, fontsize=FONTSIZE)
     plt.tight_layout()
     plt.savefig(os.path.join(dataset_sub_dir, f"{raw_x_label}-{raw_y_label}.pdf"), backend='pgf')
     plt.close()
@@ -145,11 +161,11 @@ if __name__ == '__main__':
                 I_emer: {
                     OURS: [0.5923, 0.7579, 0.8919, 0.9719, 0.973, 0.9958],
                     # 7,10 not converged for RL_SOTA.
-                    RL_SOTA: [0.2611, 0.2835, 0.3607, 0.3782, 0.3867, 0.5025],
+                    RL_SOTA: [0.2684, 0.2902, 0.3505, 0.3768, 0.433, 0.4614],
                     GCRL_SOTA: [0.2551, 0.3158, 0.3449, 0.3561, 0.6158, 0.5182],
                     MCS_SOTA: [0.233, 0.2568, 0.3512, 0.36, 0.4288, 0.5853],
                     TRADITIONAL: [
-                        0.575757576,
+                        0.484848484,
                         0.545454545,
                         0.606060606,
                         0.666666667,
@@ -167,7 +183,7 @@ if __name__ == '__main__':
                 },
                 I_surv: {
                     OURS: [0.746, 0.8302, 0.8836, 0.9224, 0.9474, 0.9639],
-                    RL_SOTA: [0.8085, 0.8638, 0.8939, 0.914, 0.76, 0.8329],
+                    RL_SOTA: [0.8078, 0.8619, 0.8926, 0.9136, 0.9302, 0.94],
                     GCRL_SOTA: [0.7086, 0.8479, 0.88, 0.8911, 0.9169, 0.9254],
                     MCS_SOTA: [0.6686, 0.79, 0.8426, 0.8698, 0.8915, 0.9293],
                     TRADITIONAL: [
@@ -189,7 +205,7 @@ if __name__ == '__main__':
                 },
                 eta: {
                     OURS: [0.6679, 0.6675, 0.6548, 0.6572, 0.6471, 0.5869],
-                    RL_SOTA: [0.6717, 0.6631, 0.65, 0.648, 0.6602, 0.6613],
+                    RL_SOTA: [0.6717, 0.6641, 0.6503, 0.6499, 0.6466, 0.613],
                     GCRL_SOTA: [0.6533, 0.658, 0.6629, 0.6608, 0.6403, 0.6041],
                     MCS_SOTA: [0.6641, 0.6675, 0.6693, 0.6688, 0.6704, 0.6663],
                     TRADITIONAL: [
@@ -213,11 +229,11 @@ if __name__ == '__main__':
             Chengdu: {
                 I_emer: {
                     OURS: [0.6007, 0.7326, 0.9547, 0.9765, 0.986, 0.9979],
-                    RL_SOTA: [0.2249, 0.2642, 0.2804, 0.3186, 0.373, 0.4646],
+                    RL_SOTA: [0.2537, 0.3175, 0.3418, 0.3754, 0.48, 0.5098],
                     GCRL_SOTA: [0.5467, 0.6898, 0.8761, 0.913, 0.9214, 0.4975],
                     MCS_SOTA: [0.2702, 0.3723, 0.3744, 0.4116, 0.4895, 0.5737],
                     TRADITIONAL: [
-                        np.NaN,
+                        0.363636363,
                         0.424242424,
                         0.666666667,
                         0.636363636,
@@ -236,11 +252,11 @@ if __name__ == '__main__':
                 },
                 I_surv: {
                     OURS: [0.7729, 0.8923, 0.9449, 0.9785, 0.99, 0.9947],
-                    RL_SOTA: [0.8615, 0.9209, 0.9431, 0.9744, 0.7682, 0.8557],
+                    RL_SOTA: [0.8604, 0.9193, 0.9455, 0.9739, 0.9873, 0.992],
                     GCRL_SOTA: [0.6694, 0.8252, 0.8692, 0.9567, 0.9652, 0.9594],
                     MCS_SOTA: [0.7313, 0.8382, 0.8847, 0.9312, 0.9702, 0.995],
                     TRADITIONAL: [
-                        np.NaN,
+                        0.646736596,
                         0.763333333,
                         0.71,
                         0.74,
@@ -259,11 +275,11 @@ if __name__ == '__main__':
                 eta: {
                     EPS: 0.5,
                     OURS: [0.6696, 0.666, 0.651, 0.6643, 0.6571, 0.6229],
-                    RL_SOTA: [0.6787, 0.6797, 0.6511, 0.663, 0.6469, 0.6453],
-                    GCRL_SOTA: [0.6824, 0.6799, 0.6629, 0.6738, 0.6058, 0.5306],
+                    RL_SOTA: [0.6786, 0.6796, 0.6534, 0.6654, 0.6523, 0.6539],
+                    GCRL_SOTA: [0.6824, 0.6799, 0.6629, 0.6629, 0.6632, 0.6672],
                     MCS_SOTA: [0.6538, 0.6612, 0.6611, 0.6753, 0.658, 0.6767],
                     TRADITIONAL: [
-                        np.NaN,
+                        0.658536493,
                         0.653623624,
                         0.657083523,
                         0.655491053,
@@ -285,7 +301,7 @@ if __name__ == '__main__':
             X_TICKS: [15, 20, 25, 30, 35, 40],
             San: {
                 I_emer: {
-                    OURS: [0.893, 0.9242, 0.8477, 0.9158, 0.9281, 0.926],
+                    OURS: [0.6631, 0.9242, 0.8891, 0.7902, 0.9105, 0.9323],
                     RL_SOTA: [0.3593, 0.3449, 0.3242, 0.2958, 0.3768, 0.3646],
                     GCRL_SOTA: [0.3358, 0.3481, 0.3691, 0.3358, 0.3239, 0.3446],
                     MCS_SOTA: [0.3407, 0.3467, 0.3414, 0.3702, 0.3512, 0.3161],
@@ -293,7 +309,7 @@ if __name__ == '__main__':
                     RANDOM: [0.245614035] * 6,
                 },
                 I_surv: {
-                    OURS: [0.487, 0.6599, 0.744, 0.8033, 0.8602, 0.8797],
+                    OURS: [0.6021, 0.7309, 0.8104, 0.8401, 0.8602, 0.8939],
                     RL_SOTA: [0.6942, 0.7888, 0.8486, 0.8711, 0.896, 0.9062],
                     GCRL_SOTA: [0.65, 0.7489, 0.8018, 0.8254, 0.8663, 0.8768],
                     MCS_SOTA: [0.5337, 0.675, 0.7655, 0.7919, 0.8426, 0.8479],
@@ -315,7 +331,7 @@ if __name__ == '__main__':
                     ],
                 },
                 eta: {
-                    OURS: [0.6632, 0.6643, 0.6593, 0.6555, 0.6613, 0.6612],
+                    OURS: [0.6652, 0.6618, 0.6575, 0.6547, 0.6517, 0.6487],
                     RL_SOTA: [0.6717, 0.6641, 0.65, 0.657, 0.6578, 0.6638],
                     GCRL_SOTA: [0.6608, 0.6593, 0.6594, 0.6557, 0.6623, 0.6669],
                     MCS_SOTA: [0.6663, 0.6664, 0.6654, 0.666, 0.6693, 0.6664],
@@ -326,7 +342,7 @@ if __name__ == '__main__':
             },
             Chengdu: {
                 I_emer: {
-                    OURS: [0.9649, 0.9502, 0.9768, 0.9825, 0.9849, 0.9909],
+                    OURS: [0.9537, 0.9765, 0.9768, 0.9825, 0.9849, 0.9909],
                     RL_SOTA: [0.3533, 0.3954, 0.3281, 0.4084, 0.4063, 0.3523],
                     GCRL_SOTA: [0.3951, 0.6747, 0.7677, 0.8765, 0.853, 0.7695],
                     MCS_SOTA: [0.3723, 0.3877, 0.4007, 0.3804, 0.3744, 0.4151],
@@ -358,8 +374,8 @@ if __name__ == '__main__':
                     ],
                 },
                 eta: {
-                    OURS: [0.6669, 0.6548, 0.6611, 0.6614, 0.6502, 0.6611],
-                    RL_SOTA: [0.6604, 0.673, 0.6661, 0.647, 0.6784, 0.6733],
+                    OURS: [0.6669, 0.655, 0.6622, 0.6614, 0.6502, 0.655],
+                    RL_SOTA: [0.6746, 0.6791, 0.6753, 0.6617, 0.6777, 0.6788],
                     GCRL_SOTA: [0.6792, 0.673, 0.6739, 0.6715, 0.6715, 0.6701],
                     MCS_SOTA: [0.662, 0.6652, 0.6624, 0.6614, 0.6652, 0.6654],
                     TRADITIONAL: [0.657083523] * 6,
@@ -372,7 +388,7 @@ if __name__ == '__main__':
             X_TICKS: [0.25, 0.5, 0.75, 1, 2],
             San: {
                 I_emer: {
-                    OURS: [0.3861, 0.6085, 0.7933, 0.8364, 0.9491],
+                    OURS: [0.3861, 0.6558, 0.7933, 0.8364, 0.9491],
                     RL_SOTA: [0.2739, 0.2388, 0.3297, 0.2655, 0.2467],
                     GCRL_SOTA: [0.1733, 0.2618, 0.2739, 0.2582, 0.2521],
                     MCS_SOTA: [0.257, 0.2667, 0.263, 0.2733, 0.3024],
@@ -393,7 +409,7 @@ if __name__ == '__main__':
 
                 },
                 I_surv: {
-                    OURS: [0.8078, 0.7906, 0.805, 0.8224, 0.8539],
+                    OURS: [0.8497, 0.8248, 0.8362, 0.8699, 0.8746],
                     RL_SOTA: [0.8781, 0.8857, 0.8878, 0.8911, 0.8983],
                     GCRL_SOTA: [0.8107, 0.8523, 0.8431, 0.866, 0.8814],
                     MCS_SOTA: [0.784, 0.8164, 0.8221, 0.82, 0.8211],
@@ -414,7 +430,7 @@ if __name__ == '__main__':
 
                 },
                 eta: {
-                    OURS: [0.6592, 0.6551, 0.6561, 0.6499, 0.6425],
+                    OURS: [0.6576, 0.6547, 0.6452, 0.6527, 0.64],
                     RL_SOTA: [0.6594, 0.664, 0.6614, 0.6637, 0.654],
                     GCRL_SOTA: [0.6139, 0.6435, 0.6246, 0.6392, 0.6594],
                     MCS_SOTA: [0.669, 0.6695, 0.6678, 0.6678, 0.6662],
@@ -437,7 +453,7 @@ if __name__ == '__main__':
             },
             Chengdu: {
                 I_emer: {
-                    OURS: [0.3842, 0.6479, 0.7794, 0.8091, 0.9818],
+                    OURS: [0.4285, 0.7309, 0.8212, 0.8842, 0.9176],
                     RL_SOTA: [0.2842, 0.2764, 0.3358, 0.283, 0.363],
                     GCRL_SOTA: [0.263, 0.3424, 0.3806, 0.3509, 0.757],
                     MCS_SOTA: [0.2667, 0.3206, 0.3261, 0.3388, 0.3648],
@@ -457,7 +473,7 @@ if __name__ == '__main__':
                     ],
                 },
                 I_surv: {
-                    OURS: [0.8451, 0.8516, 0.8788, 0.8763, 0.9179],
+                    OURS: [0.8959, 0.9169, 0.9192, 0.9304, 0.9461],
                     RL_SOTA: [0.9138, 0.943, 0.9511, 0.9324, 0.9428],
                     GCRL_SOTA: [0.8836, 0.9274, 0.9361, 0.9424, 0.9316],
                     MCS_SOTA: [0.8023, 0.8713, 0.8797, 0.8846, 0.8917],
@@ -477,7 +493,7 @@ if __name__ == '__main__':
                     ],
                 },
                 eta: {
-                    OURS: [0.6669, 0.6593, 0.6581, 0.6402, 0.6538],
+                    OURS: [0.6618, 0.6636, 0.6599, 0.6543, 0.6521],
                     RL_SOTA: [0.6738, 0.6611, 0.6766, 0.6519, 0.6738],
                     GCRL_SOTA: [0.6616, 0.6732, 0.6724, 0.6724, 0.657],
                     MCS_SOTA: [0.6573, 0.6609, 0.6574, 0.6601, 0.6565],
