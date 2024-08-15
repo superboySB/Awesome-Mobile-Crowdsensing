@@ -199,7 +199,7 @@ if __name__ == '__main__':
 
             raw_env.emergency_threshold = raw_env.episode_length
             raw_env.aoi_schedule = np.zeros_like(raw_env.aoi_schedule)
-            # raw_env.drone_sensing_range *= 2
+            raw_env.drone_sensing_range *= 1.5
             env.reset()
             tsp_solver = CrowdSimTSPSolver(env, add_surveillance=False)
             routes = tsp_solver.get_solution(this_expr_dir=this_expr_dir)

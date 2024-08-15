@@ -135,31 +135,31 @@ def traj_to_timestamped_geojson(index, trajectory: movingpandas.Trajectory, car_
             radius = 3  # 125(5 units)
             opacity = 0.05
             popup_html = f'<h4> (Car) Agent {car_num + drone_num - index - 1}</h4>' + \
-                         f"<p style='font-size:14px;'>Pos: ({int(row.x)},{int(row.y)})</p>" + \
+                         f"<p style='font-size:14px;'>Location: ({int(row.x)},{int(row.y)})</p>" + \
                          f"<p style='font-size:14px;'>Timestamp: {i}</p>" + \
-                         f"<p style='font-size:14px;'>reward: {row.reward:.4f} </p>" + \
-                         f"<p style='font-size:14px;'>energy: {row.energy}J </p>"
+                         f"<p style='font-size:14px;'>Reward: {row.reward:.4f} </p>" + \
+                         f"<p style='font-size:14px;'>Energy: {row.energy}J </p>"
 
             # f'<p>raw coord: {current_point_coordinates}</p>' + \
             # f'<p>grid coord: ({row.x},{row.y})</p>' + \
             # f'<p>dist coord: ({row.x_distance}m, {row.y_distance}m)</p>' + \
-        elif -(car_num + drone_num) < row.id < (-car_num):
+        elif -(car_num + drone_num) <= row.id < (-car_num):
             radius = 3  # 125(5 units)
             opacity = 1
             popup_html = f'<h4> (Drone) Agent {car_num + drone_num - index - 1}</h4>' + \
-                         f"<p style='font-size:14px;'>Pos: ({row.x},{row.y})</p>" + \
+                         f"<p style='font-size:14px;'>Location: ({int(row.x)},{int(row.y)})</p>" + \
                          f"<p style='font-size:14px;'>Timestamp: {i}</p>" + \
-                         f"<p style='font-size:14px;'>reward: {row.reward:.4f} </p>" + \
-                         f"<p style='font-size:14px;'>energy: {row.energy}J </p>" + \
-                         f"<p style='font-size:14px;'>action: {direction_map_dict[row.direction]} </p>"
+                         f"<p style='font-size:14px;'>Reward: {row.reward:.4f} </p>" + \
+                         f"<p style='font-size:14px;'>Energy: {row.energy}J </p>" + \
+                         f"<p style='font-size:14px;'>Action: {direction_map_dict[row.direction]} </p>"
             if hasattr(row, "speed"):
-                popup_html += f"<p style='font-size:14px;'>speed: {speed_map_dict[row.speed]}m/s </p>"
-        elif row.id <= -(car_num + drone_num):
+                popup_html += f"<p style='font-size:14px;'>Speed: {speed_map_dict[row.speed]}m/s </p>"
+        elif row.id < -(car_num + drone_num):
             radius = 4
             opacity = 1
             is_anti_goal = True
             popup_html = f'<h4> Anti-Goal {int(row.id) - drone_num - car_num}</h4>' + \
-                         f"<p style='font-size:14px;'>grid coord: ({row.x},{row.y})</p>"
+                         f"<p style='font-size:14px;'>Location: ({int(row.x)},{int(row.y)})</p>"
         else:
             if is_emergency:
                 radius = 16
@@ -171,15 +171,15 @@ def traj_to_timestamped_geojson(index, trajectory: movingpandas.Trajectory, car_
                 else:
                     opacity = 0
                 popup_html = f'<h4> Emergency {int(row.id) - zero_shot_start}</h4>' + \
-                             f"<p style='font-size:14px;'>grid coord: ({row.x},{row.y})</p>" + \
+                             f"<p style='font-size:14px;'>Location: ({int(row.x)},{int(row.y)})</p>" + \
                              f"<p style='font-size:14px;'>Creation Time: {row.creation_time} </p>" + \
                              f"<p style='font-size:14px;'>Delay: {int(row.aoi)} </p>" + \
-                             f"<p style='font-size:14px;'>Allocation: {row.allocation}</p>"
+                             f"<p style='font-size:14px;'>Allocation: Agent {int(row.allocation)}</p>"
             else:
                 radius = 4
                 opacity = 1
                 popup_html = f'<h4> Surveillance {int(row.id)}</h4>' + \
-                             f"<p style='font-size:14px;'>grid coord: ({row.x},{row.y})</p>" + \
+                             f"<p style='font-size:14px;'>Location: ({int(row.x)},{int(row.y)})</p>" + \
                              f"<p style='font-size:14px;'>AoI: {int(row.aoi)} </p>"
 
         if connect_line:
@@ -192,12 +192,6 @@ def traj_to_timestamped_geojson(index, trajectory: movingpandas.Trajectory, car_
             else:
                 current_color = color
             icon = 'circle'
-            # if is_anti_goal:
-            #     icon = 'car'
-            # elif is_emergency:
-            #     icon = 'circle'
-            # else:
-            #     icon = 'tree'
             feature_dict = create_point_feature(current_color,
                                                 current_point_coordinates,
                                                 current_time, opacity,

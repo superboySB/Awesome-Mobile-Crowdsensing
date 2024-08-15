@@ -1,5 +1,5 @@
 #!/bin/bash
-exp_name='50_blur_requirement_happo'
+exp_name='50_blur_requirement_tsp'
 # not completely edited.
 session_name=$exp_name
 cards=(0 1 2 3)
@@ -63,7 +63,7 @@ for ((i = 0; i < train_num; i++)); do
   # shellcheck disable=SC2004
   # if want to add $PATH, remember to add / before $
   command="python warp_drive/marllib_warpdrive_run.py --track --core_arch mlp --dynamic_zero_shot\
-  --num_cars 0 --num_drones 4 --group baseline --algo random --share_policy all --switch_step 60000000\
+  --num_cars 0 --num_drones 4 --group baseline --algo tsp --share_policy all --switch_step 60000000\
   --gpu_id ${cards[card_id]} ${trains[i]} --use_2d_state --look_ahead --with_programming_optimization\
   --emergency_threshold 20 --selector_type RL --use_random --prioritized_buffer\
   --gen_interval 10 --cut_points 300 --tag change_blur --surveillance_threshold 35\
