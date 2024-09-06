@@ -7,15 +7,30 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 from torch.distributions import Categorical
-from cleanrl_ppo import Agent
 from tqdm import trange
 
 DEBUG = True
 num_steps: int = 128
-num_envs = 4  # Number of parallel environments
+NUM_ENVS = 4  # Number of parallel environments
 learning_rate = 2.5e-4
 
-class VecPolicy(nn.Module):
+
+class Policy(nn.Module):
+    def __init__(self):
+        super(Policy, self).__init__()
+        pass
+
+    def forward(self, x):
+        raise NotImplementedError
+
+    def get_value(self, x):
+        raise NotImplementedError
+
+    def get_action_and_value(self, x, actions=None):
+        raise NotImplementedError
+
+
+class VecPolicy(Policy):
     def __init__(self, input_dim, num_actions=5, fc_size=64):
         super(VecPolicy, self).__init__()
         self.fc1 = nn.Linear(input_dim, fc_size)
@@ -36,23 +51,103 @@ class VecPolicy(nn.Module):
         state_value = self.value_head(x)
         return state_value
 
-    def get_action_and_value(self, x):
+    def get_action_and_value(self, x, actions=None):
         x = F.relu(self.fc1(x))
         x = F.relu(self.fc2(x))
         action_probs = F.softmax(self.action_head(x), dim=-1)
-        m = Categorical(action_probs)
+        m = Categorical(probs=action_probs)
         # return action, log_prob and entropy
-        action = m.sample()
-        log_prob = m.log_prob(action)
+        if actions is None:
+            actions = m.sample()
+        log_prob = m.log_prob(actions)
         entropy = m.entropy()
-        return action, log_prob, entropy, self.value_head(x)
+        return actions, log_prob, entropy, self.value_head(x)
 
 
-class PPOVecPolicy(Agent):
-    def __init__(self, envs):
-        super(PPOVecPolicy, self).__init__(envs)
+class CNNPolicy(Policy):
+    """
+    Implements both actor and critic in one model using CNN for 2D grid input.
+    """
+
+    def __init__(self, input_shape, num_actions=5, conv_channels=[4, 8, 16], kernel_sizes=[3, 3, 3], fc_size=32):
+        super(CNNPolicy, self).__init__()
+
+        # Assert the lengths of conv_channels and kernel_sizes match the number of layers
+        assert len(conv_channels) == 3, "Please provide 3 values for conv_channels"
+        assert len(kernel_sizes) == 3, "Please provide 3 values for kernel_sizes"
+
+        # CNN layers for 2D input with adjustable channels and kernel sizes
+        self.conv1 = nn.Conv2d(in_channels=input_shape[0], out_channels=conv_channels[0],
+                               kernel_size=kernel_sizes[0], stride=1, padding=kernel_sizes[0] // 2)
+        self.conv2 = nn.Conv2d(in_channels=conv_channels[0], out_channels=conv_channels[1],
+                               kernel_size=kernel_sizes[1], stride=1, padding=kernel_sizes[1] // 2)
+        self.conv3 = nn.Conv2d(in_channels=conv_channels[1], out_channels=conv_channels[2],
+                               kernel_size=kernel_sizes[2], stride=1, padding=kernel_sizes[2] // 2)
+
+        # Calculate the output size of the convolution layers to determine input size for fc1
+        conv_output_size = self._get_conv_output_size(input_shape)
+
+        # Fully connected layer after flattening
+        self.fc1 = nn.Linear(conv_output_size, fc_size)
+
+        # Actor's layer (outputs probabilities over actions)
+        self.action_head = nn.Linear(fc_size, num_actions)
+
+        # Critic's layer (outputs state value)
+        self.value_head = nn.Linear(fc_size, 1)
+
+    def _get_conv_output_size(self, input_shape):
+        """Calculate the size of the output after the convolution layers"""
+        with torch.no_grad():
+            sample_input = torch.zeros(1, *input_shape)
+            sample_output = self.conv3(self.conv2(self.conv1(sample_input)))
+            return int(np.prod(sample_output.size()))
+
+    def forward(self, x):
+        """
+        Forward pass of both actor and critic.
+        """
+        x = self._get_embedding(x)
+        # Actor: chooses action to take from state s_t
+        action_prob = F.softmax(self.action_head(x), dim=-1)
+        # Critic: evaluates the value of the state
+        state_value = self.value_head(x)
+        # Return both actor and critic values
+        return action_prob, state_value
+
+    def _get_embedding(self, x):
+        # Apply CNN layers
+        x = F.relu(self.conv1(x))
+        x = F.relu(self.conv2(x))
+        x = F.relu(self.conv3(x))
+        # Flatten the output from the convolution layers
+        x = x.view(x.size(0), -1)
+        # Fully connected layer
+        x = F.relu(self.fc1(x))
+        return x
+
+    def get_value(self, x):
+        """
+        Returns the state value from the critic's output.
+        """
+        return self.value_head(self._get_embedding(x))
+
+    def get_action_and_value(self, x, actions=None):
+        x = self._get_embedding(x)
+        action_probs = F.softmax(self.action_head(x), dim=-1)
+        m = Categorical(probs=action_probs)
+        # return action, log_prob and entropy
+        if actions is None:
+            actions = m.sample()
+        log_prob = m.log_prob(actions)
+        entropy = m.entropy()
+        return actions, log_prob, entropy, self.value_head(x)
+
+
+class PPO(Policy):
+    def __init__(self):
+        # super(PPOVecPolicy, self).__init__(envs)
         # input_dim, num_actions=5, fc_size=64
-        # super(PPOVecPolicy, self).__init__(input_dim, num_actions, fc_size)
         # Initialize action and reward buffers
         self.saved_actions = []
         self.rewards = []
@@ -60,11 +155,10 @@ class PPOVecPolicy(Agent):
         self.log_probs = []
         self.saved_obs = []
         self.values = []
-        # self.entropies = []
 
     def finish_episode(self, optimizer, gamma=0.99, eps=1e-8, max_grad_norm=0.5,
                        clip_coef=0.2, vf_coef=0.5, ent_coef=0.01, gae_lambda=0.95,
-                       num_minibatches=4, next_state=None, update_epochs=1,
+                       num_minibatches=4, next_state=None, update_epochs=4, num_envs=4,
                        next_dones=None, device: str = 'cpu'):
         """
         Perform backpropagation to update the policy and value function using PPO with gradient clipping.
@@ -180,6 +274,18 @@ class PPOVecPolicy(Agent):
         del self.dones[:]
 
 
+class PPOVecPolicy(PPO, VecPolicy):
+    def __init__(self, input_dim, num_actions=5, fc_size=64):
+        PPO.__init__(self)
+        VecPolicy.__init__(self, input_dim, num_actions, fc_size)
+
+
+class PPOCNNPolicy(PPO, CNNPolicy):
+    def __init__(self, input_shape, fc_size, num_actions=5):
+        PPO.__init__(self)
+        CNNPolicy.__init__(self, input_shape=input_shape, num_actions=num_actions, fc_size=fc_size)
+
+
 def make_env(env_id, idx, capture_video=False, run_name=None):
     def thunk():
         if capture_video and idx == 0:
@@ -203,8 +309,8 @@ def train_cartpole():
     input_dim = envs.single_observation_space.shape[0]
     num_actions = envs.single_action_space.n
     device = 'cuda:0' if (torch.cuda.is_available() and not DEBUG) else 'cpu'
-    policy = PPOVecPolicy(envs).to(device)
-    # policy = PPOVecPolicy(input_dim=input_dim, num_actions=num_actions).float().to(device)
+    # policy = PPOVecPolicy(envs).to(device)
+    policy = PPOVecPolicy(input_dim=input_dim, num_actions=num_actions).float().to(device)
     optimizer = optim.Adam(policy.parameters(), lr=learning_rate, eps=1e-5)
 
     num_episodes: int = 1000
@@ -217,8 +323,8 @@ def train_cartpole():
     gae_lambda = 0.95
 
     next_obs, _ = envs.reset(seed=seed)
-    next_dones = torch.zeros(num_envs).to(device)
-    episode_rewards = np.zeros(num_envs)
+    next_dones = torch.zeros(NUM_ENVS).to(device)
+    episode_rewards = np.zeros(NUM_ENVS).to(device)
     progress = trange(num_episodes)
     anneal_lr = False
     for episode in progress:
@@ -257,7 +363,7 @@ def train_cartpole():
         # Prepare final bootstrapped value
         policy.finish_episode(optimizer, gamma=gamma, max_grad_norm=max_grad_norm,
                               clip_coef=clip_coef, vf_coef=vf_coef, ent_coef=ent_coef,
-                              gae_lambda=gae_lambda, num_minibatches=4,
+                              gae_lambda=gae_lambda, num_minibatches=4, num_envs=NUM_ENVS,
                               next_state=next_obs, next_dones=next_dones, device=device)
 
         # print(f"Episode {episode + 1}: Total Reward: {episode_rewards.mean()}")
