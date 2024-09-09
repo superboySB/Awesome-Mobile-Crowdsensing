@@ -356,15 +356,11 @@ def ppo_joint_act(
     # Select actions for big agents using the actor-critic model
     for i in range(NUM_BIG_AGENTS):
         state = torch.from_numpy(obs[f'big_{i}']).float().unsqueeze(0).unsqueeze(0).to(device)
-        action_probs, state_value = big_agent_policy(state)
-
-        # Create a categorical distribution based on action probabilities
-        m = Categorical(probs=action_probs)
-        action = m.sample()
+        action, log_prob, _, state_value = big_agent_policy.get_action_and_value(state)
 
         # Save the action, log probability, entropy, and value for training later
         big_agent_policy.saved_actions.append(action)
-        big_agent_policy.log_probs.append(m.log_prob(action))
+        big_agent_policy.log_probs.append(log_prob)
         big_agent_policy.values.append(state_value.squeeze())
         big_agent_policy.saved_obs.append(state)
 
@@ -375,16 +371,12 @@ def ppo_joint_act(
     for i in range(NUM_SMALL_AGENTS):
         if env.small_agents[i]['deployed']:
             # If deployed, select actions using the small agent policy
-            state = torch.from_numpy(obs[f'small_{i}']).float().unsqueeze(0).unsqueeze(0).to(device)
-            action_probs, state_value = small_agent_policy(state)
-
-            # Create a categorical distribution based on action probabilities
-            m = Categorical(probs=action_probs)
-            action = m.sample()
+            state = torch.from_numpy(obs[f'small_{i}']).float().unsqueeze(0).to(device)
+            action, log_probs, _, state_value = small_agent_policy.get_action_and_value(state)
 
             # Save the action, log probability, entropy, and value for training later
             small_agent_policy.saved_actions.append(action)
-            small_agent_policy.log_probs.append(m.log_prob(action))
+            small_agent_policy.log_probs.append(log_prob)
             small_agent_policy.values.append(state_value.squeeze())
             small_agent_policy.saved_obs.append(state)
 
@@ -438,19 +430,20 @@ if __name__ == '__main__':
     gae_lambda = 0.95
     NUM_ENVS = 1
     seed = 1
+    device = 'cuda:0' if torch.cuda.is_available() else 'cpu'
 
     env = MultiAgentGridWorld()
 
     # Initialize actor-critic models for big and small agents
     big_agent_policy = PPOCNNPolicy(input_shape=(1, BIG_AGENT_RANGE, BIG_AGENT_RANGE),
                                     num_actions=NUM_ACTIONS,
-                                    fc_size=64)
-    small_agent_policy = PPOVecPolicy(input_dim=5 + 2)
+                                    fc_size=64).to(device)
+    small_agent_policy = PPOVecPolicy(input_dim=5 + 2).to(device)
 
     # Optimizers for big and small agents
     big_agent_optimizer = optim.Adam(big_agent_policy.parameters(), lr=1e-4)
     small_agent_optimizer = optim.Adam(small_agent_policy.parameters(), lr=1e-4)
-    device = 'cuda:0' if torch.cuda.is_available() else 'cpu'
+
     next_obs = env.reset()
     next_done = torch.zeros(NUM_ENVS).to(device)
     progress = trange(num_episodes)
@@ -469,14 +462,17 @@ if __name__ == '__main__':
             # Step the environment with the selected actions
             next_obs, rewards, next_done, info = env.step(actions)
 
+
             # Accumulate rewards for training and for average reward calculation
             for i in range(NUM_BIG_AGENTS):
                 big_agent_policy.rewards.append(rewards[f'big_{i}'])
+                big_agent_policy.dones.append(next_done)
                 total_big_agent_rewards[i] += rewards[f'big_{i}']
 
             for i in range(NUM_SMALL_AGENTS):
                 if env.small_agents[i]['last_deploy_status']:
                     small_agent_policy.rewards.append(rewards[f'small_{i}'])
+                    small_agent_policy.dones.append(next_done)
                     total_small_agent_rewards[i] += rewards[f'small_{i}']
 
             if next_done:
@@ -484,16 +480,23 @@ if __name__ == '__main__':
 
         # After the episode, update the parameters for big agents and small agents
         if not RANDOM_ACT:
+            # select small agent obs and big obs, concat them into together, respectively.
+            big_agent_obs = torch.cat([torch.from_numpy(next_obs[f'big_{i}']).float().unsqueeze(0)
+                                       for i in range(NUM_BIG_AGENTS)]).to(device)
+            small_agent_obs = torch.cat([torch.from_numpy(next_obs[f'small_{i}']).float().unsqueeze(0)
+                                         for i in range(NUM_SMALL_AGENTS)]).to(device)
             # Update the big agent policy using the saved actions and rewards
             big_agent_policy.finish_episode(big_agent_optimizer, max_grad_norm=max_grad_norm,
                                             clip_coef=clip_coef, vf_coef=vf_coef, ent_coef=ent_coef,
-                                            gae_lambda=gae_lambda, num_minibatches=4, num_envs=NUM_ENVS,
-                                            next_state=next_obs, next_dones=next_done, device=device)
+                                            gae_lambda=gae_lambda, num_minibatches=4, num_envs=NUM_BIG_AGENTS,
+                                            next_state=big_agent_obs, next_dones=next_done, device=device,
+                                            num_steps=EPISODE_LENGTH)
             # Update the small agent policy using the saved actions and rewards
             small_agent_policy.finish_episode(small_agent_optimizer, max_grad_norm=max_grad_norm,
                                               clip_coef=clip_coef, vf_coef=vf_coef, ent_coef=ent_coef,
-                                              gae_lambda=gae_lambda, num_minibatches=4, num_envs=NUM_ENVS,
-                                              next_state=next_obs, next_dones=next_done, device=device)
+                                              gae_lambda=gae_lambda, num_minibatches=4, num_envs=NUM_SMALL_AGENTS,
+                                              next_state=small_agent_obs, next_dones=next_done, device=device,
+                                              num_steps=len(small_agent_policy.rewards) // NUM_SMALL_AGENTS)
 
         # Calculate average rewards
         avg_big_agent_reward = sum(total_big_agent_rewards) / NUM_BIG_AGENTS

@@ -14,7 +14,6 @@ num_steps: int = 128
 NUM_ENVS = 4  # Number of parallel environments
 learning_rate = 2.5e-4
 
-
 class Policy(nn.Module):
     def __init__(self):
         super(Policy, self).__init__()
@@ -126,6 +125,7 @@ class CNNPolicy(Policy):
         x = F.relu(self.fc1(x))
         return x
 
+
     def get_value(self, x):
         """
         Returns the state value from the critic's output.
@@ -159,24 +159,30 @@ class PPO(Policy):
     def finish_episode(self, optimizer, gamma=0.99, eps=1e-8, max_grad_norm=0.5,
                        clip_coef=0.2, vf_coef=0.5, ent_coef=0.01, gae_lambda=0.95,
                        num_minibatches=4, next_state=None, update_epochs=4, num_envs=4,
-                       next_dones=None, device: str = 'cpu'):
+                       next_dones=None, device: str = 'cpu', num_steps=num_steps):
         """
         Perform backpropagation to update the policy and value function using PPO with gradient clipping.
         """
         log_probs = self.log_probs
         saved_actions = self.saved_actions
-        all_obs = torch.cat(self.saved_obs).squeeze(-1).reshape(num_steps, num_envs, -1)
-        values = torch.cat(self.values).squeeze(-1).reshape(num_steps, num_envs)
-        dones = torch.tensor(self.dones).reshape(num_steps, num_envs)
-        rewards = torch.tensor(self.rewards, dtype=torch.float32, device=device).reshape(num_steps, num_envs)
+        if len(self.values[0].shape) != 0:
+            values = torch.cat(self.values).squeeze(-1).reshape(num_steps, -1).to(device)
+        else:
+            values = torch.Tensor(self.values).reshape(num_steps, num_envs).to(device)
+        dones = torch.tensor(self.dones).reshape(num_steps, -1).to(torch.float32).to(device)
+        rewards = torch.tensor(self.rewards, dtype=torch.float32, device=device).reshape(num_steps, -1)
 
         # If the episode is done, we set the next value to 0.0 as there's no future reward to be expected
         with torch.no_grad():
-            # if done:
-            #     next_value = torch.tensor([0.0]).to(device)
-            # else:
-            next_state_tensor = torch.from_numpy(next_state).float().to(device).squeeze(-1)
-            agent_next_value = self.get_value(next_state_tensor).reshape(1, -1)
+            if isinstance(next_state, torch.Tensor):
+                if next_state.shape[0] == 1:
+                    next_state_tensor = next_state.unsqueeze(0).to(device)
+                else:
+                    next_state_tensor = next_state.to(device).unsqueeze(1)
+            else:
+                next_state_tensor = torch.from_numpy(next_state).float().to(device)
+
+            agent_next_value = self.get_value(next_state_tensor).reshape(-1, num_envs)
 
             # Compute GAE (Generalized Advantage Estimation)
             advantages = torch.zeros_like(rewards)
@@ -203,7 +209,7 @@ class PPO(Policy):
         advantages = advantages.view(-1)
         returns = returns.view(-1)
         values = values.view(-1)
-        all_obs = all_obs.view(-1, all_obs.shape[-1])
+        all_obs = torch.cat(self.saved_obs)
 
         # Prepare for minibatch update
         batch_size = len(self.rewards)
@@ -303,7 +309,7 @@ def train_cartpole():
     env_id = 'CartPole-v1'
 
     envs = gym.vector.SyncVectorEnv(
-        [make_env(env_id, i) for i in range(num_envs)]
+        [make_env(env_id, i) for i in range(NUM_ENVS)]
     )
 
     input_dim = envs.single_observation_space.shape[0]
