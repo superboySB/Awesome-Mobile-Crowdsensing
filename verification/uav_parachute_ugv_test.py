@@ -1,32 +1,65 @@
+import os
 import random
 from collections import namedtuple
-
+import argparse
+import gym
+import time
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import numpy as np
-from tqdm import trange
-import gym
 import torch.optim as optim
 from torch.distributions import Categorical
+from tqdm import trange
+import matplotlib.pyplot as plt
+import matplotlib.patches as patches
+
 from ppo_algo_verify import PPOVecPolicy, PPOCNNPolicy
 
+LEARNING_RATE = 1e-4
+
 # Constants
+PROJECT_NAME = 'uav-parachute-ugv'
 GAMMA = 0
 RANDOM_ACT = False
 GRID_SIZE = 20
 EPISODE_LENGTH = 60
+BIG_AGENT_METRIC = "big_reward"
+SMALL_AGENT_METRIC = "small_reward"
+MEAN_AOI = "mean_aoi"
 BIG_AGENT_RANGE = 8
 SMALL_AGENT_RANGE = 4
 NUM_BIG_AGENTS = 2
 NUM_SMALL_AGENTS = 4
 NUM_ACTIONS = 5  # up, down, left, right, stop
 TIMESTEP_DEPLOY = [20, 40]
+NUM_CLUSTERS = 5
+CLUSTER_RADIUS = 3
+MAX_VALUE = 10
 
 # Actions
 UP, DOWN, LEFT, RIGHT, STOP = 0, 1, 2, 3, 4
 
 SavedAction = namedtuple('SavedAction', ['log_prob', 'value'])
+
+
+def generate_clusters(grid_size, num_clusters, cluster_radius, max_value=10):
+    grid = np.zeros((grid_size, grid_size))
+
+    for _ in range(num_clusters):
+        # Randomly choose a cluster center
+        center_x = random.randint(0, grid_size - 1)
+        center_y = random.randint(0, grid_size - 1)
+
+        # Populate the cluster area with values
+        for x in range(max(0, center_x - cluster_radius), min(grid_size, center_x + cluster_radius + 1)):
+            for y in range(max(0, center_y - cluster_radius), min(grid_size, center_y + cluster_radius + 1)):
+                # The value decreases with distance from the center
+                distance = np.sqrt((center_x - x) ** 2 + (center_y - y) ** 2)
+                if distance <= cluster_radius:
+                    grid[x, y] += max_value - int(distance)
+
+    return grid
 
 
 class Policy(nn.Module):
@@ -84,6 +117,7 @@ class Policy(nn.Module):
         del self.rewards[:]
         del self.saved_actions[:]
 
+
 # Environment class
 class MultiAgentGridWorld(gym.Env):
     def __init__(self, num_big_agents=NUM_BIG_AGENTS, num_small_agents=NUM_SMALL_AGENTS):
@@ -93,9 +127,9 @@ class MultiAgentGridWorld(gym.Env):
         self.num_small_agents = num_small_agents
         self.timestep = 0
         self.max_timesteps = EPISODE_LENGTH
-        self.max_reward = -1000
-        self.min_reward = 1000
+
         self.seed = 1
+        self.small_vec_mode = False
         random.seed(self.seed)
         np.random.seed(self.seed)
 
@@ -110,12 +144,15 @@ class MultiAgentGridWorld(gym.Env):
         self.small_agents = [{'position': None, 'deployed': False, 'last_deploy_status': False} for _ in
                              range(NUM_SMALL_AGENTS)]
 
-        # Initialize the PoI grid with random values
-        self.poi_grid = np.random.poisson(1, (GRID_SIZE, GRID_SIZE))  # PoI generation rate
+        # Initialize the PoI grid with certain clustered PoI values
+        self.poi_grid = generate_clusters(GRID_SIZE, NUM_CLUSTERS, CLUSTER_RADIUS, MAX_VALUE)
+        # self.poi_grid = np.random.poisson(1, (GRID_SIZE, GRID_SIZE))  # PoI generation rate
 
         # Initialize AoI grid (starts at 0 for all PoIs)
         self.aoi_grid = np.zeros((GRID_SIZE, GRID_SIZE))
-
+        self.aoi_grid_by_time = np.zeros((EPISODE_LENGTH, GRID_SIZE, GRID_SIZE))
+        self.max_reward = self.poi_grid.max()
+        self.min_reward = 0
         # Initialize rewards
         self.big_agent_rewards = [0 for _ in range(NUM_BIG_AGENTS)]
         self.small_agent_rewards = [0 for _ in range(NUM_SMALL_AGENTS)]
@@ -210,15 +247,65 @@ class MultiAgentGridWorld(gym.Env):
 
         for small_agent_id, small_agent in enumerate(self.small_agents):
             if small_agent['deployed']:
-                observations[f'small_{small_agent_id}'] = self._get_vec_observation(small_agent)
+                if self.small_vec_mode:
+                    observations[f'small_{small_agent_id}'] = self._get_vec_observation(small_agent)
+                else:
+                    observations[f'small_{small_agent_id}'] = self._get_grid_observation(small_agent, SMALL_AGENT_RANGE)
             else:
                 # Small agents not deployed will have masked observation.
-                observations[f'small_{small_agent_id}'] = np.zeros(NUM_ACTIONS)
+                if self.small_vec_mode:
+                    observations[f'small_{small_agent_id}'] = np.zeros(NUM_ACTIONS)
+                else:
+                    observations[f'small_{small_agent_id}'] = np.zeros((SMALL_AGENT_RANGE, SMALL_AGENT_RANGE))
 
         return observations
 
+    def render(self, mode='human'):
+        """
+        Renders the grid environment with big agents, small agents, and the AoI * PoI product in each grid cell.
+        """
+        grid = np.zeros((self.grid_size, self.grid_size), dtype=float)
+
+        # Calculate AoI * PoI product for each cell
+        for i in range(self.grid_size):
+            for j in range(self.grid_size):
+                grid[i, j] = self.aoi_grid[i, j] * self.poi_grid[i, j]
+
+        # Set up the plot
+        fig, ax = plt.subplots(figsize=(8, 8))
+        ax.set_xlim(-0.5, self.grid_size - 0.5)
+        ax.set_ylim(-0.5, self.grid_size - 0.5)
+        ax.set_xticks(np.arange(-0.5, self.grid_size, 1), minor=True)
+        ax.set_yticks(np.arange(-0.5, self.grid_size, 1), minor=True)
+        ax.grid(which='minor', color='gray', linestyle='-', linewidth=1)
+        ax.set_xticks([])
+        ax.set_yticks([])
+
+        # Draw grid with AoI * PoI product as text
+        for i in range(self.grid_size):
+            for j in range(self.grid_size):
+                ax.text(j, i, f'{grid[i, j]:.1f}', ha='center', va='center', fontsize=8, color='black')
+
+        # Draw big agents (as stars)
+        for big_agent in self.big_agents:
+            x, y = big_agent['position']
+            ax.scatter(y, x, marker='*', color='blue', s=200, edgecolor='black')
+
+        # Draw small agents (as circles)
+        for small_agent in self.small_agents:
+            if small_agent['deployed']:
+                x, y = small_agent['position']
+                ax.scatter(y, x, marker='o', color='red', s=100, edgecolor='black')
+
+        # Set title and show the plot
+        ax.set_title(f'Timestep: {self.timestep}')
+        plt.show()
+        plt.close()
+        time.sleep(0.1)
+
     def step(self, actions) -> [dict, dict, bool, dict]:
         # Initialize rewards for this timestep only
+        info = {}
         rewards = {f'big_{i}': 0 for i in range(self.num_big_agents)}
         rewards.update({f'small_{i}': 0 for i in range(self.num_small_agents)})
         # if self.timestep % 10 == 0:
@@ -245,9 +332,16 @@ class MultiAgentGridWorld(gym.Env):
                 rewards[f'small_{small_agent_id}'] = self.aoi_grid[x, y] * self.poi_grid[x, y] / self.max_timesteps
                 self.max_reward = max(self.max_reward, rewards[f'small_{small_agent_id}'])
                 self.min_reward = min(self.min_reward, rewards[f'small_{small_agent_id}'])
+                # report NaN for max or min reward
+                if np.isnan(self.max_reward) or np.isnan(self.min_reward):
+                    print('recorded reward is NaN')
                 # scale the reward to be between 0 and 1
                 rewards[f'small_{small_agent_id}'] = (
                         (rewards[f'small_{small_agent_id}'] - self.min_reward) / (self.max_reward - self.min_reward))
+                if np.isnan(rewards[f'small_{small_agent_id}']):
+                    print('recorded reward is NaN, Min Reward: ', self.min_reward, 'Max Reward: ', self.max_reward)
+                    print('Timestep: ', self.timestep, 'Reward: ', rewards[f'small_{small_agent_id}'])
+                    raise ValueError('recorded reward is NaN')
                 # Reset AoI for the PoIs in the grid cell to 0
                 self.aoi_grid[x, y] = 0
             else:
@@ -263,12 +357,16 @@ class MultiAgentGridWorld(gym.Env):
         if self.timestep in TIMESTEP_DEPLOY:
             self._deploy_small_agents()
 
+        self.aoi_grid_by_time[self.timestep] = self.aoi_grid * self.poi_grid
         # Advance timestep
         self.timestep += 1
         done = self.timestep >= self.max_timesteps
 
+        if done:
+            info[MEAN_AOI] = np.mean(self.aoi_grid_by_time)
+
         # Return the observations, rewards for this timestep, done flag, and additional info
-        return self._get_observation(), rewards, done, {}
+        return self._get_observation(), rewards, done, info
 
     def _move_agent(self, agent, action):
         """
@@ -345,6 +443,37 @@ def random_act(env):
     return actions
 
 
+def select_actions(agent_type: str, policy, num_agents, obs: dict, actions, env, device):
+    for i in range(num_agents):
+        if agent_type == 'big':
+            current_obs = obs[f'big_{i}']
+        elif agent_type == 'small':
+            if not env.small_agents[i]['deployed']:
+                actions[f'small_{i}'] = STOP
+                continue
+            current_obs = obs[f'small_{i}']
+        else:
+            raise NotImplementedError("Invalid agent type: {agent_type}")
+
+        # Convert observation to tensor and ensure correct dimensions
+        if len(current_obs.shape) == 1:
+            state = torch.from_numpy(current_obs).float().unsqueeze(0).to(device)
+        else:
+            state = torch.from_numpy(current_obs).float().unsqueeze(0).unsqueeze(0).to(device)
+
+        # Get action, log probability, and state value from policy
+        action, log_prob, _, state_value = policy.get_action_and_value(state)
+
+        # Save the action, log probability, and state value for training later
+        policy.saved_actions.append(action)
+        policy.log_probs.append(log_prob)
+        policy.values.append(state_value.squeeze())
+        policy.saved_obs.append(state)
+
+        # Record the selected action
+        actions[f'{agent_type}_{i}'] = action.item()
+
+
 def ppo_joint_act(
         obs: dict[np.ndarray],
         big_agent_policy: PPOVecPolicy,
@@ -352,40 +481,10 @@ def ppo_joint_act(
 ) -> dict[int]:
     # Dictionary to hold actions for each agent
     actions = {}
-
-    # Select actions for big agents using the actor-critic model
-    for i in range(NUM_BIG_AGENTS):
-        state = torch.from_numpy(obs[f'big_{i}']).float().unsqueeze(0).unsqueeze(0).to(device)
-        action, log_prob, _, state_value = big_agent_policy.get_action_and_value(state)
-
-        # Save the action, log probability, entropy, and value for training later
-        big_agent_policy.saved_actions.append(action)
-        big_agent_policy.log_probs.append(log_prob)
-        big_agent_policy.values.append(state_value.squeeze())
-        big_agent_policy.saved_obs.append(state)
-
-        # Record the selected action
-        actions[f'big_{i}'] = action.item()
-
-    # Select actions for small agents (only for deployed agents)
-    for i in range(NUM_SMALL_AGENTS):
-        if env.small_agents[i]['deployed']:
-            # If deployed, select actions using the small agent policy
-            state = torch.from_numpy(obs[f'small_{i}']).float().unsqueeze(0).to(device)
-            action, log_probs, _, state_value = small_agent_policy.get_action_and_value(state)
-
-            # Save the action, log probability, entropy, and value for training later
-            small_agent_policy.saved_actions.append(action)
-            small_agent_policy.log_probs.append(log_prob)
-            small_agent_policy.values.append(state_value.squeeze())
-            small_agent_policy.saved_obs.append(state)
-
-            # Record the selected action
-            actions[f'small_{i}'] = action.item()
-        else:
-            # If not deployed, the small agent takes no action
-            actions[f'small_{i}'] = STOP
-
+    # Usage for big agents
+    select_actions('big', big_agent_policy, NUM_BIG_AGENTS, obs, actions, env, device)
+    # Usage for small agents
+    select_actions('small', small_agent_policy, NUM_SMALL_AGENTS, obs, actions, env, device)
     return actions
 
 
@@ -420,8 +519,17 @@ def actor_critic_joint_act(obs: dict[np.ndarray], big_agent_policy: Policy,
 
 
 if __name__ == '__main__':
-    num_episodes: int = 1000
+    # setup wandb
+    import wandb
 
+    # setup parser
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--track', action='store_true', help='track the experiment')
+    parser.add_argument('--name', type=str, default='test', help='name of the experiment')
+    parser.add_argument('--mode', type=str, choices=['train', 'test'], default='train',
+                        help='mode of the experiment')
+    args = parser.parse_args()
+    num_episodes: int = 5000
     gamma = 0.99
     max_grad_norm = 0.5
     clip_coef = 0.2
@@ -430,7 +538,49 @@ if __name__ == '__main__':
     gae_lambda = 0.95
     NUM_ENVS = 1
     seed = 1
+    anneal_lr = False
+    track = args.track
+    torch.manual_seed(seed)
+    torch.backends.cudnn.deterministic = True
     device = 'cuda:0' if torch.cuda.is_available() else 'cpu'
+    # create a config file including all hyperparameters and agent info
+    config = {
+        "anneal_lr": anneal_lr,
+        "gamma": gamma,
+        "max_grad_norm": max_grad_norm,
+        "clip_coef": clip_coef,
+        "vf_coef": vf_coef,
+        "ent_coef": ent_coef,
+        "gae_lambda": gae_lambda,
+        "num_envs": NUM_ENVS,
+        "seed": seed,
+        "device": device,
+        "num_big_agents": NUM_BIG_AGENTS,
+        "num_small_agents": NUM_SMALL_AGENTS,
+        "episode_length": EPISODE_LENGTH,
+        "random_act": RANDOM_ACT,
+        "big_agent_range": BIG_AGENT_RANGE,
+        "small_agent_range": SMALL_AGENT_RANGE,
+        "learning_rate": LEARNING_RATE,
+    }
+    import datetime
+
+    # name = current date + customed name
+    additional_tags = []
+    for item in ['anneal_lr']:
+        if config[item]:
+            additional_tags.append(item)
+
+    expr_name = datetime.date.today().strftime("%m%d") + '-' + args.name
+    # add additional_tags to name
+    expr_name += ('-' + "-".join(additional_tags))
+    if track:
+        wandb.init(project=PROJECT_NAME, name=expr_name, group='mvp',
+                   tags=['ppo', 'big_cnn', 'small_cnn'],
+                   config=config, dir=os.path.join('/workspace', 'saved_data'))
+        wandb.define_metric(BIG_AGENT_METRIC, summary="max")
+        wandb.define_metric(SMALL_AGENT_METRIC, summary="max")
+        wandb.define_metric(MEAN_AOI, summary='min')
 
     env = MultiAgentGridWorld()
 
@@ -438,17 +588,29 @@ if __name__ == '__main__':
     big_agent_policy = PPOCNNPolicy(input_shape=(1, BIG_AGENT_RANGE, BIG_AGENT_RANGE),
                                     num_actions=NUM_ACTIONS,
                                     fc_size=64).to(device)
-    small_agent_policy = PPOVecPolicy(input_dim=5 + 2).to(device)
-
-    # Optimizers for big and small agents
-    big_agent_optimizer = optim.Adam(big_agent_policy.parameters(), lr=1e-4)
-    small_agent_optimizer = optim.Adam(small_agent_policy.parameters(), lr=1e-4)
+    # small_agent_policy = PPOVecPolicy(input_dim=5 + 2).to(device)
+    small_agent_policy = PPOCNNPolicy(input_shape=(1, SMALL_AGENT_RANGE, SMALL_AGENT_RANGE),
+                                      num_actions=NUM_ACTIONS,
+                                      fc_size=64).to(device)
 
     next_obs = env.reset()
     next_done = torch.zeros(NUM_ENVS).to(device)
-    progress = trange(num_episodes)
+    # Optimizers for big and small agents
+    big_agent_optimizer = optim.Adam(big_agent_policy.parameters(), lr=LEARNING_RATE)
+    small_agent_optimizer = optim.Adam(small_agent_policy.parameters(), lr=LEARNING_RATE)
+
+    if args.mode == 'train':
+        progress = trange(num_episodes)
+    else:
+        progress = range(1)
+    info = {}
     # Main loop for environment interaction
     for episode in progress:  # 200 episodes for demonstration
+        if anneal_lr:
+            frac = 1.0 - (episode - 1.0) / num_episodes
+            lrnow = frac * LEARNING_RATE
+            big_agent_optimizer.param_groups[0]["lr"] = lrnow
+            small_agent_optimizer.param_groups[0]["lr"] = lrnow
         next_obs = env.reset()
         # Initialize reward tracking for the episode
         total_big_agent_rewards = [0 for _ in range(NUM_BIG_AGENTS)]
@@ -461,7 +623,8 @@ if __name__ == '__main__':
                 actions = ppo_joint_act(next_obs, big_agent_policy, small_agent_policy)
             # Step the environment with the selected actions
             next_obs, rewards, next_done, info = env.step(actions)
-
+            if args.mode == 'test':
+                env.render()
 
             # Accumulate rewards for training and for average reward calculation
             for i in range(NUM_BIG_AGENTS):
@@ -479,7 +642,7 @@ if __name__ == '__main__':
                 break
 
         # After the episode, update the parameters for big agents and small agents
-        if not RANDOM_ACT:
+        if (not RANDOM_ACT) or args.mode == 'train':
             # select small agent obs and big obs, concat them into together, respectively.
             big_agent_obs = torch.cat([torch.from_numpy(next_obs[f'big_{i}']).float().unsqueeze(0)
                                        for i in range(NUM_BIG_AGENTS)]).to(device)
@@ -503,7 +666,13 @@ if __name__ == '__main__':
         avg_small_agent_reward = sum(total_small_agent_rewards) / max(1, len([r for r in total_small_agent_rewards if
                                                                               r != 0]))
 
-        progress.set_postfix(big_agent=avg_big_agent_reward, small_agent=avg_small_agent_reward)
-
-        # print(f"Episode {episode} completed: Average Big Agent Reward = {avg_big_agent_reward:.2f}, "
-        #       f"Average Small Agent Reward = {avg_small_agent_reward:.2f}")
+        assert MEAN_AOI in info
+        log_dict = {
+            BIG_AGENT_METRIC: avg_big_agent_reward,
+            SMALL_AGENT_METRIC: avg_small_agent_reward,
+            MEAN_AOI: info[MEAN_AOI]
+        }
+        progress.set_postfix(MEAN_AOI=info[MEAN_AOI])
+        if track and wandb.log is not None:
+            wandb.log(log_dict)
+    wandb.finish()
