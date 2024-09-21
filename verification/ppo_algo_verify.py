@@ -65,10 +65,10 @@ class VecPolicy(Policy):
 
 class CNNPolicy(Policy):
     """
-    Implements both actor and critic in one model using CNN for 2D grid input.
+    Implements both actor and critic in one model using CNN for 2D grid input, supporting MultiDiscrete action space.
     """
 
-    def __init__(self, input_shape, num_actions=5, conv_channels=[4, 8, 16], kernel_sizes=[3, 3, 3], fc_size=32):
+    def __init__(self, input_shape, num_actions=[5, 2], conv_channels=[4, 8, 16], kernel_sizes=[3, 3, 3], fc_size=32):
         super(CNNPolicy, self).__init__()
 
         # Assert the lengths of conv_channels and kernel_sizes match the number of layers
@@ -89,8 +89,8 @@ class CNNPolicy(Policy):
         # Fully connected layer after flattening
         self.fc1 = nn.Linear(conv_output_size, fc_size)
 
-        # Actor's layer (outputs probabilities over actions)
-        self.action_head = nn.Linear(fc_size, num_actions)
+        # Actor's layers for each dimension of the MultiDiscrete action space
+        self.action_heads = nn.ModuleList([nn.Linear(fc_size, num_action) for num_action in num_actions])
 
         # Critic's layer (outputs state value)
         self.value_head = nn.Linear(fc_size, 1)
@@ -107,12 +107,12 @@ class CNNPolicy(Policy):
         Forward pass of both actor and critic.
         """
         x = self._get_embedding(x)
-        # Actor: chooses action to take from state s_t
-        action_prob = F.softmax(self.action_head(x), dim=-1)
+        # Actor: chooses action probabilities for each dimension in the MultiDiscrete action space
+        action_probs = [F.softmax(action_head(x), dim=-1) for action_head in self.action_heads]
         # Critic: evaluates the value of the state
         state_value = self.value_head(x)
-        # Return both actor and critic values
-        return action_prob, state_value
+        # Return both actor probabilities and critic values
+        return action_probs, state_value
 
     def _get_embedding(self, x):
         # Apply CNN layers
@@ -125,23 +125,35 @@ class CNNPolicy(Policy):
         x = F.relu(self.fc1(x))
         return x
 
-
     def get_value(self, x):
         """
         Returns the state value from the critic's output.
         """
         return self.value_head(self._get_embedding(x))
 
-    def get_action_and_value(self, x, actions=None):
-        x = self._get_embedding(x)
-        action_probs = F.softmax(self.action_head(x), dim=-1)
-        m = Categorical(probs=action_probs)
-        # return action, log_prob and entropy
+    def get_action_and_value(self, x, actions: list = None):
+        """
+        Returns actions, log probabilities, entropy, and state value, handling MultiDiscrete action space.
+        """
+        emb = self._get_embedding(x)
+        action_probs = [F.softmax(action_head(emb), dim=-1) for action_head in self.action_heads]
+        # detect NaN in action_probs
+        for i, probs in enumerate(action_probs):
+            if torch.isnan(probs).any():
+                raise ValueError('NaN detected in action_probs')
+        distributions = [Categorical(probs=probs) for probs in action_probs]
+
+        # Sample actions if not provided
         if actions is None:
-            actions = m.sample()
-        log_prob = m.log_prob(actions)
-        entropy = m.entropy()
-        return actions, log_prob, entropy, self.value_head(x)
+            actions = [dist.sample() for dist in distributions]
+
+        log_probs = torch.stack([dist.log_prob(action) for dist, action in zip(distributions, actions)], dim=-1)
+        entropies = torch.stack([dist.entropy() for dist in distributions], dim=-1)
+
+        # Convert actions to a single tensor for compatibility with the rest of the code
+        actions = torch.stack(actions, dim=-1)
+
+        return actions, log_probs, entropies, self.value_head(emb)
 
 
 class PPO(Policy):
@@ -163,14 +175,20 @@ class PPO(Policy):
         """
         Perform backpropagation to update the policy and value function using PPO with gradient clipping.
         """
-        log_probs = self.log_probs
-        saved_actions = self.saved_actions
+        # print("batch length: {}, fixed length: {}".format( len(self.rewards), num_envs * num_steps))
+        if len(self.values) == 0:
+            # Skip Training if no data is available
+            return
+        log_probs = self.log_probs[:num_envs * num_steps]
+        saved_actions = self.saved_actions[:num_envs * num_steps]
+
         if len(self.values[0].shape) != 0:
-            values = torch.cat(self.values).squeeze(-1).reshape(num_steps, -1).to(device)
+            values = torch.cat(self.values[:num_envs * num_steps]).squeeze(-1).reshape(num_steps, -1).to(device)
         else:
-            values = torch.Tensor(self.values).reshape(num_steps, num_envs).to(device)
-        dones = torch.tensor(self.dones).reshape(num_steps, -1).to(torch.float32).to(device)
-        rewards = torch.tensor(self.rewards, dtype=torch.float32, device=device).reshape(num_steps, -1)
+            values = torch.Tensor(self.values[:num_envs * num_steps]).reshape(num_steps, num_envs).to(device)
+        dones = torch.tensor(self.dones[:num_envs * num_steps]).reshape(num_steps, -1).to(torch.float32).to(device)
+        rewards = torch.tensor(self.rewards[:num_envs * num_steps], dtype=torch.float32, device=device).reshape(
+            num_steps, -1)
 
         # If the episode is done, we set the next value to 0.0 as there's no future reward to be expected
         with torch.no_grad():
@@ -204,15 +222,20 @@ class PPO(Policy):
         # advantages = (advantages - advantages.mean()) / (advantages.std() + eps)
 
         # Flatten tensors
-        old_log_probs = torch.tensor(log_probs, device=device).view(-1)
-        saved_actions = torch.tensor(saved_actions, device=device).view(-1)
+        if len(log_probs[0].shape) > 1:
+            old_log_probs = torch.cat(log_probs).squeeze(-1)
+            saved_actions = torch.cat(saved_actions).squeeze(-1)
+        else:
+            old_log_probs = torch.tensor(log_probs, device=device).view(-1)
+            saved_actions = torch.tensor(saved_actions, device=device).view(-1)
+
         advantages = advantages.view(-1)
         returns = returns.view(-1)
         values = values.view(-1)
-        all_obs = torch.cat(self.saved_obs)
+        all_obs = torch.cat(self.saved_obs[:num_envs * num_steps])
 
         # Prepare for minibatch update
-        batch_size = len(self.rewards)
+        batch_size = len(returns)
         indices = np.arange(batch_size)
 
         minibatch_size = batch_size // num_minibatches
@@ -226,6 +249,10 @@ class PPO(Policy):
                 # Slice minibatch data
                 mb_obs = all_obs[mb_inds]
                 mb_actions = saved_actions[mb_inds].long()
+                if len(mb_actions.shape) > 1:
+                    mb_actions = [t.squeeze(-1) for t in torch.split(mb_actions, 1, dim=-1)]
+                else:
+                    mb_actions = [mb_actions]
                 _, mb_log_probs, mb_entropies, new_values = self.get_action_and_value(mb_obs, mb_actions)
                 mb_advantages = advantages[mb_inds]
                 mb_returns = returns[mb_inds]
@@ -236,6 +263,9 @@ class PPO(Policy):
                 logratio = (mb_log_probs - old_log_probs[mb_inds])
                 ratio = logratio.exp()
                 mb_advantages = (mb_advantages - mb_advantages.mean()) / (mb_advantages.std() + eps).to(torch.float32)
+                if len(ratio.shape) == 1:
+                    ratio = ratio.unsqueeze(-1)
+                mb_advantages = mb_advantages.unsqueeze(-1)
                 surr1 = -ratio * mb_advantages
                 surr2 = -torch.clamp(ratio, 1.0 - clip_coef, 1.0 + clip_coef) * mb_advantages
                 with torch.no_grad():
@@ -278,6 +308,15 @@ class PPO(Policy):
         del self.values[:]
         del self.saved_obs[:]
         del self.dones[:]
+        # Construct a dict of statistics (training)
+        return {
+            "old_approx_kl": old_approx_kl,
+            "approx_kl": approx_kl,
+            "clipfrac": np.mean(np.array(clipfracs)),
+            "policy_loss": policy_loss.detach().cpu().numpy(),
+            "value_loss": value_loss.detach().cpu().numpy(),
+            "entropy_loss": entropy_loss.detach().cpu().numpy(),
+        }
 
 
 class PPOVecPolicy(PPO, VecPolicy):
@@ -330,7 +369,7 @@ def train_cartpole():
 
     next_obs, _ = envs.reset(seed=seed)
     next_dones = torch.zeros(NUM_ENVS).to(device)
-    episode_rewards = np.zeros(NUM_ENVS).to(device)
+    episode_rewards = torch.zeros(NUM_ENVS).to(device)
     progress = trange(num_episodes)
     anneal_lr = False
     for episode in progress:

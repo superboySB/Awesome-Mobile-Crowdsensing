@@ -9,6 +9,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
+from gym.spaces import MultiDiscrete
 from torch.distributions import Categorical
 from tqdm import trange
 import matplotlib.pyplot as plt
@@ -25,7 +26,10 @@ RANDOM_ACT = False
 GRID_SIZE = 20
 EPISODE_LENGTH = 60
 BIG_AGENT_METRIC = "big_reward"
+BIG_AGENT_TRAIN = "big_train"
+SMALL_AGENT_TRAIN = "small_train"
 SMALL_AGENT_METRIC = "small_reward"
+BIG_AGENT_DEPLOY_METRIC = "big_reward_deploy"
 MEAN_AOI = "mean_aoi"
 BIG_AGENT_RANGE = 8
 SMALL_AGENT_RANGE = 4
@@ -119,6 +123,7 @@ class Policy(nn.Module):
 
 
 # Environment class
+
 class MultiAgentGridWorld(gym.Env):
     def __init__(self, num_big_agents=NUM_BIG_AGENTS, num_small_agents=NUM_SMALL_AGENTS):
         super(MultiAgentGridWorld, self).__init__()
@@ -133,8 +138,17 @@ class MultiAgentGridWorld(gym.Env):
         random.seed(self.seed)
         np.random.seed(self.seed)
 
-        # Create action and observation space
-        self.action_space = gym.spaces.Discrete(NUM_ACTIONS)
+        # Update action space for big agents
+        self.big_action_space = MultiDiscrete([5, 2])  # [movement (5), deploy (2)]
+        self.small_action_space = gym.spaces.Discrete(NUM_ACTIONS)
+
+        # Combine action spaces for compatibility
+        self.action_space = {
+            'big': self.big_action_space,
+            'small': self.small_action_space
+        }
+
+        # Observation space remains the same
         self.observation_space = gym.spaces.Box(low=0, high=1, shape=(GRID_SIZE, GRID_SIZE), dtype=np.float32)
 
         # Initialize agents' positions and state
@@ -146,31 +160,97 @@ class MultiAgentGridWorld(gym.Env):
 
         # Initialize the PoI grid with certain clustered PoI values
         self.poi_grid = generate_clusters(GRID_SIZE, NUM_CLUSTERS, CLUSTER_RADIUS, MAX_VALUE)
-        # self.poi_grid = np.random.poisson(1, (GRID_SIZE, GRID_SIZE))  # PoI generation rate
 
         # Initialize AoI grid (starts at 0 for all PoIs)
         self.aoi_grid = np.zeros((GRID_SIZE, GRID_SIZE))
         self.aoi_grid_by_time = np.zeros((EPISODE_LENGTH, GRID_SIZE, GRID_SIZE))
         self.max_reward = self.poi_grid.max()
         self.min_reward = 0
+        # self.max_deploy_reward = self.max_reward
+        # self.min_deploy_reward = 0
+
         # Initialize rewards
         self.big_agent_rewards = [0 for _ in range(NUM_BIG_AGENTS)]
         self.small_agent_rewards = [0 for _ in range(NUM_SMALL_AGENTS)]
 
+    def step(self, actions) -> [dict, dict, bool, dict]:
+        info = {}
+        rewards = {f'big_{i}': 0 for i in range(self.num_big_agents)}
+        rewards.update({f'small_{i}': 0 for i in range(self.num_small_agents)})
+        # Process small agent actions
+        for small_agent_id, small_agent in enumerate(self.small_agents):
+            small_agent['last_deploy_status'] = small_agent['deployed']
+
+            if small_agent['deployed']:
+                action = actions[f'small_{small_agent_id}']
+                self._move_agent(small_agent, action)
+                x, y = small_agent['position']
+                rewards[f'small_{small_agent_id}'] = self.aoi_grid[x, y] * self.poi_grid[x, y] / self.max_timesteps
+                self.max_reward = max(self.max_reward, rewards[f'small_{small_agent_id}'])
+                self.min_reward = min(self.min_reward, rewards[f'small_{small_agent_id}'])
+                rewards[f'small_{small_agent_id}'] = (
+                        (rewards[f'small_{small_agent_id}'] - self.min_reward) / (self.max_reward - self.min_reward))
+                self.aoi_grid[x, y] = 0
+            else:
+                rewards[f'small_{small_agent_id}'] = 0
+
+        # Process big agent actions
+        for big_agent_id, big_agent in enumerate(self.big_agents):
+            my_action = actions[f'big_{big_agent_id}']
+            if isinstance(my_action, np.ndarray):
+                movement_action, deploy_action = my_action[0]
+            else:
+                raise NotImplementedError("Action must be a numpy array of shape (2,)")
+            self._move_agent(big_agent, movement_action)
+
+            # Handle deployment action
+            if deploy_action == 1 and big_agent['carried_agents'] > 0:
+                deploy_x, deploy_y = big_agent['position']
+                # big agent is rewarded with AoI sum of PoIs around deployment area
+                rewards[f'big_{big_agent_id}'] = (self.aoi_grid[deploy_x, deploy_y] *
+                                                  self.poi_grid[deploy_x, deploy_y] / self.max_timesteps)
+                # self.max_deploy_reward = max(self.max_deploy_reward, rewards[f'big_{big_agent_id}'])
+                # self.min_deploy_reward = min(self.min_deploy_reward, rewards[f'big_{big_agent_id}'])
+                # rewards[f'big_{big_agent_id}'] = (
+                #         (rewards[f'big_{big_agent_id}'] - self.min_deploy_reward) / (
+                #                 self.max_deploy_reward - self.min_deploy_reward))
+                info[f'big_{big_agent_id}_deploy_reward'] = rewards[f'big_{big_agent_id}']
+                info[f'big_{big_agent_id}_deploy_time'] = self.timestep
+                self._deploy_small_agent(big_agent_id)
+            elif deploy_action == 1 and big_agent['carried_agents'] == 0:
+                # Penalize big agent for not deploying when there are no small agents to carry
+                # Warn: Penalty make to policy unable to train or not deploying at all.
+                pass
+            else:
+                rewards[f'big_{big_agent_id}'] = 0
+
+        # Update AoI for all grid cells
+        self.aoi_grid += 1  # Increment AoI for all PoIs at each timeste
+
+        # Big agents get rewards based on the total rewards of their small agents for this timestep
+        for big_agent_id, big_agent in enumerate(self.big_agents):
+            small_agent_ids = range(big_agent_id * 2, big_agent_id * 2 + 2)
+            rewards[f'big_{big_agent_id}'] += sum(rewards[f'small_{i}'] for i in small_agent_ids) / (
+                        NUM_SMALL_AGENTS // NUM_BIG_AGENTS)
+
+        self.aoi_grid_by_time[self.timestep] = self.aoi_grid * self.poi_grid
+        self.timestep += 1
+        done = self.timestep >= self.max_timesteps
+
+        if done:
+            info[MEAN_AOI] = np.mean(self.aoi_grid_by_time)
+
+        # Return the observations, rewards for this timestep, done flag, and additional info
+        return self._get_observation(), rewards, done, info
+
     def reset(self):
-        # Reset environment for a new episode
         self.timestep = 0
         self.big_agents = [
             {'position': [random.randint(0, GRID_SIZE - 1), random.randint(0, GRID_SIZE - 1)], 'carried_agents': 2} for
-            _ in range(NUM_BIG_AGENTS)]
+            _ in range(self.num_big_agents)]
         self.small_agents = [{'position': None, 'deployed': False, 'last_deploy_status': False} for _ in
-                             range(NUM_SMALL_AGENTS)]
-        self.big_agent_rewards = [0 for _ in range(NUM_BIG_AGENTS)]
-        self.small_agent_rewards = [0 for _ in range(NUM_SMALL_AGENTS)]
-
-        # Reset AoI grid
+                             range(self.num_small_agents)]
         self.aoi_grid = np.zeros((GRID_SIZE, GRID_SIZE))
-
         return self._get_observation()
 
     def _get_vec_observation(self, agent):
@@ -303,70 +383,7 @@ class MultiAgentGridWorld(gym.Env):
         plt.close()
         time.sleep(0.1)
 
-    def step(self, actions) -> [dict, dict, bool, dict]:
-        # Initialize rewards for this timestep only
-        info = {}
-        rewards = {f'big_{i}': 0 for i in range(self.num_big_agents)}
-        rewards.update({f'small_{i}': 0 for i in range(self.num_small_agents)})
-        # if self.timestep % 10 == 0:
-        #     print(self.aoi_grid)
-        # Move big agents
-        for big_agent_id, big_agent in enumerate(self.big_agents):
-            action = actions[f'big_{big_agent_id}']
-            self._move_agent(big_agent, action)
 
-        # Update AoI for all grid cells
-        self.aoi_grid += 1  # Increment AoI for all PoIs at each timestep
-
-        # Move small agents if they are deployed
-        for small_agent_id, small_agent in enumerate(self.small_agents):
-            # Update last_deploy_status
-            small_agent['last_deploy_status'] = small_agent['deployed']
-
-            if small_agent['deployed']:
-                action = actions[f'small_{small_agent_id}']
-                self._move_agent(small_agent, action)
-                # Get the position of the small agent
-                x, y = small_agent['position']
-                # Collect reward for the small agent based on the AoI of the grid cell it enters
-                rewards[f'small_{small_agent_id}'] = self.aoi_grid[x, y] * self.poi_grid[x, y] / self.max_timesteps
-                self.max_reward = max(self.max_reward, rewards[f'small_{small_agent_id}'])
-                self.min_reward = min(self.min_reward, rewards[f'small_{small_agent_id}'])
-                # report NaN for max or min reward
-                if np.isnan(self.max_reward) or np.isnan(self.min_reward):
-                    print('recorded reward is NaN')
-                # scale the reward to be between 0 and 1
-                rewards[f'small_{small_agent_id}'] = (
-                        (rewards[f'small_{small_agent_id}'] - self.min_reward) / (self.max_reward - self.min_reward))
-                if np.isnan(rewards[f'small_{small_agent_id}']):
-                    print('recorded reward is NaN, Min Reward: ', self.min_reward, 'Max Reward: ', self.max_reward)
-                    print('Timestep: ', self.timestep, 'Reward: ', rewards[f'small_{small_agent_id}'])
-                    raise ValueError('recorded reward is NaN')
-                # Reset AoI for the PoIs in the grid cell to 0
-                self.aoi_grid[x, y] = 0
-            else:
-                rewards[f'small_{small_agent_id}'] = 0
-
-        # Big agents get rewards based on the total rewards of their small agents for this timestep
-        for big_agent_id, big_agent in enumerate(self.big_agents):
-            small_agent_ids = range(big_agent_id * 2, big_agent_id * 2 + 2)
-            # Big agent gets reward based on the sum of its small agents' rewards for this timestep
-            rewards[f'big_{big_agent_id}'] = sum(rewards[f'small_{i}'] for i in small_agent_ids)
-
-        # Deploy small agents at specific timesteps
-        if self.timestep in TIMESTEP_DEPLOY:
-            self._deploy_small_agents()
-
-        self.aoi_grid_by_time[self.timestep] = self.aoi_grid * self.poi_grid
-        # Advance timestep
-        self.timestep += 1
-        done = self.timestep >= self.max_timesteps
-
-        if done:
-            info[MEAN_AOI] = np.mean(self.aoi_grid_by_time)
-
-        # Return the observations, rewards for this timestep, done flag, and additional info
-        return self._get_observation(), rewards, done, info
 
     def _move_agent(self, agent, action):
         """
@@ -403,15 +420,14 @@ class MultiAgentGridWorld(gym.Env):
         elif action == STOP:
             pass  # Do nothing
 
-    def _deploy_small_agents(self):
-        # Deploy small agents from the big agents at timesteps 20 and 40
-        for big_agent_id, big_agent in enumerate(self.big_agents):
-            if big_agent['carried_agents'] > 0:
-                small_agent_id = big_agent_id * 2 + (2 - big_agent['carried_agents'])
-                small_agent = self.small_agents[small_agent_id]
-                small_agent['position'] = big_agent['position'][:]
-                small_agent['deployed'] = True
-                big_agent['carried_agents'] -= 1
+    def _deploy_small_agent(self, big_agent_id):
+        big_agent = self.big_agents[big_agent_id]
+        if big_agent['carried_agents'] > 0:
+            small_agent_id = big_agent_id * 2 + (2 - big_agent['carried_agents'])
+            small_agent = self.small_agents[small_agent_id]
+            small_agent['position'] = big_agent['position'][:]
+            small_agent['deployed'] = True
+            big_agent['carried_agents'] -= 1
 
 
 def test_MultiAgentGridWorld():
@@ -471,7 +487,7 @@ def select_actions(agent_type: str, policy, num_agents, obs: dict, actions, env,
         policy.saved_obs.append(state)
 
         # Record the selected action
-        actions[f'{agent_type}_{i}'] = action.item()
+        actions[f'{agent_type}_{i}'] = action.cpu().numpy()
 
 
 def ppo_joint_act(
@@ -570,8 +586,8 @@ if __name__ == '__main__':
     for item in ['anneal_lr']:
         if config[item]:
             additional_tags.append(item)
-
-    expr_name = datetime.date.today().strftime("%m%d") + '-' + args.name
+    # add date time to name
+    expr_name = datetime.datetime.today().strftime("%m%d-%H%M") + '-' + args.name
     # add additional_tags to name
     expr_name += ('-' + "-".join(additional_tags))
     if track:
@@ -586,11 +602,11 @@ if __name__ == '__main__':
 
     # Initialize actor-critic models for big and small agents
     big_agent_policy = PPOCNNPolicy(input_shape=(1, BIG_AGENT_RANGE, BIG_AGENT_RANGE),
-                                    num_actions=NUM_ACTIONS,
+                                    num_actions=[5, 2],
                                     fc_size=64).to(device)
     # small_agent_policy = PPOVecPolicy(input_dim=5 + 2).to(device)
     small_agent_policy = PPOCNNPolicy(input_shape=(1, SMALL_AGENT_RANGE, SMALL_AGENT_RANGE),
-                                      num_actions=NUM_ACTIONS,
+                                      num_actions=[NUM_ACTIONS],
                                       fc_size=64).to(device)
 
     next_obs = env.reset()
@@ -615,12 +631,20 @@ if __name__ == '__main__':
         # Initialize reward tracking for the episode
         total_big_agent_rewards = [0 for _ in range(NUM_BIG_AGENTS)]
         total_small_agent_rewards = [0 for _ in range(NUM_SMALL_AGENTS)]
-
+        deploy_statistic = {}
+        # create keys that stores "deploy_reward" and "deploy_time" for each big agent
+        for i in range(NUM_BIG_AGENTS):
+            metrics = ['deploy_reward', 'deploy_time']
+            for metric in metrics:
+                deploy_statistic[f'big_{i}_{metric}'] = 0
+        small_agent_statistic = {}
+        big_agent_statistic = {}
         for t in range(EPISODE_LENGTH):
             if RANDOM_ACT:
                 actions = random_act(env)
             else:
-                actions = ppo_joint_act(next_obs, big_agent_policy, small_agent_policy)
+                with torch.no_grad():
+                    actions = ppo_joint_act(next_obs, big_agent_policy, small_agent_policy)
             # Step the environment with the selected actions
             next_obs, rewards, next_done, info = env.step(actions)
             if args.mode == 'test':
@@ -631,6 +655,9 @@ if __name__ == '__main__':
                 big_agent_policy.rewards.append(rewards[f'big_{i}'])
                 big_agent_policy.dones.append(next_done)
                 total_big_agent_rewards[i] += rewards[f'big_{i}']
+                for metric in deploy_statistic.keys():
+                    if metric in info:
+                        deploy_statistic[metric] += info[metric]
 
             for i in range(NUM_SMALL_AGENTS):
                 if env.small_agents[i]['last_deploy_status']:
@@ -649,29 +676,43 @@ if __name__ == '__main__':
             small_agent_obs = torch.cat([torch.from_numpy(next_obs[f'small_{i}']).float().unsqueeze(0)
                                          for i in range(NUM_SMALL_AGENTS)]).to(device)
             # Update the big agent policy using the saved actions and rewards
-            big_agent_policy.finish_episode(big_agent_optimizer, max_grad_norm=max_grad_norm,
+            big_agent_statistic.update(big_agent_policy.finish_episode(big_agent_optimizer, max_grad_norm=max_grad_norm,
                                             clip_coef=clip_coef, vf_coef=vf_coef, ent_coef=ent_coef,
                                             gae_lambda=gae_lambda, num_minibatches=4, num_envs=NUM_BIG_AGENTS,
                                             next_state=big_agent_obs, next_dones=next_done, device=device,
-                                            num_steps=EPISODE_LENGTH)
-            # Update the small agent policy using the saved actions and rewards
-            small_agent_policy.finish_episode(small_agent_optimizer, max_grad_norm=max_grad_norm,
-                                              clip_coef=clip_coef, vf_coef=vf_coef, ent_coef=ent_coef,
-                                              gae_lambda=gae_lambda, num_minibatches=4, num_envs=NUM_SMALL_AGENTS,
-                                              next_state=small_agent_obs, next_dones=next_done, device=device,
-                                              num_steps=len(small_agent_policy.rewards) // NUM_SMALL_AGENTS)
+                                                                       num_steps=EPISODE_LENGTH))
+            if len(small_agent_policy.rewards) >= NUM_SMALL_AGENTS:
+                # Update the small agent policy using the saved actions and rewards
+                small_agent_statistic.update(
+                    small_agent_policy.finish_episode(small_agent_optimizer, max_grad_norm=max_grad_norm,
+                                                      clip_coef=clip_coef, vf_coef=vf_coef, ent_coef=ent_coef,
+                                                      gae_lambda=gae_lambda, num_minibatches=4,
+                                                      num_envs=NUM_SMALL_AGENTS,
+                                                      next_state=small_agent_obs, next_dones=next_done, device=device,
+                                                      num_steps=len(small_agent_policy.rewards) // NUM_SMALL_AGENTS))
 
         # Calculate average rewards
         avg_big_agent_reward = sum(total_big_agent_rewards) / NUM_BIG_AGENTS
         avg_small_agent_reward = sum(total_small_agent_rewards) / max(1, len([r for r in total_small_agent_rewards if
                                                                               r != 0]))
+        # average reward with NUM_SMALL_AGENTS in deploy_statistic dict
+        for key in deploy_statistic:
+            if 'reward' in key:
+                deploy_statistic[key] /= NUM_SMALL_AGENTS
 
-        assert MEAN_AOI in info
-        log_dict = {
+        # add prefix for big agent dict and small agent dict
+        log_dict = {}
+        for k, v in small_agent_statistic.items():
+            log_dict[f'{SMALL_AGENT_TRAIN}/{k}'] = v
+        for k, v in big_agent_statistic.items():
+            log_dict[f'{BIG_AGENT_TRAIN}/{k}'] = v
+        log_dict.update({
             BIG_AGENT_METRIC: avg_big_agent_reward,
             SMALL_AGENT_METRIC: avg_small_agent_reward,
-            MEAN_AOI: info[MEAN_AOI]
-        }
+            **info,
+            **deploy_statistic,
+        })
+        assert MEAN_AOI in info
         progress.set_postfix(MEAN_AOI=info[MEAN_AOI])
         if track and wandb.log is not None:
             wandb.log(log_dict)
