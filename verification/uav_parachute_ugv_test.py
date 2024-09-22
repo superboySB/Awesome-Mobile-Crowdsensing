@@ -13,7 +13,6 @@ from gym.spaces import MultiDiscrete
 from torch.distributions import Categorical
 from tqdm import trange
 import matplotlib.pyplot as plt
-import matplotlib.patches as patches
 
 from ppo_algo_verify import PPOVecPolicy, PPOCNNPolicy
 
@@ -543,8 +542,9 @@ if __name__ == '__main__':
     parser.add_argument('--name', type=str, default='test', help='name of the experiment')
     parser.add_argument('--mode', type=str, choices=['train', 'test'], default='train',
                         help='mode of the experiment')
+    parser.add_argument('--num_episodes', type=int, default=5000, help='number of episodes')
     args = parser.parse_args()
-    num_episodes: int = 5000
+    num_episodes: int = args.num_episodes
     gamma = 0.99
     max_grad_norm = 0.5
     clip_coef = 0.2
@@ -577,6 +577,7 @@ if __name__ == '__main__':
         "big_agent_range": BIG_AGENT_RANGE,
         "small_agent_range": SMALL_AGENT_RANGE,
         "learning_rate": LEARNING_RATE,
+        "num_episodes": num_episodes,
     }
     import datetime
 
