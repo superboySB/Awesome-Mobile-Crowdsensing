@@ -207,14 +207,14 @@ class MultiAgentGridWorld(gym.Env):
             if deploy_action == 1 and big_agent['carried_agents'] > 0:
                 deploy_x, deploy_y = big_agent['position']
                 # big agent is rewarded with AoI sum of PoIs around deployment area
-                rewards[f'big_{big_agent_id}'] = (self.aoi_grid[deploy_x, deploy_y] *
-                                                  self.poi_grid[deploy_x, deploy_y] / self.max_timesteps)
+                deploy_reward = self.aoi_grid[deploy_x, deploy_y] * self.poi_grid[
+                    deploy_x, deploy_y] / self.max_timesteps
+                info[f'big_{big_agent_id}_deploy_reward'] = rewards[f'big_{big_agent_id}'] = deploy_reward
                 # self.max_deploy_reward = max(self.max_deploy_reward, rewards[f'big_{big_agent_id}'])
                 # self.min_deploy_reward = min(self.min_deploy_reward, rewards[f'big_{big_agent_id}'])
                 # rewards[f'big_{big_agent_id}'] = (
                 #         (rewards[f'big_{big_agent_id}'] - self.min_deploy_reward) / (
                 #                 self.max_deploy_reward - self.min_deploy_reward))
-                info[f'big_{big_agent_id}_deploy_reward'] = rewards[f'big_{big_agent_id}']
                 info[f'big_{big_agent_id}_deploy_time'] = self.timestep
                 self._deploy_small_agent(big_agent_id)
             elif deploy_action == 1 and big_agent['carried_agents'] == 0:
@@ -230,8 +230,7 @@ class MultiAgentGridWorld(gym.Env):
         # Big agents get rewards based on the total rewards of their small agents for this timestep
         for big_agent_id, big_agent in enumerate(self.big_agents):
             small_agent_ids = range(big_agent_id * 2, big_agent_id * 2 + 2)
-            rewards[f'big_{big_agent_id}'] += sum(rewards[f'small_{i}'] for i in small_agent_ids) / (
-                        NUM_SMALL_AGENTS // NUM_BIG_AGENTS)
+            rewards[f'big_{big_agent_id}'] += sum(rewards[f'small_{i}'] for i in small_agent_ids)
 
         self.aoi_grid_by_time[self.timestep] = self.aoi_grid * self.poi_grid
         self.timestep += 1
@@ -589,8 +588,11 @@ if __name__ == '__main__':
     # add date time to name
     expr_name = datetime.datetime.today().strftime("%m%d-%H%M") + '-' + args.name
     # add additional_tags to name
-    expr_name += ('-' + "-".join(additional_tags))
+    if len(additional_tags) > 0:
+        expr_name += ('-' + "-".join(additional_tags))
     if track:
+        # note big_XXX indicates the neural network architecture, XXX is the architecture
+        # which may be cnn, mlp, etc.
         wandb.init(project=PROJECT_NAME, name=expr_name, group='mvp',
                    tags=['ppo', 'big_cnn', 'small_cnn'],
                    config=config, dir=os.path.join('/workspace', 'saved_data'))
