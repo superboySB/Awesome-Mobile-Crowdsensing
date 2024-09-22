@@ -17,8 +17,12 @@ while [[ $# -gt 0 ]]; do
 done
 # remove NN share_policy all
 trains=(
-  "--name add-deploy-reward"
-  "--name "
+  "--self-factor 0 --group-factor 0.5"
+  "--self-factor 0 --group-factor 1"
+  "--self-factor 0 --group-factor 2"
+  "--self-factor 0 --group-factor 3"
+  "--self-factor 0.01 --group-factor 1"
+  "--self-factor 0.05 --group-factor 1"
 )
 
 
@@ -53,12 +57,12 @@ for ((i = 0; i < train_num; i++)); do
   card_id=$((i % card_num))
   # shellcheck disable=SC2004
   # if want to add $PATH, remember to add / before $
-  command="python verification/uav_parachute_ugv_test.py --track"
+  command="CUDA_VISIBLE_DEVICES=${cards[card_id]} python verification/uav_parachute_ugv_test.py --track --name sweep-factor ${trains[i]}"
   echo "$command"
   if [ "$dry_run" = "false" ] && [ "$choice" != "n" ]
   then
       tmux send-keys -t $session_name:0."$i" "$command" Enter;
-      echo "exp ${i} runs successfully"
+      echo "The above command will run in pane ${i}."
       sleep 5
   fi
 done

@@ -124,9 +124,11 @@ class Policy(nn.Module):
 # Environment class
 
 class MultiAgentGridWorld(gym.Env):
-    def __init__(self, num_big_agents=NUM_BIG_AGENTS, num_small_agents=NUM_SMALL_AGENTS):
+    def __init__(self, num_big_agents, num_small_agents, group_factor=1, self_factor=0.1):
         super(MultiAgentGridWorld, self).__init__()
         self.grid_size = GRID_SIZE
+        self.group_factor = group_factor
+        self.self_factor = self_factor
         self.num_big_agents = num_big_agents
         self.num_small_agents = num_small_agents
         self.timestep = 0
@@ -153,12 +155,13 @@ class MultiAgentGridWorld(gym.Env):
         # Initialize agents' positions and state
         self.big_agents = [
             {'position': [random.randint(0, GRID_SIZE - 1), random.randint(0, GRID_SIZE - 1)], 'carried_agents': 2} for
-            _ in range(NUM_BIG_AGENTS)]
+            _ in range(self.num_big_agents)]
         self.small_agents = [{'position': None, 'deployed': False, 'last_deploy_status': False} for _ in
-                             range(NUM_SMALL_AGENTS)]
+                             range(self.num_small_agents)]
 
         # Initialize the PoI grid with certain clustered PoI values
         self.poi_grid = generate_clusters(GRID_SIZE, NUM_CLUSTERS, CLUSTER_RADIUS, MAX_VALUE)
+        self.num_poi = np.sum(self.poi_grid)
 
         # Initialize AoI grid (starts at 0 for all PoIs)
         self.aoi_grid = np.zeros((GRID_SIZE, GRID_SIZE))
@@ -169,8 +172,8 @@ class MultiAgentGridWorld(gym.Env):
         # self.min_deploy_reward = 0
 
         # Initialize rewards
-        self.big_agent_rewards = [0 for _ in range(NUM_BIG_AGENTS)]
-        self.small_agent_rewards = [0 for _ in range(NUM_SMALL_AGENTS)]
+        self.big_agent_rewards = [0 for _ in range(self.num_big_agents)]
+        self.small_agent_rewards = [0 for _ in range(self.num_small_agents)]
 
     def step(self, actions) -> [dict, dict, bool, dict]:
         info = {}
@@ -201,6 +204,7 @@ class MultiAgentGridWorld(gym.Env):
             else:
                 raise NotImplementedError("Action must be a numpy array of shape (2,)")
             self._move_agent(big_agent, movement_action)
+            rewards[f'big_{big_agent_id}'] = self.compute_density_reward(big_agent) * self.self_factor
 
             # Handle deployment action
             if deploy_action == 1 and big_agent['carried_agents'] > 0:
@@ -208,7 +212,8 @@ class MultiAgentGridWorld(gym.Env):
                 # big agent is rewarded with AoI sum of PoIs around deployment area
                 deploy_reward = self.aoi_grid[deploy_x, deploy_y] * self.poi_grid[
                     deploy_x, deploy_y] / self.max_timesteps
-                info[f'big_{big_agent_id}_deploy_reward'] = rewards[f'big_{big_agent_id}'] = deploy_reward
+                info[f'big_{big_agent_id}_deploy_reward'] = deploy_reward
+                rewards[f'big_{big_agent_id}'] += deploy_reward
                 # self.max_deploy_reward = max(self.max_deploy_reward, rewards[f'big_{big_agent_id}'])
                 # self.min_deploy_reward = min(self.min_deploy_reward, rewards[f'big_{big_agent_id}'])
                 # rewards[f'big_{big_agent_id}'] = (
@@ -229,7 +234,7 @@ class MultiAgentGridWorld(gym.Env):
         # Big agents get rewards based on the total rewards of their small agents for this timestep
         for big_agent_id, big_agent in enumerate(self.big_agents):
             small_agent_ids = range(big_agent_id * 2, big_agent_id * 2 + 2)
-            rewards[f'big_{big_agent_id}'] += sum(rewards[f'small_{i}'] for i in small_agent_ids)
+            rewards[f'big_{big_agent_id}'] += self.group_factor * sum(rewards[f'small_{i}'] for i in small_agent_ids)
 
         self.aoi_grid_by_time[self.timestep] = self.aoi_grid * self.poi_grid
         self.timestep += 1
@@ -240,6 +245,14 @@ class MultiAgentGridWorld(gym.Env):
 
         # Return the observations, rewards for this timestep, done flag, and additional info
         return self._get_observation(), rewards, done, info
+
+    def compute_density_reward(self, big_agent):
+        x, y = big_agent['position']
+        # Define a neighborhood range to compute local PoI density
+        density_radius = 3  # Adjust this radius as needed
+        local_poi_density = np.sum(self.poi_grid[max(0, x - density_radius):min(self.grid_size, x + density_radius + 1),
+                                   max(0, y - density_radius):min(self.grid_size, y + density_radius + 1)])
+        return local_poi_density / self.num_poi  # Normalize by the area
 
     def reset(self):
         self.timestep = 0
@@ -542,7 +555,11 @@ if __name__ == '__main__':
     parser.add_argument('--name', type=str, default='test', help='name of the experiment')
     parser.add_argument('--mode', type=str, choices=['train', 'test'], default='train',
                         help='mode of the experiment')
+    parser.add_argument('--num-big-agents', type=int, default=2, help='number of big agents')
+    parser.add_argument('--num-small-agents', type=int, default=4, help='number of big agents')
     parser.add_argument('--num_episodes', type=int, default=5000, help='number of episodes')
+    parser.add_argument('--self-factor', type=float, default=0.1, help='self factor')
+    parser.add_argument('--group-factor', type=float, default=1, help='group factor')
     args = parser.parse_args()
     num_episodes: int = args.num_episodes
     gamma = 0.99
@@ -577,7 +594,7 @@ if __name__ == '__main__':
         "big_agent_range": BIG_AGENT_RANGE,
         "small_agent_range": SMALL_AGENT_RANGE,
         "learning_rate": LEARNING_RATE,
-        "num_episodes": num_episodes,
+        **vars(args),
     }
     import datetime
 
@@ -586,6 +603,9 @@ if __name__ == '__main__':
     for item in ['anneal_lr']:
         if config[item]:
             additional_tags.append(item)
+    for item in ['self_factor', 'group_factor']:
+        if item in config:
+            additional_tags.append(item + '_' + str(config[item]))
     # add date time to name
     expr_name = datetime.datetime.today().strftime("%m%d-%H%M") + '-' + args.name
     # add additional_tags to name
@@ -601,7 +621,8 @@ if __name__ == '__main__':
         wandb.define_metric(SMALL_AGENT_METRIC, summary="max")
         wandb.define_metric(MEAN_AOI, summary='min')
 
-    env = MultiAgentGridWorld()
+    env = MultiAgentGridWorld(num_big_agents=NUM_BIG_AGENTS, num_small_agents=NUM_SMALL_AGENTS,
+                              self_factor=args.self_factor, group_factor=args.group_factor)
 
     # Initialize actor-critic models for big and small agents
     big_agent_policy = PPOCNNPolicy(input_shape=(1, BIG_AGENT_RANGE, BIG_AGENT_RANGE),
@@ -700,8 +721,7 @@ if __name__ == '__main__':
                                                                               r != 0]))
         # average reward with NUM_SMALL_AGENTS in deploy_statistic dict
         for key in deploy_statistic:
-            if 'reward' in key:
-                deploy_statistic[key] /= NUM_SMALL_AGENTS
+            deploy_statistic[key] /= NUM_SMALL_AGENTS
 
         # add prefix for big agent dict and small agent dict
         log_dict = {}
