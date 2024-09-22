@@ -10,8 +10,9 @@ if [ "$current_hostname" = "$expected_hostname" ]; then
 
     # List of users and their corresponding IP addresses
     users=("liuchi" "hanrui" "lishuang" "gaoguangyu" "liguozheng")
-    ip_addresses=("10.1.114.50" "10.1.114.56" "10.1.114.66" "10.1.114.75" "10.1.114.76" "10.1.114.77" "10.1.114.103")
+#    ip_addresses=("10.1.114.50" "10.1.114.56" "10.1.114.66" "10.1.114.75" "10.1.114.76" "10.1.114.77" "10.1.114.103")
     cpu_addresses=("10.1.114.66")
+    ip_addresses=("10.1.114.50" "10.1.114.56" "10.1.114.75" "10.1.114.76" "10.1.114.77")
      # File containing additional public keys
 
     # Loop through the list of IP addresses
