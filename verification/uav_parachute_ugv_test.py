@@ -10,9 +10,11 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 from gym.spaces import MultiDiscrete
+from matplotlib import cm
 from torch.distributions import Categorical
 from tqdm import trange
 import matplotlib.pyplot as plt
+from matplotlib.colors import to_hex
 
 from ppo_algo_verify import PPOVecPolicy, PPOCNNPolicy
 
@@ -24,10 +26,14 @@ GAMMA = 0
 RANDOM_ACT = False
 GRID_SIZE = 20
 EPISODE_LENGTH = 60
+EVAL_INTERVAL = 100
+PLOT_NAME = "trajectory"
 BIG_AGENT_METRIC = "big_reward"
 BIG_AGENT_TRAIN = "big_train"
 SMALL_AGENT_TRAIN = "small_train"
 SMALL_AGENT_METRIC = "small_reward"
+BIG_AGENT_MODEL = "big_model"
+SMALL_AGENT_MODEL = "small_model"
 BIG_AGENT_DEPLOY_METRIC = "big_reward_deploy"
 MEAN_AOI = "mean_aoi"
 BIG_AGENT_RANGE = 8
@@ -133,6 +139,7 @@ class MultiAgentGridWorld(gym.Env):
         self.num_small_agents = num_small_agents
         self.timestep = 0
         self.max_timesteps = EPISODE_LENGTH
+        self.figure = None
 
         self.seed = 1
         self.small_vec_mode = False
@@ -174,6 +181,8 @@ class MultiAgentGridWorld(gym.Env):
         # Initialize rewards
         self.big_agent_rewards = [0 for _ in range(self.num_big_agents)]
         self.small_agent_rewards = [0 for _ in range(self.num_small_agents)]
+        self.big_agent_trajectories = [[] for _ in range(self.num_big_agents)]
+        self.small_agent_trajectories = [[] for _ in range(self.num_small_agents)]
 
     def step(self, actions) -> [dict, dict, bool, dict]:
         info = {}
@@ -187,6 +196,8 @@ class MultiAgentGridWorld(gym.Env):
                 action = actions[f'small_{small_agent_id}']
                 self._move_agent(small_agent, action)
                 x, y = small_agent['position']
+                # Record small agent position
+                self.small_agent_trajectories[small_agent_id].append(small_agent['position'].copy())
                 rewards[f'small_{small_agent_id}'] = self.aoi_grid[x, y] * self.poi_grid[x, y] / self.max_timesteps
                 self.max_reward = max(self.max_reward, rewards[f'small_{small_agent_id}'])
                 self.min_reward = min(self.min_reward, rewards[f'small_{small_agent_id}'])
@@ -204,11 +215,16 @@ class MultiAgentGridWorld(gym.Env):
             else:
                 raise NotImplementedError("Action must be a numpy array of shape (2,)")
             self._move_agent(big_agent, movement_action)
-            rewards[f'big_{big_agent_id}'] = self.compute_density_reward(big_agent) * self.self_factor
+            # rewards[f'big_{big_agent_id}'] = self.compute_density_reward(big_agent) * self.self_factor
+            self.small_agent_deploy_position.append(big_agent['position'].copy())
+            self.big_agent_trajectories[big_agent_id].append(big_agent['position'].copy())
+            deploy_x, deploy_y = big_agent['position']
+            # Record big agent position
+            rewards[f'big_{big_agent_id}'] = self.self_factor * self.aoi_grid[deploy_x, deploy_y] * self.poi_grid[
+                deploy_x, deploy_y] / self.max_timesteps
 
             # Handle deployment action
             if deploy_action == 1 and big_agent['carried_agents'] > 0:
-                deploy_x, deploy_y = big_agent['position']
                 # big agent is rewarded with AoI sum of PoIs around deployment area
                 deploy_reward = self.aoi_grid[deploy_x, deploy_y] * self.poi_grid[
                     deploy_x, deploy_y] / self.max_timesteps
@@ -255,6 +271,8 @@ class MultiAgentGridWorld(gym.Env):
         return local_poi_density / self.num_poi  # Normalize by the area
 
     def reset(self):
+        if self.figure is not None:
+            plt.close(self.figure)
         self.timestep = 0
         self.big_agents = [
             {'position': [random.randint(0, GRID_SIZE - 1), random.randint(0, GRID_SIZE - 1)], 'carried_agents': 2} for
@@ -262,6 +280,9 @@ class MultiAgentGridWorld(gym.Env):
         self.small_agents = [{'position': None, 'deployed': False, 'last_deploy_status': False} for _ in
                              range(self.num_small_agents)]
         self.aoi_grid = np.zeros((GRID_SIZE, GRID_SIZE))
+        self.small_agent_trajectories = [[] for _ in range(self.num_small_agents)]
+        self.small_agent_deploy_position = []
+        self.big_agent_trajectories = [[] for _ in range(self.num_big_agents)]
         return self._get_observation()
 
     def _get_vec_observation(self, agent):
@@ -351,18 +372,10 @@ class MultiAgentGridWorld(gym.Env):
 
         return observations
 
-    def render(self, mode='human'):
+    def render(self, mode='human', return_plot=True):
         """
-        Renders the grid environment with big agents, small agents, and the AoI * PoI product in each grid cell.
+        Renders the entire grid environment at the end of the episode, showing agent trajectories and PoI grid.
         """
-        grid = np.zeros((self.grid_size, self.grid_size), dtype=float)
-
-        # Calculate AoI * PoI product for each cell
-        for i in range(self.grid_size):
-            for j in range(self.grid_size):
-                grid[i, j] = self.aoi_grid[i, j] * self.poi_grid[i, j]
-
-        # Set up the plot
         fig, ax = plt.subplots(figsize=(8, 8))
         ax.set_xlim(-0.5, self.grid_size - 0.5)
         ax.set_ylim(-0.5, self.grid_size - 0.5)
@@ -372,29 +385,32 @@ class MultiAgentGridWorld(gym.Env):
         ax.set_xticks([])
         ax.set_yticks([])
 
-        # Draw grid with AoI * PoI product as text
-        for i in range(self.grid_size):
-            for j in range(self.grid_size):
-                ax.text(j, i, f'{grid[i, j]:.1f}', ha='center', va='center', fontsize=8, color='black')
+        # Plot the PoI grid as the background
+        ax.imshow(self.poi_grid, cmap='Greens', origin='upper', alpha=0.5)
 
-        # Draw big agents (as stars)
-        for big_agent in self.big_agents:
-            x, y = big_agent['position']
-            ax.scatter(y, x, marker='*', color='blue', s=200, edgecolor='black')
+        # Plot big agent trajectories
+        # Generate a set of blue colors according to len(self.big_agents)
+        colors = cm.Blues(np.linspace(0.5, 1, len(self.big_agents)))
+        for i, (color, trajectory) in enumerate(zip(colors, self.big_agent_trajectories)):
+            if len(trajectory) > 1:
+                traj_x = [pos[1] for pos in trajectory]
+                traj_y = [pos[0] for pos in trajectory]
+                ax.plot(traj_x, traj_y, color=to_hex(color), marker='*', markersize=10, label=f'Big Agent {i}')
 
-        # Draw small agents (as circles)
-        for small_agent in self.small_agents:
-            if small_agent['deployed']:
-                x, y = small_agent['position']
-                ax.scatter(y, x, marker='o', color='red', s=100, edgecolor='black')
+        # Plot small agent trajectories
+        # Generate a set of red colors according to len(self.small_agents)
+        colors = cm.Reds(np.linspace(0.5, 1, len(self.small_agents)))
+        for i, (color, trajectory) in enumerate(zip(colors, self.small_agent_trajectories)):
+            if len(trajectory) > 1:
+                traj_x = [pos[1] for pos in trajectory]
+                traj_y = [pos[0] for pos in trajectory]
+                ax.plot(traj_x, traj_y, color=to_hex(color), marker='o', markersize=5, label=f'Small Agent {i}')
 
-        # Set title and show the plot
-        ax.set_title(f'Timestep: {self.timestep}')
-        plt.show()
-        plt.close()
-        time.sleep(0.1)
-
-
+        ax.set_title(f'Trajectories of Agents')
+        ax.legend()
+        if return_plot:
+            self.figure = fig
+            return fig
 
     def _move_agent(self, agent, action):
         """
@@ -558,8 +574,9 @@ if __name__ == '__main__':
     parser.add_argument('--num-big-agents', type=int, default=2, help='number of big agents')
     parser.add_argument('--num-small-agents', type=int, default=4, help='number of big agents')
     parser.add_argument('--num_episodes', type=int, default=5000, help='number of episodes')
-    parser.add_argument('--self-factor', type=float, default=0.1, help='self factor')
+    parser.add_argument('--self-factor', type=float, default=0, help='self factor')
     parser.add_argument('--group-factor', type=float, default=1, help='group factor')
+    parser.add_argument('--model-path', type=str, default='', help='path to saved model')
     args = parser.parse_args()
     num_episodes: int = args.num_episodes
     gamma = 0.99
@@ -599,6 +616,7 @@ if __name__ == '__main__':
     import datetime
 
     # name = current date + customed name
+    best_mean_aoi = 200
     additional_tags = []
     for item in ['anneal_lr']:
         if config[item]:
@@ -608,6 +626,9 @@ if __name__ == '__main__':
             additional_tags.append(item + '_' + str(config[item]))
     # add date time to name
     expr_name = datetime.datetime.today().strftime("%m%d-%H%M") + '-' + args.name
+    checkpoint_path = os.path.join('/workspace', 'saved_data', 'checkpoints', expr_name)
+    if not os.path.exists(checkpoint_path):
+        os.makedirs(checkpoint_path)
     # add additional_tags to name
     if len(additional_tags) > 0:
         expr_name += ('-' + "-".join(additional_tags))
@@ -644,6 +665,11 @@ if __name__ == '__main__':
     else:
         progress = range(1)
     info = {}
+    if args.mode == 'test' and args.model_path != '':
+        # load model from saved checkpoint
+        checkpoint = torch.load(args.model_path, map_location=device)
+        big_agent_policy.load_state_dict(checkpoint[BIG_AGENT_MODEL])
+        small_agent_policy.load_state_dict(checkpoint[SMALL_AGENT_MODEL])
     # Main loop for environment interaction
     for episode in progress:  # 200 episodes for demonstration
         if anneal_lr:
@@ -671,8 +697,6 @@ if __name__ == '__main__':
                     actions = ppo_joint_act(next_obs, big_agent_policy, small_agent_policy)
             # Step the environment with the selected actions
             next_obs, rewards, next_done, info = env.step(actions)
-            if args.mode == 'test':
-                env.render()
 
             # Accumulate rewards for training and for average reward calculation
             for i in range(NUM_BIG_AGENTS):
@@ -722,21 +746,37 @@ if __name__ == '__main__':
         # average reward with NUM_SMALL_AGENTS in deploy_statistic dict
         for key in deploy_statistic:
             deploy_statistic[key] /= NUM_SMALL_AGENTS
-
-        # add prefix for big agent dict and small agent dict
         log_dict = {}
+        if args.mode == 'test' or episode % EVAL_INTERVAL == 0:
+            figure = env.render()
+            log_dict[f'{PLOT_NAME}'] = figure
+        # add prefix for big agent dict and small agent dict
         for k, v in small_agent_statistic.items():
             log_dict[f'{SMALL_AGENT_TRAIN}/{k}'] = v
         for k, v in big_agent_statistic.items():
             log_dict[f'{BIG_AGENT_TRAIN}/{k}'] = v
-        log_dict.update({
+        log_dict.update(
+            {
             BIG_AGENT_METRIC: avg_big_agent_reward,
             SMALL_AGENT_METRIC: avg_small_agent_reward,
             **info,
             **deploy_statistic,
-        })
+            }
+        )
         assert MEAN_AOI in info
         progress.set_postfix(MEAN_AOI=info[MEAN_AOI])
+        # save best model according min mean aoi
+        if track:
+            if info[MEAN_AOI] < best_mean_aoi:
+                best_mean_aoi = info[MEAN_AOI]
+                # save big and small agent as a single state_dict
+                state_dicts = {
+                    BIG_AGENT_MODEL: big_agent_policy.state_dict(),
+                    SMALL_AGENT_MODEL: small_agent_policy.state_dict(),
+                }
+                torch.save(state_dicts,
+                           os.path.join(checkpoint_path, 'best_model.pt')
+                           )
         if track and wandb.log is not None:
             wandb.log(log_dict)
     wandb.finish()

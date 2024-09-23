@@ -1,7 +1,7 @@
 #!/bin/bash
-exp_name='77_mvp_0922'
+exp_name='77_mvp_0923'
 session_name=$exp_name
-cards=(0 1 2 3)
+cards=(1 2 3)
 card_num=${#cards[@]}
 dry_run=false
 # Process command-line arguments
@@ -57,7 +57,7 @@ for ((i = 0; i < train_num; i++)); do
   card_id=$((i % card_num))
   # shellcheck disable=SC2004
   # if want to add $PATH, remember to add / before $
-  command="CUDA_VISIBLE_DEVICES=${cards[card_id]} python verification/uav_parachute_ugv_test.py --track --name sweep-factor ${trains[i]}"
+  command="CUDA_VISIBLE_DEVICES=${cards[card_id]} python verification/uav_parachute_ugv_test.py --track --name aoi-reward-for-big ${trains[i]}"
   echo "$command"
   if [ "$dry_run" = "false" ] && [ "$choice" != "n" ]
   then
