@@ -1,5 +1,5 @@
 #!/bin/bash
-exp_name='init-pos-fixup'
+exp_name='fix-init-long'
 session_name=$exp_name
 cards=(1 2 3)
 card_num=${#cards[@]}
@@ -57,7 +57,7 @@ for ((i = 0; i < train_num; i++)); do
   card_id=$((i % card_num))
   # shellcheck disable=SC2004
   # if want to add $PATH, remember to add / before $
-  command="CUDA_VISIBLE_DEVICES=${cards[card_id]} python verification/uav_parachute_ugv_test.py --track --name ${exp_name} ${trains[i]}"
+  command="CUDA_VISIBLE_DEVICES=${cards[card_id]} python verification/uav_parachute_ugv_test.py --track --name ${exp_name} ${trains[i]} --num-episodes 50000"
   echo "$command"
   if [ "$dry_run" = "false" ] && [ "$choice" != "n" ]
   then

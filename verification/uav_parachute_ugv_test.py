@@ -30,8 +30,10 @@ EVAL_INTERVAL = 100
 PLOT_NAME = "trajectory"
 BIG_AGENT_METRIC = "big_reward"
 BIG_AGENT_TRAIN = "big_train"
+BIG_AGENT_ACTION = "big_action"
 SMALL_AGENT_TRAIN = "small_train"
 SMALL_AGENT_METRIC = "small_reward"
+SMALL_AGENT_ACTION = "small_action"
 BIG_AGENT_MODEL = "big_model"
 SMALL_AGENT_MODEL = "small_model"
 BIG_AGENT_DEPLOY_METRIC = "big_reward_deploy"
@@ -137,6 +139,7 @@ class MultiAgentGridWorld(gym.Env):
         self.self_factor = self_factor
         self.num_big_agents = num_big_agents
         self.num_small_agents = num_small_agents
+        self.carried_small_agents = self.num_small_agents // self.num_big_agents
         self.timestep = 0
         self.max_timesteps = EPISODE_LENGTH
         self.figure = None
@@ -161,8 +164,10 @@ class MultiAgentGridWorld(gym.Env):
 
         # Initialize agents' positions and state
         self.big_agents = [
-            {'position': [random.randint(0, GRID_SIZE - 1), random.randint(0, GRID_SIZE - 1)], 'carried_agents': 2} for
-            _ in range(self.num_big_agents)]
+            {'position': [GRID_SIZE // 2, GRID_SIZE // 2],
+             'carried_agents': self.carried_small_agents} for
+            _ in range(self.num_big_agents)
+        ]
         self.small_agents = [{'position': None, 'deployed': False, 'last_deploy_status': False} for _ in
                              range(self.num_small_agents)]
 
@@ -183,6 +188,9 @@ class MultiAgentGridWorld(gym.Env):
         self.small_agent_rewards = [0 for _ in range(self.num_small_agents)]
         self.big_agent_trajectories = [[] for _ in range(self.num_big_agents)]
         self.small_agent_trajectories = [[] for _ in range(self.num_small_agents)]
+        self.small_agent_deploy_position = []
+        self.big_agent_actions = [[] for _ in range(self.num_big_agents)]
+        self.small_agent_actions = [[] for _ in range(self.num_small_agents)]
 
     def step(self, actions) -> [dict, dict, bool, dict]:
         info = {}
@@ -218,6 +226,7 @@ class MultiAgentGridWorld(gym.Env):
             # rewards[f'big_{big_agent_id}'] = self.compute_density_reward(big_agent) * self.self_factor
             self.small_agent_deploy_position.append(big_agent['position'].copy())
             self.big_agent_trajectories[big_agent_id].append(big_agent['position'].copy())
+            self.big_agent_actions[big_agent_id].append(movement_action)
             deploy_x, deploy_y = big_agent['position']
             # Record big agent position
             rewards[f'big_{big_agent_id}'] = self.self_factor * self.aoi_grid[deploy_x, deploy_y] * self.poi_grid[
@@ -242,7 +251,7 @@ class MultiAgentGridWorld(gym.Env):
                 # Warn: Penalty make to policy unable to train or not deploying at all.
                 pass
             else:
-                rewards[f'big_{big_agent_id}'] = 0
+                pass
 
         # Update AoI for all grid cells
         self.aoi_grid += 1  # Increment AoI for all PoIs at each timeste
@@ -275,7 +284,7 @@ class MultiAgentGridWorld(gym.Env):
             plt.close(self.figure)
         self.timestep = 0
         self.big_agents = [
-            {'position': [random.randint(0, GRID_SIZE - 1), random.randint(0, GRID_SIZE - 1)], 'carried_agents': 2} for
+            {'position': [GRID_SIZE // 2, GRID_SIZE // 2], 'carried_agents': self.carried_small_agents} for
             _ in range(self.num_big_agents)]
         self.small_agents = [{'position': None, 'deployed': False, 'last_deploy_status': False} for _ in
                              range(self.num_small_agents)]
@@ -283,6 +292,8 @@ class MultiAgentGridWorld(gym.Env):
         self.small_agent_trajectories = [[] for _ in range(self.num_small_agents)]
         self.small_agent_deploy_position = []
         self.big_agent_trajectories = [[] for _ in range(self.num_big_agents)]
+        self.big_agent_actions = [[] for _ in range(self.num_big_agents)]
+        self.small_agent_actions = [[] for _ in range(self.num_small_agents)]
         return self._get_observation()
 
     def _get_vec_observation(self, agent):
@@ -450,7 +461,7 @@ class MultiAgentGridWorld(gym.Env):
     def _deploy_small_agent(self, big_agent_id):
         big_agent = self.big_agents[big_agent_id]
         if big_agent['carried_agents'] > 0:
-            small_agent_id = big_agent_id * 2 + (2 - big_agent['carried_agents'])
+            small_agent_id = big_agent_id * 2 + (self.carried_small_agents - big_agent['carried_agents'])
             small_agent = self.small_agents[small_agent_id]
             small_agent['position'] = big_agent['position'][:]
             small_agent['deployed'] = True
@@ -573,7 +584,7 @@ if __name__ == '__main__':
                         help='mode of the experiment')
     parser.add_argument('--num-big-agents', type=int, default=2, help='number of big agents')
     parser.add_argument('--num-small-agents', type=int, default=4, help='number of big agents')
-    parser.add_argument('--num_episodes', type=int, default=5000, help='number of episodes')
+    parser.add_argument('--num-episodes', type=int, default=5000, help='number of episodes')
     parser.add_argument('--self-factor', type=float, default=0, help='self factor')
     parser.add_argument('--group-factor', type=float, default=1, help='group factor')
     parser.add_argument('--model-path', type=str, default='', help='path to saved model')
@@ -626,12 +637,16 @@ if __name__ == '__main__':
             additional_tags.append(item + '_' + str(config[item]))
     # add date time to name
     expr_name = datetime.datetime.today().strftime("%m%d-%H%M") + '-' + args.name
-    checkpoint_path = os.path.join('/workspace', 'saved_data', 'checkpoints', expr_name)
-    if not os.path.exists(checkpoint_path):
-        os.makedirs(checkpoint_path)
+
     # add additional_tags to name
     if len(additional_tags) > 0:
         expr_name += ('-' + "-".join(additional_tags))
+
+    checkpoint_path = os.path.join('/workspace', 'saved_data', 'checkpoints', expr_name)
+
+    if not os.path.exists(checkpoint_path):
+        os.makedirs(checkpoint_path)
+
     if track:
         # note big_XXX indicates the neural network architecture, XXX is the architecture
         # which may be cnn, mlp, etc.
@@ -745,7 +760,7 @@ if __name__ == '__main__':
                                                                               r != 0]))
         # average reward with NUM_SMALL_AGENTS in deploy_statistic dict
         for key in deploy_statistic:
-            deploy_statistic[key] /= NUM_SMALL_AGENTS
+            deploy_statistic[key] /= env.carried_small_agents
         log_dict = {}
         if args.mode == 'test' or episode % EVAL_INTERVAL == 0:
             figure = env.render()
@@ -755,6 +770,8 @@ if __name__ == '__main__':
             log_dict[f'{SMALL_AGENT_TRAIN}/{k}'] = v
         for k, v in big_agent_statistic.items():
             log_dict[f'{BIG_AGENT_TRAIN}/{k}'] = v
+        for i in range(NUM_BIG_AGENTS):
+            log_dict[f'{BIG_AGENT_ACTION}/Agent{i}'] = wandb.Histogram(env.big_agent_actions[i], num_bins=NUM_ACTIONS)
         log_dict.update(
             {
             BIG_AGENT_METRIC: avg_big_agent_reward,
