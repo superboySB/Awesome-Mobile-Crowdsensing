@@ -1,6 +1,7 @@
 import argparse
 import logging
 import os
+import pandas as pd
 import random
 from collections import namedtuple
 
@@ -246,6 +247,7 @@ class MultiAgentGridWorld(gym.Env):
         self.small_agent_rewards = [0 for _ in range(self.num_small_agents)]
         self.big_agent_trajectories = [[] for _ in range(self.num_big_agents)]
         self.small_agent_trajectories = [[] for _ in range(self.num_small_agents)]
+        self.small_agent_targets = [[] for _ in range(self.num_small_agents)]
         self.small_agent_deploy_position = []
         self.big_agent_actions = [[] for _ in range(self.num_big_agents)]
         self.small_agent_actions = [[] for _ in range(self.num_small_agents)]
@@ -266,6 +268,9 @@ class MultiAgentGridWorld(gym.Env):
                 x, y = small_agent[POSITION]
                 # Record small agent position
                 self.small_agent_trajectories[small_agent_id].append(small_agent[POSITION].copy())
+                self.small_agent_targets[small_agent_id].append(small_agent[TARGET] if
+                                                                small_agent[TARGET] is not None
+                                                                else np.array([-1, -1]))
                 if 0 <= self.emergency_poi_grid[x, y] < self.timestep:
                     emergency_id = self.emergency_mapping[(x, y)]
                     rewards[f'small_{small_agent_id}'] = self.emergency_aoi[emergency_id] / self.max_timesteps
@@ -275,7 +280,7 @@ class MultiAgentGridWorld(gym.Env):
 
                 if small_agent[TARGET] is not None:
                     rewards[f'small_{small_agent_id}'] -= np.linalg.norm(
-                        small_agent[TARGET] - small_agent[POSITION]
+                        (small_agent[TARGET] - small_agent[POSITION]) / self.grid_size
                     )
                     # guide the small agent towards target PoI in observation
                 #
@@ -308,7 +313,7 @@ class MultiAgentGridWorld(gym.Env):
             big_agent_count = 0
             for other_agent in self.big_agents:
                 if other_agent != big_agent:
-                    dist = np.linalg.norm(np.array(other_agent[POSITION]) - big_agent[POSITION])
+                    dist = np.linalg.norm(other_agent[POSITION] - big_agent[POSITION])
                     total_dist += dist
                     big_agent_count += 1
             if big_agent_count > 0:
@@ -403,6 +408,7 @@ class MultiAgentGridWorld(gym.Env):
             range(self.num_small_agents)]
         self.aoi_grid = np.zeros((self.grid_size, self.grid_size))
         self.small_agent_trajectories = [[] for _ in range(self.num_small_agents)]
+        self.small_agent_targets = [[] for _ in range(self.num_small_agents)]
         self.small_agent_deploy_position = []
         self.big_agent_trajectories = [[] for _ in range(self.num_big_agents)]
         self.big_agent_actions = [[] for _ in range(self.num_big_agents)]
@@ -782,7 +788,8 @@ if __name__ == '__main__':
     for item in ['anneal_lr']:
         if config[item]:
             additional_tags.append(item)
-    for item in ['self_factor', 'group_factor']:
+    # add suffix for name at here.
+    for item in []:
         if item in config:
             additional_tags.append(item + '_' + str(config[item]))
     # add date time to name
@@ -936,6 +943,20 @@ if __name__ == '__main__':
         if args.mode == 'test' or episode % EVAL_INTERVAL == 0:
             figure = env.render()
             log_dict[f'{PLOT_NAME}'] = figure
+            # convert small agent position and target to dataframe
+            for small_agent_id, small_agent in enumerate(env.small_agents):
+                # Convert small_agent_trajectories and small_agent_targets into numpy arrays for efficiency
+                trajectories = np.array(env.small_agent_trajectories[small_agent_id])  # Shape: (num_steps, 2)
+                targets = np.array(env.small_agent_targets[small_agent_id])  # Shape: (num_steps, 2)
+                # Create DataFrame directly from the numpy arrays
+                df = pd.DataFrame({
+                    "x": trajectories[:, 0],  # First column from trajectories
+                    "y": trajectories[:, 1],  # Second column from trajectories
+                    "target_x": targets[:, 0],  # First column from targets
+                    "target_y": targets[:, 1],  # Second column from targets
+                }, index=pd.Index(np.arange(trajectories.shape[0]), name="step"))  # Set the index to "step"
+                log_dict[f"small_{small_agent_id}_history"] = wandb.Table(data=df,
+                                                                          columns=["x", "y", "target_x", "target_y"])
         # add prefix for big agent dict and small agent dict
         for k, v in small_agent_statistic.items():
             log_dict[f'{SMALL_AGENT_TRAIN}/{k}'] = v
