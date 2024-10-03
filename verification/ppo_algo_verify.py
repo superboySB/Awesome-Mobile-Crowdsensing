@@ -194,9 +194,11 @@ class PPO(Policy):
         with torch.no_grad():
             if isinstance(next_state, torch.Tensor):
                 if next_state.shape[0] == 1:
+                    # 1D tensor
                     next_state_tensor = next_state.unsqueeze(0).to(device)
                 else:
-                    next_state_tensor = next_state.to(device).unsqueeze(1)
+                    # 2D tensor
+                    next_state_tensor = next_state.to(device)
             else:
                 next_state_tensor = torch.from_numpy(next_state).float().to(device)
 

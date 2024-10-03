@@ -16,12 +16,13 @@ from tqdm import trange
 import matplotlib.pyplot as plt
 from matplotlib.colors import to_hex
 
-from ppo_algo_verify import PPOVecPolicy, PPOCNNPolicy
+from ppo_algo_verify import PPOVecPolicy, PPOCNNPolicy, Policy
 
 LEARNING_RATE = 1e-4
 
 # Constants
 PROJECT_NAME = 'uav-parachute-ugv'
+LOG_ACTION = False
 GAMMA = 0
 RANDOM_ACT = False
 GRID_SIZE = 20
@@ -131,13 +132,18 @@ class Policy(nn.Module):
 
 # Environment class
 
+small_obs_shape = (2, SMALL_AGENT_RANGE, SMALL_AGENT_RANGE)
+
+
 class MultiAgentGridWorld(gym.Env):
-    def __init__(self, num_big_agents, num_small_agents, group_factor=1, self_factor=0.1):
+    def __init__(self, num_big_agents, num_small_agents, group_factor=1, self_factor=0.1,
+                 log_action=False):
         super(MultiAgentGridWorld, self).__init__()
         self.grid_size = GRID_SIZE
         self.group_factor = group_factor
         self.self_factor = self_factor
         self.num_big_agents = num_big_agents
+        self.log_action = log_action
         self.num_small_agents = num_small_agents
         self.carried_small_agents = self.num_small_agents // self.num_big_agents
         self.timestep = 0
@@ -226,11 +232,26 @@ class MultiAgentGridWorld(gym.Env):
             # rewards[f'big_{big_agent_id}'] = self.compute_density_reward(big_agent) * self.self_factor
             self.small_agent_deploy_position.append(big_agent['position'].copy())
             self.big_agent_trajectories[big_agent_id].append(big_agent['position'].copy())
-            self.big_agent_actions[big_agent_id].append(movement_action)
+            if self.log_action:
+                self.big_agent_actions[big_agent_id].append(movement_action)
             deploy_x, deploy_y = big_agent['position']
             # Record big agent position
             rewards[f'big_{big_agent_id}'] = self.self_factor * self.aoi_grid[deploy_x, deploy_y] * self.poi_grid[
                 deploy_x, deploy_y] / self.max_timesteps
+            # calculate the average distance between this big agent and other big agent
+            total_dist = 0
+            big_agent_count = 0
+            for other_agent in self.big_agents:
+                if other_agent != big_agent:
+                    dist = np.linalg.norm(np.array(other_agent['position']) - np.array(big_agent['position']))
+                    total_dist += dist
+                    big_agent_count += 1
+            if big_agent_count > 0:
+                avg_dist = total_dist / big_agent_count
+                info[f'big_{big_agent_id}_avg_dist'] = avg_dist
+            # normalize distance and add as reward
+            if avg_dist > 0:
+                rewards[f'big_{big_agent_id}'] += 0.5 * (avg_dist / GRID_SIZE)
 
             # Handle deployment action
             if deploy_action == 1 and big_agent['carried_agents'] > 0:
@@ -284,9 +305,13 @@ class MultiAgentGridWorld(gym.Env):
             plt.close(self.figure)
         self.timestep = 0
         self.big_agents = [
-            {'position': [GRID_SIZE // 2, GRID_SIZE // 2], 'carried_agents': self.carried_small_agents} for
-            _ in range(self.num_big_agents)]
-        self.small_agents = [{'position': None, 'deployed': False, 'last_deploy_status': False} for _ in
+            {'id': id,
+             'position': [GRID_SIZE // 2, GRID_SIZE // 2],
+             'carried_agents': self.carried_small_agents} for
+            id in range(self.num_big_agents)]
+        self.small_agents = [{
+            'id': id,
+            'position': None, 'deployed': False, 'last_deploy_status': False} for id in
                              range(self.num_small_agents)]
         self.aoi_grid = np.zeros((GRID_SIZE, GRID_SIZE))
         self.small_agent_trajectories = [[] for _ in range(self.num_small_agents)]
@@ -337,7 +362,7 @@ class MultiAgentGridWorld(gym.Env):
         # bug 2: invalid data should be removed from buffer.
         return np.concatenate([np.array(agent['position']) / self.grid_size, action_rewards])
 
-    def _get_grid_observation(self, agent, observation_range):
+    def _get_grid_observation(self, agent, agents, observation_range):
         """
         Generates a grid observation for a UAV agent based on its position
         and the PoI grid.
@@ -345,18 +370,29 @@ class MultiAgentGridWorld(gym.Env):
         x, y = agent['position']
 
         # Extracting the grid portion
-        obs = self.poi_grid[max(0, x - observation_range // 2):min(self.grid_size, x + observation_range // 2),
-              max(0, y - observation_range // 2):min(self.grid_size, y + observation_range // 2)]
+        half_range = observation_range // 2
+        obs = self.poi_grid[max(0, x - half_range):min(self.grid_size, x + half_range),
+              max(0, y - half_range):min(self.grid_size, y + half_range)]
 
         # Padding to make the observation square of size observation_range * observation_range
         padded_obs = np.pad(obs,
-                            ((max(0, observation_range // 2 - x),
-                              max(0, x + observation_range // 2 - self.grid_size)),
-                             (max(0, observation_range // 2 - y),
-                              max(0, y + observation_range // 2 - self.grid_size))),
+                            ((max(0, half_range - x),
+                              max(0, x + half_range - self.grid_size)),
+                             (max(0, half_range - y),
+                              max(0, y + half_range - self.grid_size))),
                             mode='constant', constant_values=0)
 
-        return padded_obs
+        # generate a grid that represents agents in the map, including its sensing range.
+        agent_grid = np.zeros((observation_range, observation_range))
+        # map agent position to grid
+        for single_agent in agents:
+            if 'deploy' in single_agent and single_agent['deploy']:
+                sx, sy = single_agent['position']
+                if abs(sx - x) <= half_range and abs(sy - y) <= half_range:
+                    agent_grid[sx - x + half_range, sy - y + half_range] = 1
+
+        return np.stack([agent_grid, padded_obs], axis=0)
+
 
     def _get_observation(self):
         """
@@ -366,20 +402,22 @@ class MultiAgentGridWorld(gym.Env):
         observations = {}
 
         for big_agent_id, big_agent in enumerate(self.big_agents):
-            observations[f'big_{big_agent_id}'] = self._get_grid_observation(big_agent, BIG_AGENT_RANGE)
+            observations[f'big_{big_agent_id}'] = self._get_grid_observation(big_agent, self.big_agents,
+                                                                             BIG_AGENT_RANGE)
 
         for small_agent_id, small_agent in enumerate(self.small_agents):
             if small_agent['deployed']:
                 if self.small_vec_mode:
                     observations[f'small_{small_agent_id}'] = self._get_vec_observation(small_agent)
                 else:
-                    observations[f'small_{small_agent_id}'] = self._get_grid_observation(small_agent, SMALL_AGENT_RANGE)
+                    observations[f'small_{small_agent_id}'] = self._get_grid_observation(small_agent, self.small_agents,
+                                                                                         SMALL_AGENT_RANGE)
             else:
                 # Small agents not deployed will have masked observation.
                 if self.small_vec_mode:
                     observations[f'small_{small_agent_id}'] = np.zeros(NUM_ACTIONS)
                 else:
-                    observations[f'small_{small_agent_id}'] = np.zeros((SMALL_AGENT_RANGE, SMALL_AGENT_RANGE))
+                    observations[f'small_{small_agent_id}'] = np.zeros(small_obs_shape)
 
         return observations
 
@@ -471,7 +509,7 @@ class MultiAgentGridWorld(gym.Env):
 def test_MultiAgentGridWorld():
     global env
     # Demo of environment interaction
-    env = MultiAgentGridWorld()
+    env = MultiAgentGridWorld(num_big_agents=NUM_BIG_AGENTS, num_small_agents=NUM_SMALL_AGENTS)
     obs = env.reset()
     for _ in range(EPISODE_LENGTH):
         # Random actions for big agents
@@ -510,7 +548,7 @@ def select_actions(agent_type: str, policy, num_agents, obs: dict, actions, env,
             raise NotImplementedError("Invalid agent type: {agent_type}")
 
         # Convert observation to tensor and ensure correct dimensions
-        if len(current_obs.shape) == 1:
+        if len(current_obs.shape) == 1 or len(current_obs.shape) == 3:
             state = torch.from_numpy(current_obs).float().unsqueeze(0).to(device)
         else:
             state = torch.from_numpy(current_obs).float().unsqueeze(0).unsqueeze(0).to(device)
@@ -530,8 +568,8 @@ def select_actions(agent_type: str, policy, num_agents, obs: dict, actions, env,
 
 def ppo_joint_act(
         obs: dict[np.ndarray],
-        big_agent_policy: PPOVecPolicy,
-        small_agent_policy: PPOVecPolicy,
+        big_agent_policy: Policy,
+        small_agent_policy: Policy,
 ) -> dict[int]:
     # Dictionary to hold actions for each agent
     actions = {}
@@ -661,11 +699,11 @@ if __name__ == '__main__':
                               self_factor=args.self_factor, group_factor=args.group_factor)
 
     # Initialize actor-critic models for big and small agents
-    big_agent_policy = PPOCNNPolicy(input_shape=(1, BIG_AGENT_RANGE, BIG_AGENT_RANGE),
+    big_agent_policy = PPOCNNPolicy(input_shape=(2, BIG_AGENT_RANGE, BIG_AGENT_RANGE),
                                     num_actions=[5, 2],
                                     fc_size=64).to(device)
     # small_agent_policy = PPOVecPolicy(input_dim=5 + 2).to(device)
-    small_agent_policy = PPOCNNPolicy(input_shape=(1, SMALL_AGENT_RANGE, SMALL_AGENT_RANGE),
+    small_agent_policy = PPOCNNPolicy(input_shape=small_obs_shape,
                                       num_actions=[NUM_ACTIONS],
                                       fc_size=64).to(device)
 
@@ -733,6 +771,9 @@ if __name__ == '__main__':
 
         # After the episode, update the parameters for big agents and small agents
         if (not RANDOM_ACT) or args.mode == 'train':
+            # (DEBUG) print all shape in next_obs dict
+            # for k, v in next_obs.items():
+            #     print(k, v.shape)
             # select small agent obs and big obs, concat them into together, respectively.
             big_agent_obs = torch.cat([torch.from_numpy(next_obs[f'big_{i}']).float().unsqueeze(0)
                                        for i in range(NUM_BIG_AGENTS)]).to(device)
@@ -770,8 +811,10 @@ if __name__ == '__main__':
             log_dict[f'{SMALL_AGENT_TRAIN}/{k}'] = v
         for k, v in big_agent_statistic.items():
             log_dict[f'{BIG_AGENT_TRAIN}/{k}'] = v
-        for i in range(NUM_BIG_AGENTS):
-            log_dict[f'{BIG_AGENT_ACTION}/Agent{i}'] = wandb.Histogram(env.big_agent_actions[i], num_bins=NUM_ACTIONS)
+        if LOG_ACTION:
+            for i in range(NUM_BIG_AGENTS):
+                log_dict[f'{BIG_AGENT_ACTION}/Agent{i}'] = wandb.Histogram(env.big_agent_actions[i],
+                                                                           num_bins=NUM_ACTIONS)
         log_dict.update(
             {
             BIG_AGENT_METRIC: avg_big_agent_reward,

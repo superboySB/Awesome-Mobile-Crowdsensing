@@ -1,7 +1,8 @@
 #!/bin/bash
-exp_name='add-dis-reward'
+exp_name='77_recheck'
+# not completely edited.
 session_name=$exp_name
-cards=(1 2 3)
+cards=(0 1)
 card_num=${#cards[@]}
 dry_run=false
 # Process command-line arguments
@@ -17,16 +18,13 @@ while [[ $# -gt 0 ]]; do
 done
 # remove NN share_policy all
 trains=(
-  "--self-factor 0 --group-factor 0.5"
-  "--self-factor 0 --group-factor 1"
-  "--self-factor 0 --group-factor 2"
-  "--self-factor 0 --group-factor 3"
-  "--self-factor 0.01 --group-factor 1"
-  "--self-factor 0.05 --group-factor 1"
+  "--dataset Chengdu --emergency_queue_length 3 --alpha 0.9"
+  "--dataset SanFrancisco --emergency_queue_length 3 --alpha 0.9"
 )
 
 
 train_num=${#trains[@]}
+
 if [ "$dry_run" = "false" ]
 then
     echo "Start running expr $exp_name"
@@ -45,6 +43,9 @@ then
         tmux split-window -h;tmux select-layout tiled;tmux select-pane -l;
         tmux split-window -h;tmux split-window -h;tmux select-layout tiled;
 	      tmux select-pane -l;tmux split-window -h;tmux split-window -h;
+	      tmux split-window -h;tmux select-layout tiled;tmux select-pane -t 0;
+	      tmux split-window -h;tmux select-pane -t 2;tmux split-window -h;
+	      tmux select-pane -t 4;tmux split-window -h;tmux select-pane -t 6;
 	      tmux split-window -h;tmux select-layout tiled;
     fi
 fi
@@ -57,12 +58,18 @@ for ((i = 0; i < train_num; i++)); do
   card_id=$((i % card_num))
   # shellcheck disable=SC2004
   # if want to add $PATH, remember to add / before $
-  command="CUDA_VISIBLE_DEVICES=${cards[card_id]} python verification/uav_parachute_ugv_test.py --track --name ${exp_name} ${trains[i]}"
+  command="python warp_drive/marllib_warpdrive_run.py --track --core_arch crowdsim_net --dynamic_zero_shot\
+  --num_drones 4 --num_cars 0 --group auto_allocation --algo trafficppo --share_policy all --switch_step 60000000\
+  --gpu_id ${cards[card_id]} ${trains[i]} --use_2d_state --tag hyperparameters --look_ahead --with_programming_optimization\
+  --reward_mode greedy --prioritized_buffer --emergency_threshold 20 --surveillance_threshold 35\
+  --blur_requirement 5 --NN_buffer --gen_interval 6 --cut_points 300\
+  --selector_type RL --rl_gamma 0 --use_random --intrinsic_mode scaled_dis_aoi --sibling_rivalry\
+  --display_tags dataset emergency_queue_length alpha"
   echo "$command"
   if [ "$dry_run" = "false" ] && [ "$choice" != "n" ]
   then
       tmux send-keys -t $session_name:0."$i" "$command" Enter;
-      echo "The above command will run in pane ${i}."
+      echo "exp ${i} runs successfully"
       sleep 5
   fi
 done
@@ -73,4 +80,3 @@ else
   echo "Operations not executed."
   # Add any cleanup or exit code here if needed
 fi
-# End of file
