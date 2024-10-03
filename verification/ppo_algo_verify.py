@@ -23,10 +23,37 @@ class Policy(nn.Module):
         raise NotImplementedError
 
     def get_value(self, x):
+        """
+        Returns the state value from the critic's output.
+        """
+        return self.value_head(self._get_embedding(x))
+
+    def _get_embedding(self, x):
         raise NotImplementedError
 
-    def get_action_and_value(self, x, actions=None):
-        raise NotImplementedError
+    def get_action_and_value(self, x, actions: list = None):
+        """
+        Returns actions, log probabilities, entropy, and state value, handling MultiDiscrete action space.
+        """
+        emb = self._get_embedding(x)
+        action_probs = [F.softmax(action_head(emb), dim=-1) for action_head in self.action_heads]
+        # detect NaN in action_probs
+        for i, probs in enumerate(action_probs):
+            if torch.isnan(probs).any():
+                raise ValueError('NaN detected in action_probs')
+        distributions = [Categorical(probs=probs) for probs in action_probs]
+
+        # Sample actions if not provided
+        if actions is None:
+            actions = [dist.sample() for dist in distributions]
+
+        log_probs = torch.stack([dist.log_prob(action) for dist, action in zip(distributions, actions)], dim=-1)
+        entropies = torch.stack([dist.entropy() for dist in distributions], dim=-1)
+
+        # Convert actions to a single tensor for compatibility with the rest of the code
+        actions = torch.stack(actions, dim=-1)
+
+        return actions, log_probs, entropies, self.value_head(emb)
 
 
 class VecPolicy(Policy):
@@ -34,33 +61,20 @@ class VecPolicy(Policy):
         super(VecPolicy, self).__init__()
         self.fc1 = nn.Linear(input_dim, fc_size)
         self.fc2 = nn.Linear(fc_size, fc_size)
-        self.action_head = nn.Linear(fc_size, num_actions)
+        if isinstance(num_actions, int):
+            num_actions = [num_actions]
+        self.action_heads = nn.ModuleList([nn.Linear(fc_size, num_action) for num_action in num_actions])
         self.value_head = nn.Linear(fc_size, 1)
 
     def forward(self, x):
-        x = F.relu(self.fc1(x))
-        x = F.relu(self.fc2(x))
-        action_probs = F.softmax(self.action_head(x), dim=-1)
+        action_probs = F.softmax(self.action_head(self._get_embedding(x)), dim=-1)
         state_value = self.value_head(x)
         return action_probs, state_value
 
-    def get_value(self, x):
+    def _get_embedding(self, x):
         x = F.relu(self.fc1(x))
         x = F.relu(self.fc2(x))
-        state_value = self.value_head(x)
-        return state_value
-
-    def get_action_and_value(self, x, actions=None):
-        x = F.relu(self.fc1(x))
-        x = F.relu(self.fc2(x))
-        action_probs = F.softmax(self.action_head(x), dim=-1)
-        m = Categorical(probs=action_probs)
-        # return action, log_prob and entropy
-        if actions is None:
-            actions = m.sample()
-        log_prob = m.log_prob(actions)
-        entropy = m.entropy()
-        return actions, log_prob, entropy, self.value_head(x)
+        return x
 
 
 class CNNPolicy(Policy):
@@ -125,35 +139,6 @@ class CNNPolicy(Policy):
         x = F.relu(self.fc1(x))
         return x
 
-    def get_value(self, x):
-        """
-        Returns the state value from the critic's output.
-        """
-        return self.value_head(self._get_embedding(x))
-
-    def get_action_and_value(self, x, actions: list = None):
-        """
-        Returns actions, log probabilities, entropy, and state value, handling MultiDiscrete action space.
-        """
-        emb = self._get_embedding(x)
-        action_probs = [F.softmax(action_head(emb), dim=-1) for action_head in self.action_heads]
-        # detect NaN in action_probs
-        for i, probs in enumerate(action_probs):
-            if torch.isnan(probs).any():
-                raise ValueError('NaN detected in action_probs')
-        distributions = [Categorical(probs=probs) for probs in action_probs]
-
-        # Sample actions if not provided
-        if actions is None:
-            actions = [dist.sample() for dist in distributions]
-
-        log_probs = torch.stack([dist.log_prob(action) for dist, action in zip(distributions, actions)], dim=-1)
-        entropies = torch.stack([dist.entropy() for dist in distributions], dim=-1)
-
-        # Convert actions to a single tensor for compatibility with the rest of the code
-        actions = torch.stack(actions, dim=-1)
-
-        return actions, log_probs, entropies, self.value_head(emb)
 
 
 class PPO(Policy):

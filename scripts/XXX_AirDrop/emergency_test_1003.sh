@@ -1,5 +1,5 @@
 #!/bin/bash
-exp_name='add-dis-reward-small'
+exp_name='emergency-aoi-test'
 session_name=$exp_name
 cards=(1 2 3)
 card_num=${#cards[@]}
@@ -17,12 +17,9 @@ while [[ $# -gt 0 ]]; do
 done
 # remove NN share_policy all
 trains=(
-  "--self-factor 0 --group-factor 0.5"
   "--self-factor 0 --group-factor 1"
+  "--self-factor 0 --group-factor 1.5"
   "--self-factor 0 --group-factor 2"
-  "--self-factor 0 --group-factor 3"
-  "--self-factor 0.01 --group-factor 1"
-  "--self-factor 0.05 --group-factor 1"
 )
 
 
