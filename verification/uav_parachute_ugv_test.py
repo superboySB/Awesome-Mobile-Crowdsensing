@@ -23,6 +23,13 @@ from ppo_algo_verify import PPOVecPolicy, PPOCNNPolicy, Policy, MultiPPORollout
 # set up logger
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+# create console handler and set level to debug
+ch = logging.StreamHandler()
+ch.setLevel(logging.DEBUG)
+formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+ch.setFormatter(formatter)
+# add ch to logger
+logger.addHandler(ch)
 
 ID = 'id'
 EMERGENCY_NUMBER = 15
@@ -347,16 +354,28 @@ class MultiAgentGridWorld(gym.Env):
             if deploy_action == 1 and len(big_agent[CARRIED_AGENTS]) > 0:
                 # big agent is rewarded with AoI sum of PoIs around the deployment area
                 self.small_agent_deploy_position.append(deploy_position.copy())
-                deploy_reward = self.aoi_grid[deploy_x, deploy_y] * self.poi_grid[
-                    deploy_x, deploy_y] / self.max_timesteps
+                deployed_small_agent = self._deploy_small_agent(big_agent_id)
+                deploy_reward = -np.linalg.norm(deploy_position - deployed_small_agent[TARGET] / self.grid_size)
                 info[f'big_{big_agent_id}_deploy_reward'] = deploy_reward
                 rewards[f'big_{big_agent_id}'] += deploy_reward
                 info[f'big_{big_agent_id}_deploy_time'] = self.timestep
-                self._deploy_small_agent(big_agent_id)
+
             elif deploy_action == 1 and len(big_agent[CARRIED_AGENTS]) == 0:
-                # Penalize big agent for not deploying when there are no small agents to carry
-                # Warn: Penalty make to policy unable to train or not deploying at all.
-                pass
+                # assign emergency in buffer to the closest available UGV.
+                for small_agent in self.small_agents:
+                    if small_agent[DEPLOYED]:
+                        small_x, small_y = small_agent[POSITION]
+                        # confirm the big agent can see this small agent
+                        if np.abs(small_x - deploy_position[0]) < BIG_AGENT_RANGE and \
+                                np.abs(small_y - deploy_position[1]) < BIG_AGENT_RANGE:
+                            if small_agent[TARGET] is None and len(big_agent[TARGETS]) > 0:
+                                small_agent[TARGET] = big_agent[TARGETS].pop()
+                                logger.debug(f"Assignment Operation Successful")
+                                assign_reward = -np.linalg.norm(
+                                    small_agent[POSITION] - small_agent[TARGET] / self.grid_size)
+                                info[f'big_{big_agent_id}_assign_reward'] = assign_reward
+                                rewards[f'big_{big_agent_id}'] += assign_reward
+                                break
             else:
                 pass
 
@@ -620,6 +639,7 @@ class MultiAgentGridWorld(gym.Env):
             small_agent[DEPLOYED] = True
             if len(big_agent[TARGETS]) > 0:
                 small_agent[TARGET] = big_agent[TARGETS].pop()
+            return small_agent
 
 
 def test_MultiAgentGridWorld():
@@ -875,7 +895,7 @@ if __name__ == '__main__':
         deploy_statistic = {}
         # create keys that stores "deploy_reward" and "deploy_time" for each big agent
         for i in range(NUM_BIG_AGENTS):
-            metrics = ['deploy_reward', 'deploy_time']
+            metrics = ['deploy_reward', 'deploy_time', 'assign_reward']
             for metric in metrics:
                 deploy_statistic[f'big_{i}_{metric}'] = 0
         small_agent_statistic = {}
