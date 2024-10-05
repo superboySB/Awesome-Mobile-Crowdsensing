@@ -318,6 +318,35 @@ class PPOCNNPolicy(PPO, CNNPolicy):
         CNNPolicy.__init__(self, input_shape=input_shape, num_actions=num_actions, fc_size=fc_size)
 
 
+class MultiPPORollout:
+    """
+    Support MultiAgent for PPO.
+    """
+
+    def __init__(self, num_agents):
+        self.num_agents = num_agents
+        self.saved_actions = [[] for _ in range(num_agents)]
+        self.rewards = [[] for _ in range(num_agents)]
+        self.dones = [[] for _ in range(num_agents)]
+        self.log_probs = [[] for _ in range(num_agents)]
+        self.saved_obs = [[] for _ in range(num_agents)]
+        self.values = [[] for _ in range(num_agents)]
+
+    def concatenate_rollouts(self, my_policy: PPO):
+        """
+        Concatenate all the rollouts into one list
+        """
+        rollout_items = ['saved_actions', 'rewards', 'dones', 'log_probs', 'saved_obs', 'values']
+        for item in rollout_items:
+            list(map(getattr(my_policy, item).extend, getattr(self, item)))
+        # reset all the rollouts
+        for item in rollout_items:
+            getattr(self, item)[:] = [[] for _ in range(self.num_agents)]
+
+
+
+
+
 def make_env(env_id, idx, capture_video=False, run_name=None):
     def thunk():
         if capture_video and idx == 0:

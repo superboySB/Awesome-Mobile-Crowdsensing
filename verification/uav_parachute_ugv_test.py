@@ -18,7 +18,7 @@ from matplotlib.colors import to_hex
 from torch.distributions import Categorical
 from tqdm import trange
 
-from ppo_algo_verify import PPOVecPolicy, PPOCNNPolicy, Policy
+from ppo_algo_verify import PPOVecPolicy, PPOCNNPolicy, Policy, MultiPPORollout
 
 # set up logger
 logging.basicConfig(level=logging.INFO)
@@ -181,12 +181,15 @@ class MultiAgentGridWorld(gym.Env):
         else:
             self.small_agent_shape = (2, SMALL_AGENT_RANGE, SMALL_AGENT_RANGE)
         self.observation_space = {
-            f'big_{i}': Box(low=np.zeros(self.big_agent_shape), high=np.ones(self.big_agent_shape), dtype=np.float32)
+            f'big_{i}': Box(low=np.zeros(self.big_agent_shape, dtype=np.float32),
+                            high=np.ones(self.big_agent_shape, dtype=np.float32),
+                            dtype=np.float32)
             for i in range(self.num_big_agents)
         }
         self.observation_space.update({
-            f'small_{i}': Box(low=np.zeros(self.small_agent_shape),
-                              high=np.ones(self.small_agent_shape), dtype=np.float32)
+            f'small_{i}': Box(low=np.zeros(self.small_agent_shape, dtype=np.float32),
+                              high=np.ones(self.small_agent_shape, dtype=np.float32),
+                              dtype=np.float32)
             for i in range(self.num_small_agents)
         })
         random.seed(self.seed)
@@ -205,11 +208,12 @@ class MultiAgentGridWorld(gym.Env):
         # Initialize agents' positions and state
         self.big_agents = [
             {
+                ID: big_id,
                 POSITION: [self.grid_size // 2, self.grid_size // 2],
-                CARRIED_AGENTS: self.carried_small_agents,
+                CARRIED_AGENTS: [small_id for small_id in range(self.carried_small_agents * (big_id + 1))],
                 TARGETS: [],
             } for
-            _ in range(self.num_big_agents)
+            big_id in range(self.num_big_agents)
         ]
         self.small_agents = [{POSITION: None, DEPLOYED: False,
                               'last_deploy_status': False, TARGET: None} for _ in
@@ -261,7 +265,6 @@ class MultiAgentGridWorld(gym.Env):
         # Process small agent actions
         for small_agent_id, small_agent in enumerate(self.small_agents):
             small_agent['last_deploy_status'] = small_agent[DEPLOYED]
-
             if small_agent[DEPLOYED]:
                 action = actions[f'small_{small_agent_id}']
                 self._move_agent(small_agent, action)
@@ -300,7 +303,6 @@ class MultiAgentGridWorld(gym.Env):
             else:
                 raise NotImplementedError("Action must be a numpy array")
             self._move_agent(big_agent, movement_action)
-            self.small_agent_deploy_position.append(big_agent[POSITION].copy())
             self.big_agent_trajectories[big_agent_id].append(big_agent[POSITION].copy())
             if self.log_action:
                 self.big_agent_actions[big_agent_id].append(movement_action)
@@ -342,15 +344,16 @@ class MultiAgentGridWorld(gym.Env):
             self.emergency_assign_status[valid_emer_ids] = True
 
             # Handle deployment action
-            if deploy_action == 1 and big_agent[CARRIED_AGENTS] > 0:
+            if deploy_action == 1 and len(big_agent[CARRIED_AGENTS]) > 0:
                 # big agent is rewarded with AoI sum of PoIs around the deployment area
+                self.small_agent_deploy_position.append(deploy_position.copy())
                 deploy_reward = self.aoi_grid[deploy_x, deploy_y] * self.poi_grid[
                     deploy_x, deploy_y] / self.max_timesteps
                 info[f'big_{big_agent_id}_deploy_reward'] = deploy_reward
                 rewards[f'big_{big_agent_id}'] += deploy_reward
                 info[f'big_{big_agent_id}_deploy_time'] = self.timestep
                 self._deploy_small_agent(big_agent_id)
-            elif deploy_action == 1 and big_agent[CARRIED_AGENTS] == 0:
+            elif deploy_action == 1 and len(big_agent[CARRIED_AGENTS]) == 0:
                 # Penalize big agent for not deploying when there are no small agents to carry
                 # Warn: Penalty make to policy unable to train or not deploying at all.
                 pass
@@ -361,12 +364,6 @@ class MultiAgentGridWorld(gym.Env):
         self.aoi_grid += 1
         # increment emergency only when it starts and it is not handled.
         self.emergency_aoi[emergency_unhandle_mask] += 1
-
-        # Big agents get rewards based on the total rewards of their small agents for this timestep
-        # for big_agent_id, big_agent in enumerate(self.big_agents):
-        #     small_agent_ids = range(big_agent_id * self.carried_small_agents,
-        #                             (big_agent_id + 1) * self.carried_small_agents)
-        #     rewards[f'big_{big_agent_id}'] += self.group_factor * sum(rewards[f'small_{i}'] for i in small_agent_ids)
 
         # self.aoi_grid_by_time[self.timestep] = self.aoi_grid * self.poi_grid
         self.timestep += 1
@@ -395,12 +392,12 @@ class MultiAgentGridWorld(gym.Env):
         self.emergency_assign_status = np.zeros(self.num_emergencies, dtype=np.bool8)
         self.emergency_end_time = np.full(self.num_emergencies, -1)
         self.big_agents = [
-            {ID: id,
+            {ID: big_id,
              POSITION: np.array([self.grid_size // 2, self.grid_size // 2]),
-             CARRIED_AGENTS: self.carried_small_agents,
+             CARRIED_AGENTS: [small_id for small_id in range(self.carried_small_agents * (big_id + 1))],
              TARGETS: [],
              } for
-            id in range(self.num_big_agents)]
+            big_id in range(self.num_big_agents)]
         self.small_agents = [{
             ID: id,
             POSITION: None, DEPLOYED: False, TARGET: None,
@@ -560,8 +557,8 @@ class MultiAgentGridWorld(gym.Env):
         colors = cm.Blues(np.linspace(0.5, 1, len(self.big_agents)))
         for i, (color, trajectory) in enumerate(zip(colors, self.big_agent_trajectories)):
             if len(trajectory) > 1:
-                traj_x = [pos[1] for pos in trajectory]
-                traj_y = [pos[0] for pos in trajectory]
+                combined_traj = np.array(trajectory).reshape(-1, 2)
+                traj_x, traj_y = combined_traj[:, 0], combined_traj[:, 1]
                 ax.plot(traj_x, traj_y, color=to_hex(color), marker='*', markersize=10, label=f'Big Agent {i}')
 
         # Plot small agent trajectories
@@ -569,8 +566,8 @@ class MultiAgentGridWorld(gym.Env):
         colors = cm.Reds(np.linspace(0.5, 1, len(self.small_agents)))
         for i, (color, trajectory) in enumerate(zip(colors, self.small_agent_trajectories)):
             if len(trajectory) > 1:
-                traj_x = [pos[1] for pos in trajectory]
-                traj_y = [pos[0] for pos in trajectory]
+                combined_traj = np.array(trajectory).reshape(-1, 2)
+                traj_x, traj_y = combined_traj[:, 0], combined_traj[:, 1]
                 ax.plot(traj_x, traj_y, color=to_hex(color), marker='o', markersize=5, label=f'Small Agent {i}')
 
         ax.set_title(f'Trajectories of Agents')
@@ -590,14 +587,14 @@ class MultiAgentGridWorld(gym.Env):
         else:
             step_size = 1  # Default step size for small agents
 
-        if action == UP:
-            agent[POSITION][0] = max(0, agent[POSITION][0] - step_size)
-        elif action == DOWN:
-            agent[POSITION][0] = min(self.grid_size - 1, agent[POSITION][0] + step_size)
-        elif action == LEFT:
+        if action == DOWN:
             agent[POSITION][1] = max(0, agent[POSITION][1] - step_size)
-        elif action == RIGHT:
+        elif action == UP:
             agent[POSITION][1] = min(self.grid_size - 1, agent[POSITION][1] + step_size)
+        elif action == LEFT:
+            agent[POSITION][0] = max(0, agent[POSITION][0] - step_size)
+        elif action == RIGHT:
+            agent[POSITION][0] = min(self.grid_size - 1, agent[POSITION][0] + step_size)
         elif action == STOP:
             pass  # Do nothing
 
@@ -616,15 +613,13 @@ class MultiAgentGridWorld(gym.Env):
 
     def _deploy_small_agent(self, big_agent_id):
         big_agent = self.big_agents[big_agent_id]
-        if big_agent[CARRIED_AGENTS] > 0:
-            small_agent_id = (big_agent_id * self.carried_small_agents +
-                              self.carried_small_agents - big_agent[CARRIED_AGENTS])
+        if len(big_agent[CARRIED_AGENTS]) > 0:
+            small_agent_id = big_agent[CARRIED_AGENTS].pop()
             small_agent = self.small_agents[small_agent_id]
-            small_agent[POSITION] = big_agent[POSITION][:]
+            small_agent[POSITION] = big_agent[POSITION].copy()
             small_agent[DEPLOYED] = True
             if len(big_agent[TARGETS]) > 0:
                 small_agent[TARGET] = big_agent[TARGETS].pop()
-            big_agent[CARRIED_AGENTS] -= 1
 
 
 def test_MultiAgentGridWorld():
@@ -655,7 +650,8 @@ def random_act(env):
     return actions
 
 
-def select_actions(agent_type: str, policy, num_agents, obs: dict, actions, env, device):
+def select_actions(agent_type: str, policy, num_agents, obs: dict, actions, env, device,
+                   rollout: MultiPPORollout = None):
     for i in range(num_agents):
         if agent_type == 'big':
             current_obs = obs[f'big_{i}']
@@ -676,11 +672,17 @@ def select_actions(agent_type: str, policy, num_agents, obs: dict, actions, env,
         # Get action, log probability, and state value from policy
         action, log_prob, _, state_value = policy.get_action_and_value(state)
 
-        # Save the action, log probability, and state value for training later
-        policy.saved_actions.append(action)
-        policy.log_probs.append(log_prob)
-        policy.values.append(state_value.squeeze())
-        policy.saved_obs.append(state)
+        if rollout is not None:
+            rollout.saved_actions[i].append(action)
+            rollout.log_probs[i].append(log_prob)
+            rollout.values[i].append(state_value.squeeze())
+            rollout.saved_obs[i].append(state)
+        else:
+            # Save the action, log probability, and state value for training later
+            policy.saved_actions.append(action)
+            policy.log_probs.append(log_prob)
+            policy.values.append(state_value.squeeze())
+            policy.saved_obs.append(state)
 
         # Record the selected action
         actions[f'{agent_type}_{i}'] = action.cpu().numpy()
@@ -736,7 +738,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--track', action='store_true', help='track the experiment')
     parser.add_argument('--name', type=str, default='test', help='name of the experiment')
-    parser.add_argument('--mode', type=str, choices=['train', 'test'], default='train',
+    parser.add_argument('--mode', type=str, choices=['train', 'test', 'debug'], default='train',
                         help='mode of the experiment')
     parser.add_argument('--num-big-agents', type=int, default=2, help='number of big agents')
     parser.add_argument('--num-small-agents', type=int, default=4, help='number of big agents')
@@ -789,7 +791,7 @@ if __name__ == '__main__':
         if config[item]:
             additional_tags.append(item)
     # add suffix for name at here.
-    for item in []:
+    for item in ['group_factor']:
         if item in config:
             additional_tags.append(item + '_' + str(config[item]))
     # add date time to name
@@ -825,6 +827,9 @@ if __name__ == '__main__':
                                           num_actions=small_action_shape,
                                           fc_size=HIDDEN_SIZE).to(device)
 
+    small_agent_rollout = MultiPPORollout(num_agents=NUM_SMALL_AGENTS)
+    big_agent_rollout = MultiPPORollout(num_agents=NUM_BIG_AGENTS)
+
     if track:
         # note big_XXX indicates the neural network architecture, XXX is the architecture
         # which may be cnn, mlp, etc.
@@ -846,7 +851,10 @@ if __name__ == '__main__':
     if args.mode == 'train':
         progress = trange(num_episodes)
     else:
-        progress = range(1)
+        progress = trange(10)
+    if args.mode == 'debug':
+        logger.setLevel(logging.DEBUG)
+        EVAL_INTERVAL = 1
     info = {}
     if args.mode == 'test' and args.model_path != '':
         # load model from saved checkpoint
@@ -879,16 +887,18 @@ if __name__ == '__main__':
                 with torch.no_grad():
                     actions = {}
                     # Usage for big agents
-                    select_actions('big', big_agent_policy, NUM_BIG_AGENTS, next_obs, actions, env, device)
+                    select_actions('big', big_agent_policy, NUM_BIG_AGENTS,
+                                   next_obs, actions, env, device, big_agent_rollout)
                     # Usage for small agents
-                    select_actions('small', small_agent_policy, NUM_SMALL_AGENTS, next_obs, actions, env, device)
+                    select_actions('small', small_agent_policy, NUM_SMALL_AGENTS,
+                                   next_obs, actions, env, device, small_agent_rollout)
             # Step the environment with the selected actions
             next_obs, rewards, next_done, info = env.step(actions)
 
             # Accumulate rewards for training and for average reward calculation
             for i in range(NUM_BIG_AGENTS):
-                big_agent_policy.rewards.append(rewards[f'big_{i}'])
-                big_agent_policy.dones.append(next_done)
+                big_agent_rollout.rewards[i].append(rewards[f'big_{i}'])
+                big_agent_rollout.dones[i].append(next_done)
                 total_big_agent_rewards[i] += rewards[f'big_{i}']
                 for metric in deploy_statistic.keys():
                     if metric in info:
@@ -896,8 +906,8 @@ if __name__ == '__main__':
 
             for i in range(NUM_SMALL_AGENTS):
                 if env.small_agents[i]['last_deploy_status']:
-                    small_agent_policy.rewards.append(rewards[f'small_{i}'])
-                    small_agent_policy.dones.append(next_done)
+                    small_agent_rollout.rewards[i].append(rewards[f'small_{i}'])
+                    small_agent_rollout.dones[i].append(next_done)
                     total_small_agent_rewards[i] += rewards[f'small_{i}']
 
             if next_done:
@@ -905,9 +915,8 @@ if __name__ == '__main__':
 
         # After the episode, update the parameters for big agents and small agents
         if (not RANDOM_ACT) or args.mode == 'train':
-            # (DEBUG) print all shape in next_obs dict
-            # for k, v in next_obs.items():
-            #     print(k, v.shape)
+            small_agent_rollout.concatenate_rollouts(small_agent_policy)
+            big_agent_rollout.concatenate_rollouts(big_agent_policy)
             # select small agent obs and big obs, concat them into together, respectively.
             big_agent_obs = torch.cat([torch.from_numpy(next_obs[f'big_{i}']).float().unsqueeze(0)
                                        for i in range(NUM_BIG_AGENTS)]).to(device)

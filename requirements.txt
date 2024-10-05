@@ -32,9 +32,9 @@ shapely~=2.0.2
 supersuit~=3.2.0
 torch~=2.1.0
 tensorboardX
-tqdm~=4.66.1
+tqdm
 ujson
-wandb~=0.16.0
+wandb
 gputil
 tabulate~=0.9.0
 networkx~=3.2.1
