@@ -206,8 +206,6 @@ class PPO(Policy):
 
             returns = advantages + values
 
-        # advantages = (advantages - advantages.mean()) / (advantages.std() + eps)
-
         # Flatten tensors
         if len(log_probs[0].shape) > 1:
             old_log_probs = torch.cat(log_probs).squeeze(-1)
@@ -249,7 +247,9 @@ class PPO(Policy):
                 # PPO Loss computation
                 logratio = (mb_log_probs - old_log_probs[mb_inds])
                 ratio = logratio.exp()
-                mb_advantages = (mb_advantages - mb_advantages.mean()) / (mb_advantages.std() + eps).to(torch.float32)
+                if len(mb_advantages) > 1:
+                    mb_advantages = (mb_advantages - mb_advantages.mean()) / (mb_advantages.std() + eps).to(
+                        torch.float32)
                 if len(ratio.shape) == 1:
                     ratio = ratio.unsqueeze(-1)
                 mb_advantages = mb_advantages.unsqueeze(-1)
@@ -286,6 +286,8 @@ class PPO(Policy):
                 optimizer.zero_grad()
                 loss.backward()
                 nn.utils.clip_grad_norm_(self.parameters(), max_grad_norm)
+                if torch.isnan(loss).any():
+                    raise ValueError("Loss is nan")
                 optimizer.step()
 
         # Reset action, reward, and value buffers

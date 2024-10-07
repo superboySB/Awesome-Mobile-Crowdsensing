@@ -1,7 +1,7 @@
 #!/bin/bash
-exp_name='emergency-surveillance'
+exp_name='emer-surv-neg'
 session_name=$exp_name
-cards=(1 2 3)
+cards=(0 1 2 3)
 card_num=${#cards[@]}
 dry_run=false
 # Process command-line arguments
@@ -17,7 +17,10 @@ while [[ $# -gt 0 ]]; do
 done
 # remove NN share_policy all
 trains=(
-  "--group-factor 1"
+  "--group-factor 0.01"
+  "--group-factor 0.05"
+  "--group-factor 0.1"
+  "--group-factor 0.5"
 )
 
 

@@ -265,6 +265,7 @@ class MultiAgentGridWorld(gym.Env):
                     self.emergency_end_time[emergency_id] = self.timestep
                     if np.all(small_agent[POSITION] == small_agent[TARGET]):
                         small_agent[TARGET] = None
+                        rewards[f'small_{small_agent_id}'] = 1
 
                 if small_agent[TARGET] is not None:
                     # target_aoi = self.emergency_aoi[self.emergency_mapping[tuple(small_agent[TARGET])]]
@@ -272,7 +273,8 @@ class MultiAgentGridWorld(gym.Env):
                         (small_agent[TARGET] - small_agent[POSITION]) / self.grid_size
                     )
 
-                rewards[f'small_{small_agent_id}'] += self.aoi_grid[x, y] * self.poi_grid[x, y] / self.max_timesteps
+                rewards[f'small_{small_agent_id}'] += self.group_factor * self.aoi_grid[x, y] * self.poi_grid[
+                    x, y] / self.max_timesteps
                 #
                 # self.max_reward = max(self.max_reward, rewards[f'small_{small_agent_id}'])
                 # self.min_reward = min(self.min_reward, rewards[f'small_{small_agent_id}'])
@@ -317,7 +319,7 @@ class MultiAgentGridWorld(gym.Env):
             distances = np.abs(self.emergency_positions - deploy_position)  # Shape: (num_emergencies, 2)
             within_range_mask = (distances[:, 0] <= BIG_AGENT_RANGE) & (distances[:, 1] <= BIG_AGENT_RANGE)
             # Combine the two masks to get the valid emergencies
-            valid_emergencies_mask = unassigned_mask & within_range_mask & emergency_unhandle_mask
+            valid_emergencies_mask = unassigned_mask & emergency_unhandle_mask & within_range_mask
             # Get valid emergency IDs and their AoI values
             valid_emer_ids = self.emer_ids[valid_emergencies_mask]
             valid_emergency_positions = self.emergency_positions[valid_emergencies_mask]
@@ -337,7 +339,7 @@ class MultiAgentGridWorld(gym.Env):
                 if deployed_small_agent[TARGET] is None:
                     deploy_reward = 0
                 else:
-                    deploy_reward = 1 - np.linalg.norm(
+                    deploy_reward = - np.linalg.norm(
                         (deploy_position - deployed_small_agent[TARGET]) / self.grid_size)
                 info[f'big_{big_agent_id}_deploy_reward'] = deploy_reward
                 rewards[f'big_{big_agent_id}'] += deploy_reward
@@ -354,7 +356,7 @@ class MultiAgentGridWorld(gym.Env):
                             if small_agent[TARGET] is None and len(big_agent[TARGETS]) > 0:
                                 small_agent[TARGET] = big_agent[TARGETS].pop()
                                 logger.debug(f"Assignment Operation Successful")
-                                assign_reward = -np.linalg.norm(
+                                assign_reward = - np.linalg.norm(
                                     (small_agent[POSITION] - small_agent[TARGET]) / self.grid_size)
                                 info[f'big_{big_agent_id}_assign_reward'] = assign_reward
                                 rewards[f'big_{big_agent_id}'] += assign_reward
