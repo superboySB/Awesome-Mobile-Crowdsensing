@@ -1,5 +1,5 @@
 #!/bin/bash
-exp_name='emergency-aoi-assign-test'
+exp_name='emergency-surveillance'
 session_name=$exp_name
 cards=(1 2 3)
 card_num=${#cards[@]}
@@ -17,9 +17,7 @@ while [[ $# -gt 0 ]]; do
 done
 # remove NN share_policy all
 trains=(
-  "--self-factor 0 --group-factor 1"
-  "--self-factor 0 --group-factor 1.5"
-  "--self-factor 0 --group-factor 2"
+  "--group-factor 1"
 )
 
 
@@ -54,7 +52,7 @@ for ((i = 0; i < train_num; i++)); do
   card_id=$((i % card_num))
   # shellcheck disable=SC2004
   # if want to add $PATH, remember to add / before $
-  command="CUDA_VISIBLE_DEVICES=${cards[card_id]} python verification/uav_parachute_ugv_test.py --track --name ${exp_name} ${trains[i]}"
+  command="CUDA_VISIBLE_DEVICES=${cards[card_id]} python verification/uav_parachute_ugv_test.py --track --name ${exp_name} ${trains[i]} --num-episodes 10000"
   echo "$command"
   if [ "$dry_run" = "false" ] && [ "$choice" != "n" ]
   then

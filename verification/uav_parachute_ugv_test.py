@@ -1,6 +1,8 @@
 import argparse
 import logging
 import os
+from typing import List, Any, Union
+
 import pandas as pd
 import random
 from collections import namedtuple
@@ -41,6 +43,7 @@ LEARNING_RATE = 1e-4
 # Constants
 PROJECT_NAME = 'uav-parachute-ugv'
 LOG_ACTION = False
+LOG_TABLE = False
 GAMMA = 0
 RANDOM_ACT = False
 FIX_SMALL_AGENT = True
@@ -60,7 +63,7 @@ TARGETS = "big_agent_targets"
 TARGET = "small_agent_target"
 SMALL_AGENT_MODEL = "small_model"
 BIG_AGENT_DEPLOY_METRIC = "big_reward_deploy"
-MEAN_AOI = "mean_aoi"
+SURVEILLANCE_AOI = "surveillance_aoi"
 EMERGENCY_AOI = "emergency_aoi"
 BIG_AGENT_RANGE = 8
 SMALL_AGENT_RANGE = 4
@@ -154,8 +157,18 @@ class Policy(nn.Module):
 
 
 class MultiAgentGridWorld(gym.Env):
+    emergency_aoi: np.ndarray
+    aoi_grid_by_time: np.ndarray
+    emergency_state_time: np.ndarray
+    emergency_assign_status: np.ndarray
+    timestep: int
+    small_agent_targets: list[list[Any]]
+    small_agent_trajectories: list[list[Any]]
+    big_agent_trajectories: list[list[Any]]
+    emergency_poi_grid: np.ndarray
+
     def __init__(self, num_big_agents, num_small_agents, group_factor=1, self_factor=0.1,
-                 log_action=False, num_emergencies=EMERGENCY_NUMBER):
+                 log_action=LOG_ACTION, num_emergencies=EMERGENCY_NUMBER):
         super(MultiAgentGridWorld, self).__init__()
         self.big_agent_shape = self.small_agent_shape = None
         self.grid_size = GRID_SIZE
@@ -166,7 +179,7 @@ class MultiAgentGridWorld(gym.Env):
         self.log_action = log_action
         self.num_small_agents = num_small_agents
         self.carried_small_agents = self.num_small_agents // self.num_big_agents
-        self.timestep = 0
+
         self.max_timesteps = EPISODE_LENGTH
         self.figure = None
 
@@ -211,25 +224,10 @@ class MultiAgentGridWorld(gym.Env):
             'big': self.big_action_space,
             'small': self.small_action_space
         }
-
-        # Initialize agents' positions and state
-        self.big_agents = [
-            {
-                ID: big_id,
-                POSITION: [self.grid_size // 2, self.grid_size // 2],
-                CARRIED_AGENTS: [small_id for small_id in range(self.carried_small_agents * (big_id + 1))],
-                TARGETS: [],
-            } for
-            big_id in range(self.num_big_agents)
-        ]
-        self.small_agents = [{POSITION: None, DEPLOYED: False,
-                              'last_deploy_status': False, TARGET: None} for _ in
-                             range(self.num_small_agents)]
-
+        self.reset_states()
+        self.emergency_poi_grid = np.full((self.grid_size, self.grid_size), fill_value=-1)
         # Initialize the PoI grid with certain clustered PoI values
         self.poi_grid = generate_clusters(self.grid_size, NUM_CLUSTERS, CLUSTER_RADIUS, MAX_VALUE)
-        self.emergency_poi_grid = np.full((self.grid_size, self.grid_size), fill_value=-1)
-        # in emergency poi grid, -1 means no emergency; any positive value means the time when emergency occurs
         # randomly generate 15 distinct poi with numpy indexing
         emergency_x = np.random.choice(self.grid_size, size=self.num_emergencies, replace=False)
         emergency_y = np.random.choice(self.grid_size, size=self.num_emergencies, replace=False)
@@ -239,29 +237,9 @@ class MultiAgentGridWorld(gym.Env):
             (x, y): i for i, (x, y) in enumerate(zip(emergency_x, emergency_y))
         }
         self.emergency_start_time = np.random.randint(1, self.max_timesteps, size=self.num_emergencies)
-        self.emergency_end_time = np.full(self.num_emergencies, fill_value=-1)
-        self.emergency_assign_status = np.zeros(self.num_emergencies, dtype=np.bool8)
         self.emergency_poi_grid[emergency_x, emergency_y] = self.emergency_start_time
         self.num_poi = np.sum(self.poi_grid) + self.num_emergencies
 
-        # Initialize AoI grid (starts at 0 for all PoIs)
-        self.aoi_grid = np.zeros((self.grid_size, self.grid_size))
-        self.emergency_aoi = np.zeros(self.num_emergencies)
-        self.aoi_grid_by_time = np.zeros((self.max_timesteps, self.grid_size, self.grid_size))
-        self.max_reward = self.poi_grid.max()
-        self.min_reward = 0
-        # self.max_deploy_reward = self.max_reward
-        # self.min_deploy_reward = 0
-
-        # Initialize rewards
-        self.big_agent_rewards = [0 for _ in range(self.num_big_agents)]
-        self.small_agent_rewards = [0 for _ in range(self.num_small_agents)]
-        self.big_agent_trajectories = [[] for _ in range(self.num_big_agents)]
-        self.small_agent_trajectories = [[] for _ in range(self.num_small_agents)]
-        self.small_agent_targets = [[] for _ in range(self.num_small_agents)]
-        self.small_agent_deploy_position = []
-        self.big_agent_actions = [[] for _ in range(self.num_big_agents)]
-        self.small_agent_actions = [[] for _ in range(self.num_small_agents)]
 
     def step(self, actions) -> [dict, dict, bool, dict]:
         info = {}
@@ -289,16 +267,18 @@ class MultiAgentGridWorld(gym.Env):
                         small_agent[TARGET] = None
 
                 if small_agent[TARGET] is not None:
+                    target_aoi = self.emergency_aoi[self.emergency_mapping[tuple(small_agent[TARGET])]]
                     rewards[f'small_{small_agent_id}'] -= np.linalg.norm(
                         (small_agent[TARGET] - small_agent[POSITION]) / self.grid_size
-                    )
-                    # guide the small agent towards target PoI in observation
+                    ) * target_aoi
+
+                rewards[f'small_{small_agent_id}'] += self.aoi_grid[x, y] * self.poi_grid[x, y] / self.max_timesteps
                 #
                 # self.max_reward = max(self.max_reward, rewards[f'small_{small_agent_id}'])
                 # self.min_reward = min(self.min_reward, rewards[f'small_{small_agent_id}'])
                 # rewards[f'small_{small_agent_id}'] = (
                 #         (rewards[f'small_{small_agent_id}'] - self.min_reward) / (self.max_reward - self.min_reward))
-                # self.aoi_grid[x, y] = 0
+                self.aoi_grid[x, y] = 0
             else:
                 rewards[f'small_{small_agent_id}'] = 0
 
@@ -332,8 +312,6 @@ class MultiAgentGridWorld(gym.Env):
             # if avg_dist > 0:
             #     rewards[f'big_{big_agent_id}'] += 0.5 * (avg_dist / self.grid_size)
 
-            # Get boolean mask of emergencies that haven't been assigned
-
             # Calculate distance between all emergencies and the deployment point (deploy_x, deploy_y)
             deploy_position = big_agent[POSITION]  # Shape: (2,)
             distances = np.abs(self.emergency_positions - deploy_position)  # Shape: (num_emergencies, 2)
@@ -346,6 +324,7 @@ class MultiAgentGridWorld(gym.Env):
             valid_aoi = self.emergency_aoi[valid_emer_ids]
             # Apply discovery reward for valid emergencies
             rewards[f'big_{big_agent_id}'] += np.sum(valid_aoi) / self.max_timesteps
+            info[f'big_{big_agent_id}_targets'] = len(big_agent[TARGETS])
             # Update targets for the big agent and mark emergencies as assigned
             big_agent[TARGETS].extend(valid_emergency_positions)
             self.emergency_assign_status[valid_emer_ids] = True
@@ -355,7 +334,11 @@ class MultiAgentGridWorld(gym.Env):
                 # big agent is rewarded with AoI sum of PoIs around the deployment area
                 self.small_agent_deploy_position.append(deploy_position.copy())
                 deployed_small_agent = self._deploy_small_agent(big_agent_id)
-                deploy_reward = -np.linalg.norm(deploy_position - deployed_small_agent[TARGET] / self.grid_size)
+                if deployed_small_agent[TARGET] is None:
+                    deploy_reward = 0
+                else:
+                    deploy_reward = 1 - np.linalg.norm(
+                        (deploy_position - deployed_small_agent[TARGET]) / self.grid_size)
                 info[f'big_{big_agent_id}_deploy_reward'] = deploy_reward
                 rewards[f'big_{big_agent_id}'] += deploy_reward
                 info[f'big_{big_agent_id}_deploy_time'] = self.timestep
@@ -372,7 +355,7 @@ class MultiAgentGridWorld(gym.Env):
                                 small_agent[TARGET] = big_agent[TARGETS].pop()
                                 logger.debug(f"Assignment Operation Successful")
                                 assign_reward = -np.linalg.norm(
-                                    small_agent[POSITION] - small_agent[TARGET] / self.grid_size)
+                                    (small_agent[POSITION] - small_agent[TARGET]) / self.grid_size)
                                 info[f'big_{big_agent_id}_assign_reward'] = assign_reward
                                 rewards[f'big_{big_agent_id}'] += assign_reward
                                 break
@@ -384,12 +367,12 @@ class MultiAgentGridWorld(gym.Env):
         # increment emergency only when it starts and it is not handled.
         self.emergency_aoi[emergency_unhandle_mask] += 1
 
-        # self.aoi_grid_by_time[self.timestep] = self.aoi_grid * self.poi_grid
+        self.aoi_grid_by_time[self.timestep] = self.aoi_grid * self.poi_grid
         self.timestep += 1
         done = self.timestep >= self.max_timesteps
 
         if done:
-            # info[MEAN_AOI] = np.mean(self.aoi_grid_by_time)
+            info[SURVEILLANCE_AOI] = np.mean(self.aoi_grid_by_time)
             info[EMERGENCY_AOI] = np.mean(self.emergency_aoi)
 
         # Return the observations, rewards for this timestep, done flag, and additional info
@@ -406,17 +389,24 @@ class MultiAgentGridWorld(gym.Env):
     def reset(self):
         if self.figure is not None:
             plt.close(self.figure)
+        self.reset_states()
+        return self._get_observation()
+
+    def reset_states(self):
         self.timestep = 0
         self.emergency_aoi = np.zeros(self.num_emergencies)
         self.emergency_assign_status = np.zeros(self.num_emergencies, dtype=np.bool8)
         self.emergency_end_time = np.full(self.num_emergencies, -1)
         self.big_agents = [
-            {ID: big_id,
-             POSITION: np.array([self.grid_size // 2, self.grid_size // 2]),
-             CARRIED_AGENTS: [small_id for small_id in range(self.carried_small_agents * (big_id + 1))],
-             TARGETS: [],
-             } for
-            big_id in range(self.num_big_agents)]
+            {
+                ID: big_id,
+                POSITION: np.array([self.grid_size // 2, self.grid_size // 2]),
+                CARRIED_AGENTS: [small_id for small_id in range(self.carried_small_agents * big_id,
+                                                                self.carried_small_agents * (big_id + 1))],
+                TARGETS: [],
+            } for
+            big_id in range(self.num_big_agents)
+        ]
         self.small_agents = [{
             ID: id,
             POSITION: None, DEPLOYED: False, TARGET: None,
@@ -429,7 +419,7 @@ class MultiAgentGridWorld(gym.Env):
         self.big_agent_trajectories = [[] for _ in range(self.num_big_agents)]
         self.big_agent_actions = [[] for _ in range(self.num_big_agents)]
         self.small_agent_actions = [[] for _ in range(self.num_small_agents)]
-        return self._get_observation()
+        self.aoi_grid_by_time = np.zeros((self.max_timesteps, self.grid_size, self.grid_size))
 
     def _get_vec_observation(self, agent):
         if CARRIED_AGENTS in agent:
@@ -811,7 +801,7 @@ if __name__ == '__main__':
         if config[item]:
             additional_tags.append(item)
     # add suffix for name at here.
-    for item in ['group_factor']:
+    for item in []:
         if item in config:
             additional_tags.append(item + '_' + str(config[item]))
     # add date time to name
@@ -853,12 +843,12 @@ if __name__ == '__main__':
     if track:
         # note big_XXX indicates the neural network architecture, XXX is the architecture
         # which may be cnn, mlp, etc.
-        wandb.init(project=PROJECT_NAME, name=expr_name, group='mvp',
+        wandb.init(project=PROJECT_NAME, name=expr_name, group='emergency_mvp',
                    tags=['ppo', 'big_cnn', 'small_cnn'],
                    config=config, dir=os.path.join('/workspace', 'saved_data'))
         wandb.define_metric(BIG_AGENT_METRIC, summary="max")
         wandb.define_metric(SMALL_AGENT_METRIC, summary="max")
-        wandb.define_metric(MEAN_AOI, summary='min')
+        wandb.define_metric(SURVEILLANCE_AOI, summary='min')
         wandb.define_metric(EMERGENCY_AOI, summary='min')
         wandb.watch([big_agent_policy, small_agent_policy], log="all", log_graph=False)
 
@@ -871,8 +861,9 @@ if __name__ == '__main__':
     if args.mode == 'train':
         progress = trange(num_episodes)
     else:
-        progress = trange(10)
+        progress = trange(1)
     if args.mode == 'debug':
+        progress = trange(100)
         logger.setLevel(logging.DEBUG)
         EVAL_INTERVAL = 1
     info = {}
@@ -895,7 +886,7 @@ if __name__ == '__main__':
         deploy_statistic = {}
         # create keys that stores "deploy_reward" and "deploy_time" for each big agent
         for i in range(NUM_BIG_AGENTS):
-            metrics = ['deploy_reward', 'deploy_time', 'assign_reward']
+            metrics = ['deploy_reward', 'deploy_time', 'assign_reward', 'targets']
             for metric in metrics:
                 deploy_statistic[f'big_{i}_{metric}'] = 0
         small_agent_statistic = {}
@@ -972,20 +963,22 @@ if __name__ == '__main__':
         if args.mode == 'test' or episode % EVAL_INTERVAL == 0:
             figure = env.render()
             log_dict[f'{PLOT_NAME}'] = figure
-            # convert small agent position and target to dataframe
-            for small_agent_id, small_agent in enumerate(env.small_agents):
-                # Convert small_agent_trajectories and small_agent_targets into numpy arrays for efficiency
-                trajectories = np.array(env.small_agent_trajectories[small_agent_id])  # Shape: (num_steps, 2)
-                targets = np.array(env.small_agent_targets[small_agent_id])  # Shape: (num_steps, 2)
-                # Create DataFrame directly from the numpy arrays
-                df = pd.DataFrame({
-                    "x": trajectories[:, 0],  # First column from trajectories
-                    "y": trajectories[:, 1],  # Second column from trajectories
-                    "target_x": targets[:, 0],  # First column from targets
-                    "target_y": targets[:, 1],  # Second column from targets
-                }, index=pd.Index(np.arange(trajectories.shape[0]), name="step"))  # Set the index to "step"
-                log_dict[f"small_{small_agent_id}_history"] = wandb.Table(data=df,
-                                                                          columns=["x", "y", "target_x", "target_y"])
+            if LOG_TABLE:
+                # convert small agent position and target to dataframe
+                for small_agent_id, small_agent in enumerate(env.small_agents):
+                    # Convert small_agent_trajectories and small_agent_targets into numpy arrays for efficiency
+                    trajectories = np.array(env.small_agent_trajectories[small_agent_id])  # Shape: (num_steps, 2)
+                    targets = np.array(env.small_agent_targets[small_agent_id])  # Shape: (num_steps, 2)
+                    # Create DataFrame directly from the numpy arrays
+                    df = pd.DataFrame({
+                        "x": trajectories[:, 0],  # First column from trajectories
+                        "y": trajectories[:, 1],  # Second column from trajectories
+                        "target_x": targets[:, 0],  # First column from targets
+                        "target_y": targets[:, 1],  # Second column from targets
+                    }, index=pd.Index(np.arange(trajectories.shape[0]), name="step"))  # Set the index to "step"
+                    log_dict[f"small_{small_agent_id}_history"] = wandb.Table(data=df,
+                                                                              columns=["x", "y", "target_x",
+                                                                                       "target_y"])
         # add prefix for big agent dict and small agent dict
         for k, v in small_agent_statistic.items():
             log_dict[f'{SMALL_AGENT_TRAIN}/{k}'] = v
