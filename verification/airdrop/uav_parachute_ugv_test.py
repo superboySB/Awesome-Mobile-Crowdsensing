@@ -14,10 +14,11 @@ import torch.optim as optim
 from gym.spaces import MultiDiscrete, Discrete, Box
 from torch.distributions import Categorical
 from tqdm import trange
+from util_misc import set_freest_gpu, logHandler
 
 from ppo_algo_verify import PPOVecPolicy, PPOCNNPolicy, Policy, MultiPPORollout
-from verification.parachute_env_test import (logger, DEPLOYED, EPISODE_LENGTH, SURVEILLANCE_AOI, EMERGENCY_AOI, \
-                                             BIG_AGENT_RANGE, SMALL_AGENT_RANGE, NUM_BIG_AGENTS, NUM_SMALL_AGENTS,
+from verification.airdrop.parachute_env_test import (logger, DEPLOYED, EPISODE_LENGTH, SURVEILLANCE_AOI, EMERGENCY_AOI, \
+                                                     BIG_AGENT_RANGE, SMALL_AGENT_RANGE, NUM_BIG_AGENTS, NUM_SMALL_AGENTS,
                                              NUM_MOVEMENTS, STOP,
                                              random_act, MultiAgentGridWorld)
 
@@ -25,13 +26,8 @@ APPEND_TAGS = ['group_factor']
 
 # set up logger
 logging.basicConfig(level=logging.INFO)
-# create console handler and set level to debug
-ch = logging.StreamHandler()
-ch.setLevel(logging.DEBUG)
-formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-ch.setFormatter(formatter)
-# add ch to logger
-logger.addHandler(ch)
+# add logHandler to logger
+logger.addHandler(logHandler)
 
 EMERGENCY_NUMBER = 15
 LEARNING_RATE = 1e-4
@@ -200,6 +196,7 @@ if __name__ == '__main__':
     # setup wandb
     import wandb
 
+    set_freest_gpu()
     os.environ['NUMEXPR_MAX_THREADS'] = "4"
     # setup parser
     parser = argparse.ArgumentParser()
