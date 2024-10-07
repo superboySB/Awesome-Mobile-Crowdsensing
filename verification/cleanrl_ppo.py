@@ -10,7 +10,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 import tyro
-from uav_parachute_ugv_test import MultiAgentGridWorld
+from verification.parachute_env_test import MultiAgentGridWorld
 from torch.distributions.categorical import Categorical
 from torch.utils.tensorboard import SummaryWriter
 from tqdm import trange
