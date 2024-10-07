@@ -267,10 +267,10 @@ class MultiAgentGridWorld(gym.Env):
                         small_agent[TARGET] = None
 
                 if small_agent[TARGET] is not None:
-                    target_aoi = self.emergency_aoi[self.emergency_mapping[tuple(small_agent[TARGET])]]
+                    # target_aoi = self.emergency_aoi[self.emergency_mapping[tuple(small_agent[TARGET])]]
                     rewards[f'small_{small_agent_id}'] -= np.linalg.norm(
                         (small_agent[TARGET] - small_agent[POSITION]) / self.grid_size
-                    ) * target_aoi
+                    )
 
                 rewards[f'small_{small_agent_id}'] += self.aoi_grid[x, y] * self.poi_grid[x, y] / self.max_timesteps
                 #
@@ -888,7 +888,7 @@ if __name__ == '__main__':
         for i in range(NUM_BIG_AGENTS):
             metrics = ['deploy_reward', 'deploy_time', 'assign_reward', 'targets']
             for metric in metrics:
-                deploy_statistic[f'big_{i}_{metric}'] = 0
+                deploy_statistic[f'big_{i}_{metric}'] = []
         small_agent_statistic = {}
         big_agent_statistic = {}
         for t in range(EPISODE_LENGTH):
@@ -913,7 +913,7 @@ if __name__ == '__main__':
                 total_big_agent_rewards[i] += rewards[f'big_{i}']
                 for metric in deploy_statistic.keys():
                     if metric in info:
-                        deploy_statistic[metric] += info[metric]
+                        deploy_statistic[metric].append(info[metric])
 
             for i in range(NUM_SMALL_AGENTS):
                 if env.small_agents[i]['last_deploy_status']:
@@ -957,8 +957,11 @@ if __name__ == '__main__':
         avg_small_agent_reward = sum(total_small_agent_rewards) / max(1, len([r for r in total_small_agent_rewards if
                                                                               r != 0]))
         # average reward with NUM_SMALL_AGENTS in deploy_statistic dict
+        average_deploy_statistic = {}
         for key in deploy_statistic:
-            deploy_statistic[key] /= env.carried_small_agents
+            length = len(deploy_statistic[key])
+            if length > 0:
+                average_deploy_statistic[key] = sum(deploy_statistic[key]) / length
         log_dict = {}
         if args.mode == 'test' or episode % EVAL_INTERVAL == 0:
             figure = env.render()
@@ -993,7 +996,7 @@ if __name__ == '__main__':
                 BIG_AGENT_METRIC: avg_big_agent_reward,
                 SMALL_AGENT_METRIC: avg_small_agent_reward,
                 **info,
-                **deploy_statistic,
+                **average_deploy_statistic,
             }
         )
         assert EMERGENCY_AOI in info
