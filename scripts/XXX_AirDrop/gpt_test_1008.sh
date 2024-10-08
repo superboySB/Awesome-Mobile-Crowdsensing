@@ -1,8 +1,8 @@
 #!/bin/bash
 exp_name='gpt-reward-test'
 session_name=$exp_name
-cards=(0 1 2 3)
-card_num=${#cards[@]}
+#cards=(0 1 2 3)
+#card_num=${#cards[@]}
 dry_run=false
 # Process command-line arguments
 while [[ $# -gt 0 ]]; do
@@ -52,10 +52,10 @@ for ((i = 0; i < train_num; i++)); do
       tmux send-keys -t $session_name:0."$i" 'cd /workspace/Awesome-Mobile-Crowdsensing' Enter;
       tmux send-keys -t $session_name:0."$i" 'conda activate mcs' Enter;
   fi
-  card_id=$((i % card_num))
+#  card_id=$((i % card_num))
   # shellcheck disable=SC2004
   # if want to add $PATH, remember to add / before $
-  command="CUDA_VISIBLE_DEVICES=${cards[card_id]} python verification/uav_parachute_ugv_test.py --track --name ${exp_name} ${trains[i]} --num-episodes 10000"
+  command="python verification/airdrop/uav_parachute_ugv_test.py --track --name ${exp_name} ${trains[i]} --num-episodes 10000"
   echo "$command"
   if [ "$dry_run" = "false" ] && [ "$choice" != "n" ]
   then

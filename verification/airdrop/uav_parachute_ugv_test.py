@@ -4,6 +4,7 @@ import os
 
 import pandas as pd
 from collections import namedtuple
+from util_misc import file_to_string
 
 import gym
 import numpy as np
@@ -33,6 +34,8 @@ EMERGENCY_NUMBER = 15
 LEARNING_RATE = 1e-4
 
 # Constants
+prompt_dir = os.path.join(os.getcwd(), 'verification/airdrop/prompts')
+USERNAME = 'aequatio'
 PROJECT_NAME = 'uav-parachute-ugv'
 LOG_ACTION = False
 LOG_TABLE = False
@@ -51,6 +54,7 @@ SMALL_AGENT_ACTION = "small_action"
 BIG_AGENT_MODEL = "big_model"
 SMALL_AGENT_MODEL = "small_model"
 BIG_AGENT_DEPLOY_METRIC = "big_reward_deploy"
+ENV_INFO = 'env_info'
 TIMESTEP_DEPLOY = [20, 40]
 
 # Actions
@@ -193,7 +197,6 @@ def get_action_shape(my_space: gym.Space):
 
 
 if __name__ == '__main__':
-    # setup wandb
     import wandb
 
     set_freest_gpu()
@@ -220,6 +223,7 @@ if __name__ == '__main__':
     gae_lambda = 0.95
     NUM_ENVS = 1
     seed = 1
+    GPT_LOG_INTERVAL = max(int(num_episodes // 10), 1)
     anneal_lr = False
     track = args.track
     torch.manual_seed(seed)
@@ -248,6 +252,7 @@ if __name__ == '__main__':
     }
     import datetime
 
+    env_info_statistics: dict[str, list] = {}
     # name = current date + customed name
     best_mean_aoi = 200
     additional_tags = []
@@ -259,7 +264,7 @@ if __name__ == '__main__':
         if item in config:
             additional_tags.append(item + '_' + str(config[item]))
     # add date time to name
-    expr_name = datetime.datetime.today().strftime("%m%d-%H%M") + '-' + args.name
+    expr_name = datetime.datetime.today().strftime("%m%d-%H%M%S") + '-' + args.name
 
     # add additional_tags to name
     if len(additional_tags) > 0:
@@ -436,11 +441,20 @@ if __name__ == '__main__':
                     log_dict[f"small_{small_agent_id}_history"] = wandb.Table(data=df,
                                                                               columns=["x", "y", "target_x",
                                                                                        "target_y"])
+        # GPT Logging Interval
+        # if episode % GPT_LOG_INTERVAL == 0:
+        #     for metric in info:
+        #         if metric in env_info_statistics:
+        #             env_info_statistics[metric].append(info[metric])
+        #         else:
+        #             env_info_statistics[metric] = [info[metric]]
         # add prefix for big agent dict and small agent dict
         for k, v in small_agent_statistic.items():
             log_dict[f'{SMALL_AGENT_TRAIN}/{k}'] = v
         for k, v in big_agent_statistic.items():
             log_dict[f'{BIG_AGENT_TRAIN}/{k}'] = v
+        for k, v in info.items():
+            log_dict[f'{ENV_INFO}/{k}'] = v
         if LOG_ACTION:
             for i in range(NUM_BIG_AGENTS):
                 log_dict[f'{BIG_AGENT_ACTION}/Agent{i}'] = wandb.Histogram(env.big_agent_actions[i],
@@ -449,7 +463,6 @@ if __name__ == '__main__':
             {
                 BIG_AGENT_METRIC: avg_big_agent_reward,
                 SMALL_AGENT_METRIC: avg_small_agent_reward,
-                **info,
                 **average_deploy_statistic,
             }
         )
@@ -469,4 +482,29 @@ if __name__ == '__main__':
                            )
         if track and wandb.log is not None:
             wandb.log(log_dict)
+    current_run_id = wandb.run.id if wandb.run is not None else None
     wandb.finish()
+    # Generate GPT feedback prompt
+    feedback_prompt = ''
+    policy_feedback = file_to_string(f'{prompt_dir}/policy_feedback.txt')
+    code_feedback = file_to_string(f'{prompt_dir}/code_feedback.txt')
+    code_output_tip = file_to_string(f'{prompt_dir}/code_output_tip.txt')
+    feedback_prompt += policy_feedback.format(epoch_freq=GPT_LOG_INTERVAL)
+    log_api = wandb.Api()
+    if current_run_id is not None:
+        run = log_api.run(f'{USERNAME}/{PROJECT_NAME}/{current_run_id}')
+        history = run.history()
+        for metric in list(history.columns):
+            if metric.startswith(f"{ENV_INFO}/"):
+                # sample every GPT_LOG_INTERVAL steps, calculate max, min, mean for entire history
+                sampled_history = history[metric].iloc[::GPT_LOG_INTERVAL]
+                # round to 2 decimal places
+                sampled_history = sampled_history.round(decimals=2)
+                feedback_prompt += (f"{metric}: {sampled_history.to_list()} "
+                                    f"Max: {history[metric].max():.2f}, "
+                                    f"Min: {history[metric].min():.2f}, "
+                                    f"Mean: {history[metric].mean():.2f}\n")
+        feedback_prompt += (code_feedback + code_output_tip)
+        # save feedback prompt to file
+        with open(os.path.join(checkpoint_path, "feedback_prompt.txt"), "w") as f:
+            f.write(feedback_prompt)

@@ -1,0 +1,3 @@
+def compute_reward(object_pos: torch.Tensor, goal_pos: torch.Tensor) -> Tuple[np.ndarray, Dict[str, float]]:
+    ...
+    return reward, {}

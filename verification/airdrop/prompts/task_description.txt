@@ -1,0 +1,4 @@
+Big agents and small agents navigate in the environment. Big agent carries small agents and can deploy them as needed.
+Once small agents are deployed, then can sense data on the ground, including emergency and surveillance data.
+Small agents can see surveillance tasks, but they can only receive emergency targets from big agents.
+Big agents can assign emergency target while deploying or to the closest small agents
