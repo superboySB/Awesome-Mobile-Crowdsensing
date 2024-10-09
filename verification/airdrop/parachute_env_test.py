@@ -192,15 +192,15 @@ class MultiAgentGridWorld(gym.Env):
             else:
                 proximity_reward = torch.tensor(0.0, device=self.device, dtype=torch.float32)
 
-            # Apply temperature to proximity reward, reduced for more balance
-            temperature_assignment = 0.1  # Lower temperature for more balanced optimization
+            # Apply temperature to proximity reward, adjusted for more balance
+            temperature_assignment = 0.05  # Reduced temperature for less influence
             transformed_proximity_reward = torch.exp(-temperature_assignment * proximity_reward)
 
             # Store the reward for the big agent (convert to scalar)
             reward_dict[f"big_{big_agent_id}"] = transformed_proximity_reward.item()
             assignment_proximity_reward.append(transformed_proximity_reward)
 
-            # Reward for deployment actions (if deployment occurs, reward based on proximity to AoI)
+            # Reward for deployment actions (scaled down to prevent domination)
             if big_agent[CARRIED_AGENTS]:  # If big agent has carried small agents
                 # Reward based on proximity to either emergency or surveillance AoIs
                 emergency_poi_grid = torch.tensor(self.emergency_poi_grid, device=self.device, dtype=torch.float32)
@@ -222,8 +222,8 @@ class MultiAgentGridWorld(gym.Env):
                 else:
                     surveillance_deploy_r = torch.tensor(0.0, device=self.device, dtype=torch.float32)
 
-                # Combine both for a total deployment reward
-                deploy_reward = emergency_deploy_r + surveillance_deploy_r
+                # Scale down deploy action reward to a more reasonable range
+                deploy_reward = (emergency_deploy_r + surveillance_deploy_r) * 0.001  # Scaled down by 0.001
                 deploy_action_reward.append(deploy_reward)
                 reward_dict[f"big_{big_agent_id}_deploy_action"] = deploy_reward.item()
 
@@ -250,16 +250,14 @@ class MultiAgentGridWorld(gym.Env):
                 else:
                     emergency_r = torch.tensor(0.0, device=self.device, dtype=torch.float32)
 
-                # Apply temperature to surveillance and emergency rewards (encourage better optimization)
-                temperature_surveillance = 0.05  # Lower temperature for finer control
-                temperature_emergency = 0.05  # Same temperature to balance both components
-                transformed_surveillance_r = torch.exp(-temperature_surveillance * surveillance_r)
-                transformed_emergency_r = torch.exp(-temperature_emergency * emergency_r)
+                # Use logarithmic scaling to encourage dynamic behavior and prevent premature convergence
+                log_surveillance_r = torch.log(1 + surveillance_r)
+                log_emergency_r = torch.log(1 + emergency_r)
 
                 # Store the reward for the small agent (convert to scalar)
-                reward_dict[f"small_{small_agent_id}"] = (transformed_surveillance_r + transformed_emergency_r).item()
-                surveillance_reward.append(transformed_surveillance_r)
-                emergency_reward.append(transformed_emergency_r)
+                reward_dict[f"small_{small_agent_id}"] = (log_surveillance_r + log_emergency_r).item()
+                surveillance_reward.append(log_surveillance_r)
+                emergency_reward.append(log_emergency_r)
             else:
                 # Not deployed, no reward
                 reward_dict[f"small_{small_agent_id}"] = 0.0
