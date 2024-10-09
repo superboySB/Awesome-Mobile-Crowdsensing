@@ -168,12 +168,12 @@ class PPO(Policy):
         saved_actions = self.saved_actions[:num_envs * num_steps]
 
         if len(self.values[0].shape) != 0:
-            values = torch.cat(self.values[:num_envs * num_steps]).squeeze(-1).reshape(num_steps, -1).to(device)
+            values = torch.cat(self.values[:num_envs * num_steps]).squeeze(-1).reshape(-1, num_steps).T.to(device)
         else:
-            values = torch.Tensor(self.values[:num_envs * num_steps]).reshape(num_steps, num_envs).to(device)
-        dones = torch.tensor(self.dones[:num_envs * num_steps]).reshape(num_steps, -1).to(torch.float32).to(device)
+            values = torch.Tensor(self.values[:num_envs * num_steps]).reshape(-1, num_steps).T.to(device)
+        dones = torch.tensor(self.dones[:num_envs * num_steps]).reshape(-1, num_steps).T.to(torch.float32).to(device)
         rewards = torch.tensor(self.rewards[:num_envs * num_steps], dtype=torch.float32, device=device).reshape(
-            num_steps, -1)
+            -1, num_steps).T
 
         # If the episode is done, we set the next value to 0.0 as there's no future reward to be expected
         with torch.no_grad():
@@ -214,9 +214,9 @@ class PPO(Policy):
             old_log_probs = torch.tensor(log_probs, device=device).view(-1)
             saved_actions = torch.tensor(saved_actions, device=device).view(-1)
 
-        advantages = advantages.view(-1)
-        returns = returns.view(-1)
-        values = values.view(-1)
+        advantages = advantages.reshape(-1)
+        returns = returns.reshape(-1)
+        values = values.reshape(-1)
         all_obs = torch.cat(self.saved_obs[:num_envs * num_steps])
 
         # Prepare for minibatch update

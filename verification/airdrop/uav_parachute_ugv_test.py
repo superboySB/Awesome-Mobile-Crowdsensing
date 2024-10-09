@@ -23,11 +23,11 @@ from verification.airdrop.parachute_env_test import (logger, DEPLOYED, EPISODE_L
                                              NUM_MOVEMENTS, STOP,
                                              random_act, MultiAgentGridWorld)
 
-APPEND_TAGS = []
+APPEND_TAGS = ['group_factor']
 
 # set up logger
 logging.basicConfig(level=logging.INFO)
-# add logHandler to logger
+# add logHandler to logg
 logger.addHandler(logHandler)
 
 EMERGENCY_NUMBER = 15
@@ -38,7 +38,7 @@ prompt_dir = os.path.join(os.getcwd(), 'verification/airdrop/prompts')
 USERNAME = 'aequatio'
 PROJECT_NAME = 'uav-parachute-ugv'
 LOG_ACTION = False
-LOG_TABLE = False
+LOG_TABLE = True
 GAMMA = 0
 RANDOM_ACT = False
 FIX_SMALL_AGENT = True
@@ -356,9 +356,10 @@ if __name__ == '__main__':
             else:
                 with torch.no_grad():
                     actions = {}
-                    # Usage for big agents
-                    select_actions('big', big_agent_policy, NUM_BIG_AGENTS,
-                                   next_obs, actions, env, device, big_agent_rollout)
+                    if not env.simple_mode:
+                        # Usage for big agents
+                        select_actions('big', big_agent_policy, NUM_BIG_AGENTS,
+                                       next_obs, actions, env, device, big_agent_rollout)
                     # Usage for small agents
                     select_actions('small', small_agent_policy, NUM_SMALL_AGENTS,
                                    next_obs, actions, env, device, small_agent_rollout)
@@ -366,13 +367,14 @@ if __name__ == '__main__':
             next_obs, rewards, next_done, info = env.step(actions)
 
             # Accumulate rewards for training and for average reward calculation
-            for i in range(NUM_BIG_AGENTS):
-                big_agent_rollout.rewards[i].append(rewards[f'big_{i}'])
-                big_agent_rollout.dones[i].append(next_done)
-                total_big_agent_rewards[i] += rewards[f'big_{i}']
-                for metric in deploy_statistic.keys():
-                    if metric in info:
-                        deploy_statistic[metric].append(info[metric])
+            if not env.simple_mode:
+                for i in range(NUM_BIG_AGENTS):
+                    big_agent_rollout.rewards[i].append(rewards[f'big_{i}'])
+                    big_agent_rollout.dones[i].append(next_done)
+                    total_big_agent_rewards[i] += rewards[f'big_{i}']
+                    for metric in deploy_statistic.keys():
+                        if metric in info:
+                            deploy_statistic[metric].append(info[metric])
 
             for i in range(NUM_SMALL_AGENTS):
                 if env.small_agents[i]['last_deploy_status']:
@@ -385,22 +387,25 @@ if __name__ == '__main__':
 
         # After the episode, update the parameters for big agents and small agents
         if (not RANDOM_ACT) or args.mode == 'train':
+            if not env.simple_mode:
+                big_agent_rollout.concatenate_rollouts(big_agent_policy)
+                # select small agent obs and big obs, concat them into together, respectively.
+                big_agent_obs = torch.cat([torch.from_numpy(next_obs[f'big_{i}']).float().unsqueeze(0)
+                                           for i in range(NUM_BIG_AGENTS)]).to(device)
+                # Update the big agent policy using the saved actions and rewards
+                big_agent_statistic.update(
+                    big_agent_policy.finish_episode(big_agent_optimizer, max_grad_norm=max_grad_norm,
+                                                    clip_coef=clip_coef, vf_coef=vf_coef,
+                                                    ent_coef=ent_coef,
+                                                    gae_lambda=gae_lambda, num_minibatches=4,
+                                                    num_envs=NUM_BIG_AGENTS,
+                                                    next_state=big_agent_obs, next_dones=next_done,
+                                                    device=device,
+                                                    num_steps=EPISODE_LENGTH))
+
             small_agent_rollout.concatenate_rollouts(small_agent_policy)
-            big_agent_rollout.concatenate_rollouts(big_agent_policy)
-            # select small agent obs and big obs, concat them into together, respectively.
-            big_agent_obs = torch.cat([torch.from_numpy(next_obs[f'big_{i}']).float().unsqueeze(0)
-                                       for i in range(NUM_BIG_AGENTS)]).to(device)
             small_agent_obs = torch.cat([torch.from_numpy(next_obs[f'small_{i}']).float().unsqueeze(0)
                                          for i in range(NUM_SMALL_AGENTS)]).to(device)
-            # Update the big agent policy using the saved actions and rewards
-            big_agent_statistic.update(big_agent_policy.finish_episode(big_agent_optimizer, max_grad_norm=max_grad_norm,
-                                                                       clip_coef=clip_coef, vf_coef=vf_coef,
-                                                                       ent_coef=ent_coef,
-                                                                       gae_lambda=gae_lambda, num_minibatches=4,
-                                                                       num_envs=NUM_BIG_AGENTS,
-                                                                       next_state=big_agent_obs, next_dones=next_done,
-                                                                       device=device,
-                                                                       num_steps=EPISODE_LENGTH))
             if len(small_agent_policy.rewards) >= NUM_SMALL_AGENTS:
                 # Update the small agent policy using the saved actions and rewards
                 small_agent_statistic.update(

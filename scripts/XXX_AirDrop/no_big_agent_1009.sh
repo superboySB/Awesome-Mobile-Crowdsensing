@@ -1,8 +1,6 @@
 #!/bin/bash
-exp_name='gpt-reward-test-iter-3'
+exp_name='no-big-agent'
 session_name=$exp_name
-#cards=(0 1 2 3)
-#card_num=${#cards[@]}
 dry_run=false
 # Process command-line arguments
 while [[ $# -gt 0 ]]; do
@@ -17,7 +15,10 @@ while [[ $# -gt 0 ]]; do
 done
 # remove NN share_policy all
 trains=(
-  "--group-factor 0.01"
+    "--group-factor 0.01"
+  "--group-factor 0.05"
+  "--group-factor 0.1"
+  "--group-factor 0.5"
 )
 
 
@@ -49,9 +50,7 @@ for ((i = 0; i < train_num; i++)); do
       tmux send-keys -t $session_name:0."$i" 'cd /workspace/Awesome-Mobile-Crowdsensing' Enter;
       tmux send-keys -t $session_name:0."$i" 'conda activate mcs' Enter;
   fi
-#  card_id=$((i % card_num))
   # shellcheck disable=SC2004
-  # if want to add $PATH, remember to add / before $
   command="python verification/airdrop/uav_parachute_ugv_test.py --track --name ${exp_name} ${trains[i]} --num-episodes 10000"
   echo "$command"
   if [ "$dry_run" = "false" ] && [ "$choice" != "n" ]
