@@ -1,5 +1,5 @@
 #!/bin/bash
-exp_name='gpt-reward-test'
+exp_name='gpt-reward-test-iter-2'
 session_name=$exp_name
 #cards=(0 1 2 3)
 #card_num=${#cards[@]}
@@ -18,9 +18,6 @@ done
 # remove NN share_policy all
 trains=(
   "--group-factor 0.01"
-  "--group-factor 0.05"
-  "--group-factor 0.1"
-  "--group-factor 0.5"
 )
 
 

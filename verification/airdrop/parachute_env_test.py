@@ -172,6 +172,7 @@ class MultiAgentGridWorld(gym.Env):
         surveillance_reward = []
         emergency_reward = []
         assignment_proximity_reward = []
+        deploy_action_reward = []
 
         # Process rewards for big agents
         for big_agent_id, big_agent in enumerate(self.big_agents):
@@ -191,13 +192,40 @@ class MultiAgentGridWorld(gym.Env):
             else:
                 proximity_reward = torch.tensor(0.0, device=self.device, dtype=torch.float32)
 
-            # Apply temperature to proximity reward, rescaled for more difficulty
-            temperature_assignment = 0.2  # Increased temperature for better optimization
+            # Apply temperature to proximity reward, reduced for more balance
+            temperature_assignment = 0.1  # Lower temperature for more balanced optimization
             transformed_proximity_reward = torch.exp(-temperature_assignment * proximity_reward)
 
             # Store the reward for the big agent (convert to scalar)
-            reward_dict[f"big_{big_agent_id}"] = transformed_proximity_reward.item()  # Convert to scalar float
+            reward_dict[f"big_{big_agent_id}"] = transformed_proximity_reward.item()
             assignment_proximity_reward.append(transformed_proximity_reward)
+
+            # Reward for deployment actions (if deployment occurs, reward based on proximity to AoI)
+            if big_agent[CARRIED_AGENTS]:  # If big agent has carried small agents
+                # Reward based on proximity to either emergency or surveillance AoIs
+                emergency_poi_grid = torch.tensor(self.emergency_poi_grid, device=self.device, dtype=torch.float32)
+                surveillance_poi_grid = torch.tensor(self.poi_grid, device=self.device, dtype=torch.float32)
+
+                emergency_aoi_pos = torch.nonzero(emergency_poi_grid)  # Non-zero grid points are emergency AoI
+                surveillance_aoi_pos = torch.nonzero(surveillance_poi_grid)  # Non-zero grid points are surveillance AoI
+
+                # Calculate distances to AoIs
+                if emergency_aoi_pos.numel() > 0:
+                    emergency_distances = torch.norm(big_agent_pos - emergency_aoi_pos.float(), dim=-1, p=2)
+                    emergency_deploy_r = 1.0 / (torch.min(emergency_distances) + 1e-6)
+                else:
+                    emergency_deploy_r = torch.tensor(0.0, device=self.device, dtype=torch.float32)
+
+                if surveillance_aoi_pos.numel() > 0:
+                    surveillance_distances = torch.norm(big_agent_pos - surveillance_aoi_pos.float(), dim=-1, p=2)
+                    surveillance_deploy_r = 1.0 / (torch.min(surveillance_distances) + 1e-6)
+                else:
+                    surveillance_deploy_r = torch.tensor(0.0, device=self.device, dtype=torch.float32)
+
+                # Combine both for a total deployment reward
+                deploy_reward = emergency_deploy_r + surveillance_deploy_r
+                deploy_action_reward.append(deploy_reward)
+                reward_dict[f"big_{big_agent_id}_deploy_action"] = deploy_reward.item()
 
         # Process rewards for small agents
         for small_agent_id, small_agent in enumerate(self.small_agents):
@@ -222,20 +250,19 @@ class MultiAgentGridWorld(gym.Env):
                 else:
                     emergency_r = torch.tensor(0.0, device=self.device, dtype=torch.float32)
 
-                # Apply temperature to surveillance and emergency rewards
-                temperature_surveillance = 0.05  # Lower temperature for more precision
-                temperature_emergency = 0.1  # Increased temperature for emergency optimization
+                # Apply temperature to surveillance and emergency rewards (encourage better optimization)
+                temperature_surveillance = 0.05  # Lower temperature for finer control
+                temperature_emergency = 0.05  # Same temperature to balance both components
                 transformed_surveillance_r = torch.exp(-temperature_surveillance * surveillance_r)
                 transformed_emergency_r = torch.exp(-temperature_emergency * emergency_r)
 
                 # Store the reward for the small agent (convert to scalar)
-                reward_dict[f"small_{small_agent_id}"] = (
-                        transformed_surveillance_r + transformed_emergency_r).item()  # Convert to scalar float
+                reward_dict[f"small_{small_agent_id}"] = (transformed_surveillance_r + transformed_emergency_r).item()
                 surveillance_reward.append(transformed_surveillance_r)
                 emergency_reward.append(transformed_emergency_r)
             else:
-                # Not deployed, no reward (convert to scalar)
-                reward_dict[f"small_{small_agent_id}"] = 0.0  # Scalar zero
+                # Not deployed, no reward
+                reward_dict[f"small_{small_agent_id}"] = 0.0
 
         # Calculate average reward components across agents
         avg_surveillance_reward = torch.stack(surveillance_reward).mean() if surveillance_reward else torch.tensor(0.0,
@@ -248,12 +275,15 @@ class MultiAgentGridWorld(gym.Env):
             assignment_proximity_reward).mean() if assignment_proximity_reward else torch.tensor(0.0,
                                                                                                  device=self.device,
                                                                                                  dtype=torch.float32)
+        avg_deploy_action_reward = torch.stack(deploy_action_reward).mean() if deploy_action_reward else torch.tensor(
+            0.0, device=self.device, dtype=torch.float32)
 
         # Convert average rewards to scalar values (float)
         reward_components = {
             "avg_surveillance_reward": avg_surveillance_reward.item(),
             "avg_emergency_reward": avg_emergency_reward.item(),
-            "avg_assignment_proximity_reward": avg_assignment_proximity_reward.item()
+            "avg_assignment_proximity_reward": avg_assignment_proximity_reward.item(),
+            "avg_deploy_action_reward": avg_deploy_action_reward.item()
         }
 
         return reward_dict, reward_components

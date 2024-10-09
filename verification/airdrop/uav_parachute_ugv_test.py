@@ -23,7 +23,7 @@ from verification.airdrop.parachute_env_test import (logger, DEPLOYED, EPISODE_L
                                              NUM_MOVEMENTS, STOP,
                                              random_act, MultiAgentGridWorld)
 
-APPEND_TAGS = ['group_factor']
+APPEND_TAGS = []
 
 # set up logger
 logging.basicConfig(level=logging.INFO)
