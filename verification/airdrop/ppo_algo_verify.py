@@ -76,6 +76,7 @@ class VecPolicy(Policy):
     def _get_embedding(self, x):
         x = F.relu(self.fc1(x))
         x = F.relu(self.fc2(x))
+        x = F.relu(self.fc3(x))
         return x
 
 
@@ -219,7 +220,7 @@ class PPO(Policy):
         advantages = advantages.view(-1)
         returns = returns.view(-1)
         values = values.view(-1)
-        all_obs = torch.cat(self.saved_obs[:num_envs * num_steps])
+        all_obs = torch.stack(self.saved_obs[:num_envs * num_steps], dim=0)
 
         # Prepare for minibatch update
         batch_size = len(returns)
@@ -407,7 +408,7 @@ def train_cartpole():
             policy.values.extend(state_values)
             policy.saved_obs.extend(obs_tensor)
 
-            next_obs, rewards, terminations, truncations, infos = envs.step(actions.cpu().numpy())
+            next_obs, rewards, terminations, truncations, infos = envs.step(actions.cpu().squeeze(-1).numpy())
             next_dones = torch.from_numpy(np.logical_or(terminations, truncations)).to(torch.float32)
             policy.rewards.extend(rewards)
             policy.dones.extend(next_dones)
@@ -432,7 +433,7 @@ def train_cartpole():
         #     break
 
         # Reset rewards for the next episode
-        episode_rewards.fill(0)
+        episode_rewards.zero_()
 
         # Reset environment (No reset, then rollout length can continue)
         # obs, _ = envs.reset()
