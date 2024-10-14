@@ -110,9 +110,10 @@ class MultiAgentGridWorld(gym.Env):
         self.figure = None
         self.seed = 1
         self.big_vec_mode = True
-        self.small_vec_mode = True
+        self.small_vec_mode = False
         self.big_agent_buffer_size = 4
         self.coordinate_dim = 2
+        self.random_range = 0.25
 
         if self.big_vec_mode:
             # self-position, position of carried agents, and emergency (x,y) buffer.
@@ -329,16 +330,17 @@ class MultiAgentGridWorld(gym.Env):
                     self.emergency_end_time[emergency_id] = self.timestep
                     if np.all(small_agent[POSITION] == small_agent[TARGET]):
                         small_agent[TARGET] = None
-                        rewards[f'small_{small_agent_id}'] = 1
+                        # rewards[f'small_{small_agent_id}'] = 1
 
                 if small_agent[TARGET] is not None:
-                    target_aoi = self.emergency_aoi[self.emergency_mapping[tuple(small_agent[TARGET])]]
-                    rewards[f'small_{small_agent_id}'] -= np.linalg.norm(
-                        (small_agent[TARGET] - small_agent[POSITION]) / self.grid_size
-                    )
+                    pass
+                    # target_aoi = self.emergency_aoi[self.emergency_mapping[tuple(small_agent[TARGET])]]
+                    # rewards[f'small_{small_agent_id}'] -= np.linalg.norm(
+                    #     (small_agent[TARGET] - small_agent[POSITION]) / self.grid_size
+                    # )
 
-                # rewards[f'small_{small_agent_id}'] += self.group_fatctor * self.aoi_grid[x, y] * self.poi_grid[
-                #     x, y] / self.max_timesteps
+                rewards[f'small_{small_agent_id}'] += self.group_factor * self.aoi_grid[x, y] * self.poi_grid[
+                    x, y] / self.max_timesteps
 
                 # self.max_reward = max(self.max_reward, rewards[f'small_{small_agent_id}'])
                 # self.min_reward = min(self.min_reward, rewards[f'small_{small_agent_id}'])
@@ -479,6 +481,7 @@ class MultiAgentGridWorld(gym.Env):
                 big_id in range(self.num_big_agents)
             ]
         small_init_deploy = self.simple_mode
+
         self.small_agents = [{
             ID: id,
             POSITION: None, DEPLOYED: small_init_deploy, TARGET: None,
@@ -486,7 +489,9 @@ class MultiAgentGridWorld(gym.Env):
             range(self.num_small_agents)]
         if self.simple_mode:
             for id in range(self.num_small_agents):
-                self.small_agents[id][POSITION] = np.array([self.grid_size // 2, self.grid_size // 2])
+                self.small_agents[id][POSITION] = np.random.randint(self.grid_size * self.random_range,
+                                                                    self.grid_size * (1 - self.random_range),
+                                                                    size=self.coordinate_dim)
         self.aoi_grid = np.zeros((self.grid_size, self.grid_size))
         self.small_agent_trajectories = [[] for _ in range(self.num_small_agents)]
         self.small_agent_targets = [[] for _ in range(self.num_small_agents)]
@@ -589,7 +594,7 @@ class MultiAgentGridWorld(gym.Env):
             if DEPLOYED in single_agent and single_agent[DEPLOYED]:
                 sx, sy = single_agent[POSITION]
                 if abs(sx - x) <= half_range and abs(sy - y) <= half_range:
-                    agent_grid[sx - x + half_range, sy - y + half_range] = 1
+                    agent_grid[sx - x + half_range - 1, sy - y + half_range - 1] = 1
 
         return np.stack([agent_grid, padded_obs], axis=0)
 

@@ -23,11 +23,12 @@ from verification.airdrop.parachute_env_test import (logger, DEPLOYED, EPISODE_L
                                              NUM_MOVEMENTS, STOP,
                                              random_act, MultiAgentGridWorld)
 
+NUM_MINIBATCHES = 4
+
 APPEND_TAGS = ['group_factor']
 
 # set up logger
 logging.basicConfig(level=logging.INFO)
-# add logHandler to logg
 logger.addHandler(logHandler)
 
 EMERGENCY_NUMBER = 15
@@ -42,7 +43,7 @@ LOG_TABLE = True
 GAMMA = 0
 RANDOM_ACT = False
 FIX_SMALL_AGENT = True
-HIDDEN_SIZE = 64
+HIDDEN_SIZE = 128
 EVAL_INTERVAL = 100
 PLOT_NAME = "trajectory"
 BIG_AGENT_METRIC = "big_reward"
@@ -397,7 +398,7 @@ if __name__ == '__main__':
                     big_agent_policy.finish_episode(big_agent_optimizer, max_grad_norm=max_grad_norm,
                                                     clip_coef=clip_coef, vf_coef=vf_coef,
                                                     ent_coef=ent_coef,
-                                                    gae_lambda=gae_lambda, num_minibatches=4,
+                                                    gae_lambda=gae_lambda, num_minibatches=NUM_MINIBATCHES,
                                                     num_envs=NUM_BIG_AGENTS,
                                                     next_state=big_agent_obs, next_dones=next_done,
                                                     device=device,
@@ -411,7 +412,7 @@ if __name__ == '__main__':
                 small_agent_statistic.update(
                     small_agent_policy.finish_episode(small_agent_optimizer, max_grad_norm=max_grad_norm,
                                                       clip_coef=clip_coef, vf_coef=vf_coef, ent_coef=ent_coef,
-                                                      gae_lambda=gae_lambda, num_minibatches=4,
+                                                      gae_lambda=gae_lambda, num_minibatches=NUM_MINIBATCHES,
                                                       num_envs=NUM_SMALL_AGENTS,
                                                       next_state=small_agent_obs, next_dones=next_done, device=device,
                                                       num_steps=len(small_agent_policy.rewards) // NUM_SMALL_AGENTS))

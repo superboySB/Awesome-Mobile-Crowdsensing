@@ -14,6 +14,7 @@ num_steps: int = 128
 NUM_ENVS = 4  # Number of parallel environments
 learning_rate = 2.5e-4
 
+
 class Policy(nn.Module):
     def __init__(self):
         super(Policy, self).__init__()
@@ -61,6 +62,7 @@ class VecPolicy(Policy):
         super(VecPolicy, self).__init__()
         self.fc1 = nn.Linear(input_dim, fc_size)
         self.fc2 = nn.Linear(fc_size, fc_size)
+        self.fc3 = nn.Linear(fc_size, fc_size)
         if isinstance(num_actions, int):
             num_actions = [num_actions]
         self.action_heads = nn.ModuleList([nn.Linear(fc_size, num_action) for num_action in num_actions])
@@ -102,7 +104,8 @@ class CNNPolicy(Policy):
 
         # Fully connected layer after flattening
         self.fc1 = nn.Linear(conv_output_size, fc_size)
-
+        if isinstance(num_actions, int):
+            num_actions = [num_actions]
         # Actor's layers for each dimension of the MultiDiscrete action space
         self.action_heads = nn.ModuleList([nn.Linear(fc_size, num_action) for num_action in num_actions])
 
@@ -140,7 +143,6 @@ class CNNPolicy(Policy):
         return x
 
 
-
 class PPO(Policy):
     def __init__(self):
         # super(PPOVecPolicy, self).__init__(envs)
@@ -168,12 +170,12 @@ class PPO(Policy):
         saved_actions = self.saved_actions[:num_envs * num_steps]
 
         if len(self.values[0].shape) != 0:
-            values = torch.cat(self.values[:num_envs * num_steps]).squeeze(-1).reshape(-1, num_steps).T.to(device)
+            values = torch.cat(self.values[:num_envs * num_steps]).squeeze(-1).reshape(num_steps, -1).to(device)
         else:
-            values = torch.Tensor(self.values[:num_envs * num_steps]).reshape(-1, num_steps).T.to(device)
-        dones = torch.tensor(self.dones[:num_envs * num_steps]).reshape(-1, num_steps).T.to(torch.float32).to(device)
+            values = torch.Tensor(self.values[:num_envs * num_steps]).reshape(num_steps, num_envs).to(device)
+        dones = torch.tensor(self.dones[:num_envs * num_steps]).reshape(num_steps, -1).to(torch.float32).to(device)
         rewards = torch.tensor(self.rewards[:num_envs * num_steps], dtype=torch.float32, device=device).reshape(
-            -1, num_steps).T
+            num_steps, -1)
 
         # If the episode is done, we set the next value to 0.0 as there's no future reward to be expected
         with torch.no_grad():
@@ -214,9 +216,9 @@ class PPO(Policy):
             old_log_probs = torch.tensor(log_probs, device=device).view(-1)
             saved_actions = torch.tensor(saved_actions, device=device).view(-1)
 
-        advantages = advantages.reshape(-1)
-        returns = returns.reshape(-1)
-        values = values.reshape(-1)
+        advantages = advantages.view(-1)
+        returns = returns.view(-1)
+        values = values.view(-1)
         all_obs = torch.cat(self.saved_obs[:num_envs * num_steps])
 
         # Prepare for minibatch update
@@ -327,26 +329,20 @@ class MultiPPORollout:
 
     def __init__(self, num_agents):
         self.num_agents = num_agents
-        self.saved_actions = [[] for _ in range(num_agents)]
-        self.rewards = [[] for _ in range(num_agents)]
-        self.dones = [[] for _ in range(num_agents)]
-        self.log_probs = [[] for _ in range(num_agents)]
-        self.saved_obs = [[] for _ in range(num_agents)]
-        self.values = [[] for _ in range(num_agents)]
+        self.rollout_items = ['saved_actions', 'rewards', 'dones', 'log_probs', 'saved_obs', 'values']
+        for item in self.rollout_items:
+            setattr(self, item, [[] for _ in range(num_agents)])
 
     def concatenate_rollouts(self, my_policy: PPO):
         """
         Concatenate all the rollouts into one list
         """
-        rollout_items = ['saved_actions', 'rewards', 'dones', 'log_probs', 'saved_obs', 'values']
-        for item in rollout_items:
+
+        for item in self.rollout_items:
             list(map(getattr(my_policy, item).extend, getattr(self, item)))
         # reset all the rollouts
-        for item in rollout_items:
+        for item in self.rollout_items:
             getattr(self, item)[:] = [[] for _ in range(self.num_agents)]
-
-
-
 
 
 def make_env(env_id, idx, capture_video=False, run_name=None):
