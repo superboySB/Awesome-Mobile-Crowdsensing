@@ -18,42 +18,16 @@ learning_rate = 2.5e-4
 class Policy(nn.Module):
     def __init__(self):
         super(Policy, self).__init__()
+        pass
 
     def forward(self, x):
         raise NotImplementedError
 
     def get_value(self, x):
-        """
-        Returns the state value from the critic's output.
-        """
-        return self.value_head(self._get_embedding(x))
-
-    def _get_embedding(self, x):
         raise NotImplementedError
 
-    def get_action_and_value(self, x, actions: list = None):
-        """
-        Returns actions, log probabilities, entropy, and state value, handling MultiDiscrete action space.
-        """
-        emb = self._get_embedding(x)
-        action_probs = [F.softmax(action_head(emb), dim=-1) for action_head in self.action_heads]
-        # detect NaN in action_probs
-        # for i, probs in enumerate(action_probs):
-        # if torch.isnan(probs).any():
-        #     raise ValueError('NaN detected in action_probs')
-        distributions = [Categorical(probs=probs) for probs in action_probs]
-
-        # Sample actions if not provided
-        if actions is None:
-            actions = [dist.sample() for dist in distributions]
-
-        log_probs = torch.stack([dist.log_prob(action) for dist, action in zip(distributions, actions)], dim=-1)
-        entropies = torch.stack([dist.entropy() for dist in distributions], dim=-1)
-
-        # Convert actions to a single tensor for compatibility with the rest of the code
-        actions = torch.stack(actions, dim=-1)
-
-        return actions, log_probs, entropies, self.value_head(emb)
+    def get_action_and_value(self, x, actions=None):
+        raise NotImplementedError
 
 
 class VecPolicy(Policy):
@@ -61,23 +35,41 @@ class VecPolicy(Policy):
         super(VecPolicy, self).__init__()
         self.fc1 = nn.Linear(input_dim, fc_size)
         self.fc2 = nn.Linear(fc_size, fc_size)
-        if isinstance(num_actions, int):
-            num_actions = [num_actions]
-        self.action_heads = nn.ModuleList([nn.Linear(fc_size, num_action) for num_action in num_actions])
+        self.action_head = nn.Linear(fc_size, num_actions)
         self.value_head = nn.Linear(fc_size, 1)
 
-    def _get_embedding(self, x):
+    def forward(self, x):
         x = F.relu(self.fc1(x))
         x = F.relu(self.fc2(x))
-        return x
+        action_probs = F.softmax(self.action_head(x), dim=-1)
+        state_value = self.value_head(x)
+        return action_probs, state_value
+
+    def get_value(self, x):
+        x = F.relu(self.fc1(x))
+        x = F.relu(self.fc2(x))
+        state_value = self.value_head(x)
+        return state_value
+
+    def get_action_and_value(self, x, actions=None):
+        x = F.relu(self.fc1(x))
+        x = F.relu(self.fc2(x))
+        action_probs = F.softmax(self.action_head(x), dim=-1)
+        m = Categorical(probs=action_probs)
+        # return action, log_prob and entropy
+        if actions is None:
+            actions = m.sample()
+        log_prob = m.log_prob(actions)
+        entropy = m.entropy()
+        return actions, log_prob, entropy, self.value_head(x)
 
 
 class CNNPolicy(Policy):
     """
-    Implements both actor and critic in one model using CNN for 2D grid input, supporting MultiDiscrete action space.
+    Implements both actor and critic in one model using CNN for 2D grid input.
     """
 
-    def __init__(self, input_shape, num_actions=[5, 2], conv_channels=[4, 8, 16], kernel_sizes=[3, 3, 3], fc_size=32):
+    def __init__(self, input_shape, num_actions=5, conv_channels=[4, 8, 16], kernel_sizes=[3, 3, 3], fc_size=32):
         super(CNNPolicy, self).__init__()
 
         # Assert the lengths of conv_channels and kernel_sizes match the number of layers
@@ -97,10 +89,9 @@ class CNNPolicy(Policy):
 
         # Fully connected layer after flattening
         self.fc1 = nn.Linear(conv_output_size, fc_size)
-        if isinstance(num_actions, int):
-            num_actions = [num_actions]
-        # Actor's layers for each dimension of the MultiDiscrete action space
-        self.action_heads = nn.ModuleList([nn.Linear(fc_size, num_action) for num_action in num_actions])
+
+        # Actor's layer (outputs probabilities over actions)
+        self.action_head = nn.Linear(fc_size, num_actions)
 
         # Critic's layer (outputs state value)
         self.value_head = nn.Linear(fc_size, 1)
@@ -117,12 +108,12 @@ class CNNPolicy(Policy):
         Forward pass of both actor and critic.
         """
         x = self._get_embedding(x)
-        # Actor: chooses action probabilities for each dimension in the MultiDiscrete action space
-        action_probs = [F.softmax(action_head(x), dim=-1) for action_head in self.action_heads]
+        # Actor: chooses action to take from state s_t
+        action_prob = F.softmax(self.action_head(x), dim=-1)
         # Critic: evaluates the value of the state
         state_value = self.value_head(x)
-        # Return both actor probabilities and critic values
-        return action_probs, state_value
+        # Return both actor and critic values
+        return action_prob, state_value
 
     def _get_embedding(self, x):
         # Apply CNN layers
@@ -135,9 +126,27 @@ class CNNPolicy(Policy):
         x = F.relu(self.fc1(x))
         return x
 
+    def get_value(self, x):
+        """
+        Returns the state value from the critic's output.
+        """
+        return self.value_head(self._get_embedding(x))
 
-class PPOMixin(Policy):
+    def get_action_and_value(self, x, actions=None):
+        x = self._get_embedding(x)
+        action_probs = F.softmax(self.action_head(x), dim=-1)
+        m = Categorical(probs=action_probs)
+        # return action, log_prob and entropy
+        if actions is None:
+            actions = m.sample()
+        log_prob = m.log_prob(actions)
+        entropy = m.entropy()
+        return actions, log_prob, entropy, self.value_head(x)
+
+
+class PPO(Policy):
     def __init__(self):
+        # super(PPOVecPolicy, self).__init__(envs)
         # input_dim, num_actions=5, fc_size=64
         # Initialize action and reward buffers
         self.saved_actions = []
@@ -200,6 +209,8 @@ class PPOMixin(Policy):
 
             returns = advantages + values
 
+        # advantages = (advantages - advantages.mean()) / (advantages.std() + eps)
+
         # Flatten tensors
         if len(log_probs[0].shape) > 1:
             old_log_probs = torch.cat(log_probs).squeeze(-1)
@@ -228,17 +239,13 @@ class PPOMixin(Policy):
                 # Slice minibatch data
                 mb_obs = all_obs[mb_inds]
                 mb_actions = saved_actions[mb_inds].long()
-                if len(mb_actions.shape) > 1:
-                    mb_actions = [t.squeeze(-1) for t in torch.split(mb_actions, 1, dim=-1)]
-                else:
-                    mb_actions = [mb_actions]
                 _, mb_log_probs, mb_entropies, new_values = self.get_action_and_value(mb_obs, mb_actions)
                 mb_advantages = advantages[mb_inds]
                 mb_returns = returns[mb_inds]
                 mb_values = values[mb_inds]
                 new_values = new_values.squeeze(-1)
 
-                # PPOMixin Loss computation
+                # PPO Loss computation
                 logratio = (mb_log_probs - old_log_probs[mb_inds])
                 ratio = logratio.exp()
                 if len(mb_advantages) > 1:
@@ -280,8 +287,6 @@ class PPOMixin(Policy):
                 optimizer.zero_grad()
                 loss.backward()
                 nn.utils.clip_grad_norm_(self.parameters(), max_grad_norm)
-                # if torch.isnan(loss).any():
-                #     raise ValueError("Loss is nan")
                 optimizer.step()
 
         # Reset action, reward, and value buffers
@@ -291,50 +296,18 @@ class PPOMixin(Policy):
         del self.values[:]
         del self.saved_obs[:]
         del self.dones[:]
-        # Construct a dict of statistics (training)
-        return {
-            "old_approx_kl": old_approx_kl,
-            "approx_kl": approx_kl,
-            "clipfrac": np.mean(np.array(clipfracs)),
-            "policy_loss": policy_loss.detach().cpu().numpy(),
-            "value_loss": value_loss.detach().cpu().numpy(),
-            "entropy_loss": entropy_loss.detach().cpu().numpy(),
-        }
 
 
-class PPOVecPolicy(PPOMixin, VecPolicy):
+class PPOVecPolicy(PPO, VecPolicy):
     def __init__(self, input_dim, num_actions=5, fc_size=64):
-        PPOMixin.__init__(self)
+        PPO.__init__(self)
         VecPolicy.__init__(self, input_dim, num_actions, fc_size)
 
 
-class PPOCNNPolicy(PPOMixin, CNNPolicy):
+class PPOCNNPolicy(PPO, CNNPolicy):
     def __init__(self, input_shape, fc_size, num_actions=5):
-        PPOMixin.__init__(self)
+        PPO.__init__(self)
         CNNPolicy.__init__(self, input_shape=input_shape, num_actions=num_actions, fc_size=fc_size)
-
-
-class MultiPPORollout:
-    """
-    Support MultiAgent for PPOMixin.
-    """
-
-    def __init__(self, num_agents):
-        self.num_agents = num_agents
-        self.rollout_items = ['saved_actions', 'rewards', 'dones', 'log_probs', 'saved_obs', 'values']
-        for item in self.rollout_items:
-            setattr(self, item, [[] for _ in range(num_agents)])
-
-    def concatenate_rollouts(self, my_policy: PPOMixin):
-        """
-        Concatenate all the rollouts into one list
-        """
-
-        for item in self.rollout_items:
-            list(map(getattr(my_policy, item).extend, getattr(self, item)))
-        # reset all the rollouts
-        for item in self.rollout_items:
-            getattr(self, item)[:] = [[] for _ in range(self.num_agents)]
 
 
 def make_env(env_id, idx, capture_video=False, run_name=None):
@@ -375,7 +348,7 @@ def train_cartpole():
 
     next_obs, _ = envs.reset(seed=seed)
     next_dones = torch.zeros(NUM_ENVS).to(device)
-    episode_rewards = torch.zeros(NUM_ENVS).to(device)
+    episode_rewards = np.zeros(NUM_ENVS)
     progress = trange(num_episodes)
     anneal_lr = False
     for episode in progress:
@@ -399,7 +372,7 @@ def train_cartpole():
             policy.values.extend(state_values)
             policy.saved_obs.extend(obs_tensor)
 
-            next_obs, rewards, terminations, truncations, infos = envs.step(actions.cpu().squeeze(-1).numpy())
+            next_obs, rewards, terminations, truncations, infos = envs.step(actions.cpu().numpy())
             next_dones = torch.from_numpy(np.logical_or(terminations, truncations)).to(torch.float32)
             policy.rewards.extend(rewards)
             policy.dones.extend(next_dones)
@@ -424,7 +397,7 @@ def train_cartpole():
         #     break
 
         # Reset rewards for the next episode
-        episode_rewards.zero_()
+        episode_rewards.fill(0)
 
         # Reset environment (No reset, then rollout length can continue)
         # obs, _ = envs.reset()
