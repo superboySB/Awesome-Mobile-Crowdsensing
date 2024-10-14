@@ -47,13 +47,18 @@ class Policy(nn.Module):
         if actions is None:
             actions = [dist.sample() for dist in distributions]
 
-        log_probs = torch.stack([dist.log_prob(action) for dist, action in zip(distributions, actions)], dim=-1)
-        entropies = torch.stack([dist.entropy() for dist in distributions], dim=-1)
+        if len(distributions) > 1:
+            log_probs_list = torch.stack([dist.log_prob(action) for dist, action in zip(distributions, actions)],
+                                         dim=-1)
+            entropies_list = torch.stack([dist.entropy() for dist in distributions], dim=-1)
+        else:
+            log_probs_list = distributions[0].log_prob(actions[0])
+            entropies_list = distributions[0].entropy()
 
         # Convert actions to a single tensor for compatibility with the rest of the code
         actions = torch.stack(actions, dim=-1)
 
-        return actions, log_probs, entropies, self.value_head(emb)
+        return actions, log_probs_list, entropies_list, self.value_head(emb)
 
 
 class VecPolicy(Policy):
@@ -164,10 +169,10 @@ class PPOMixin(Policy):
         if len(self.values[0].shape) != 0:
             values = torch.cat(self.values[:num_envs * num_steps]).squeeze(-1).reshape(num_steps, -1).to(device)
         else:
-            values = torch.tensor(self.values[:num_envs * num_steps]).reshape(num_steps, num_envs).to(device)
+            values = torch.tensor(self.values[:num_envs * num_steps]).reshape(num_steps, -1).to(device)
         dones = torch.tensor(self.dones[:num_envs * num_steps]).reshape(num_steps, -1).to(torch.float32).to(device)
-        rewards = torch.tensor(self.rewards[:num_envs * num_steps], dtype=torch.float32, device=device).reshape(
-            num_steps, -1)
+        rewards = torch.tensor(self.rewards[:num_envs * num_steps], dtype=torch.float32,
+                               device=device).reshape(num_steps, -1).to(device)
 
         # If the episode is done, we set the next value to 0.0 as there's no future reward to be expected
         with torch.no_grad():
@@ -211,7 +216,11 @@ class PPOMixin(Policy):
         advantages = advantages.view(-1)
         returns = returns.view(-1)
         values = values.view(-1)
-        all_obs = torch.cat(self.saved_obs).reshape(-1, self.saved_obs[0].shape[-1])
+        example_obs = self.saved_obs[0]
+        if len(example_obs.shape) == 1:
+            all_obs = torch.cat(self.saved_obs[:num_envs * num_steps]).reshape(-1, self.saved_obs[0].shape[-1])
+        else:
+            all_obs = torch.cat(self.saved_obs[:num_envs * num_steps])
 
         # Prepare for minibatch update
         batch_size = len(returns)
