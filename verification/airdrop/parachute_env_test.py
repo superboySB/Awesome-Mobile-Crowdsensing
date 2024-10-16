@@ -326,18 +326,18 @@ class MultiAgentGridWorld(gym.Env):
                                                                 else np.array([-1, -1]))
                 if 0 <= self.emergency_poi_grid[x, y] < self.timestep:
                     emergency_id = self.emergency_mapping[(x, y)]
-                    # rewards[f'small_{small_agent_id}'] = self.emergency_aoi[emergency_id] / self.max_timesteps
+                    rewards[f'small_{small_agent_id}'] = self.emergency_aoi[emergency_id] / self.max_timesteps
                     self.emergency_end_time[emergency_id] = self.timestep
                     if np.all(small_agent[POSITION] == small_agent[TARGET]):
                         small_agent[TARGET] = None
-                        # rewards[f'small_{small_agent_id}'] = 1
+                        rewards[f'small_{small_agent_id}'] = 1
 
                 if small_agent[TARGET] is not None:
                     pass
-                    # target_aoi = self.emergency_aoi[self.emergency_mapping[tuple(small_agent[TARGET])]]
-                    # rewards[f'small_{small_agent_id}'] -= np.linalg.norm(
-                    #     (small_agent[TARGET] - small_agent[POSITION]) / self.grid_size
-                    # )
+                    target_aoi = self.emergency_aoi[self.emergency_mapping[tuple(small_agent[TARGET])]]
+                    rewards[f'small_{small_agent_id}'] -= np.linalg.norm(
+                        (small_agent[TARGET] - small_agent[POSITION]) / self.grid_size
+                    ) * target_aoi / self.max_timesteps
 
                 rewards[f'small_{small_agent_id}'] += self.group_factor * self.aoi_grid[x, y] * self.poi_grid[
                     x, y] / self.max_timesteps

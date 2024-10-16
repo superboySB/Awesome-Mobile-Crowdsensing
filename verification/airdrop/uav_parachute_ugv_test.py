@@ -308,8 +308,8 @@ if __name__ == '__main__':
                    config=config, dir=os.path.join('/workspace', 'saved_data'))
         wandb.define_metric(BIG_AGENT_METRIC, summary="max")
         wandb.define_metric(SMALL_AGENT_METRIC, summary="max")
-        wandb.define_metric(SURVEILLANCE_AOI, summary='min')
-        wandb.define_metric(EMERGENCY_AOI, summary='min')
+        wandb.define_metric(f'{ENV_INFO}/{SURVEILLANCE_AOI}', summary='min')
+        wandb.define_metric(f'{ENV_INFO}/EMERGENCY_AOI', summary='min')
         wandb.watch([big_agent_policy, small_agent_policy], log="all", log_graph=False)
 
     next_obs = env.reset()
