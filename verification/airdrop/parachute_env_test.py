@@ -95,7 +95,7 @@ class MultiAgentGridWorld(gym.Env):
     def __init__(self, num_big_agents, num_small_agents, group_factor, self_factor,
                  log_action, num_emergencies, max_timesteps):
         super(MultiAgentGridWorld, self).__init__()
-        self.simple_mode = True
+        self.simple_mode = False
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.big_agent_shape = self.small_agent_shape = None
         self.grid_size = GRID_SIZE
@@ -166,127 +166,7 @@ class MultiAgentGridWorld(gym.Env):
         self.emergency_poi_grid[emergency_x, emergency_y] = self.emergency_start_time
         self.num_poi = np.sum(self.poi_grid) + self.num_emergencies
 
-    def compute_reward(self) -> Tuple[Dict[str, float], Dict[str, float]]:
-        # Initialize reward dictionary and lists for storing reward components
-        reward_dict = {}
-        surveillance_reward = []
-        emergency_reward = []
-        assignment_proximity_reward = []
-        deploy_action_reward = []
-
-        # Process rewards for big agents
-        for big_agent_id, big_agent in enumerate(self.big_agents):
-            big_agent_pos = torch.tensor(big_agent[POSITION], device=self.device, dtype=torch.float32)
-
-            # Compute proximity reward: closest distance to deployed small agents
-            big_to_small_distances = []
-            for small_agent in self.small_agents:
-                if small_agent[DEPLOYED]:
-                    small_agent_pos = torch.tensor(small_agent[POSITION], device=self.device, dtype=torch.float32)
-                    distance = torch.norm(big_agent_pos - small_agent_pos, p=2)
-                    big_to_small_distances.append(distance)
-
-            if big_to_small_distances:
-                min_big_to_small_distance = torch.stack(big_to_small_distances).min()
-                proximity_reward = 1.0 / (min_big_to_small_distance + 1e-6)
-            else:
-                proximity_reward = torch.tensor(0.0, device=self.device, dtype=torch.float32)
-
-            # Apply temperature to proximity reward, adjusted for more balance
-            temperature_assignment = 0.05  # Reduced temperature for less influence
-            transformed_proximity_reward = torch.exp(-temperature_assignment * proximity_reward)
-
-            # Store the reward for the big agent (convert to scalar)
-            reward_dict[f"big_{big_agent_id}"] = transformed_proximity_reward.item()
-            assignment_proximity_reward.append(transformed_proximity_reward)
-
-            # Reward for deployment actions (scaled down to prevent domination)
-            if big_agent[CARRIED_AGENTS]:  # If big agent has carried small agents
-                # Reward based on proximity to either emergency or surveillance AoIs
-                emergency_poi_grid = torch.tensor(self.emergency_poi_grid, device=self.device, dtype=torch.float32)
-                surveillance_poi_grid = torch.tensor(self.poi_grid, device=self.device, dtype=torch.float32)
-
-                emergency_aoi_pos = torch.nonzero(emergency_poi_grid)  # Non-zero grid points are emergency AoI
-                surveillance_aoi_pos = torch.nonzero(surveillance_poi_grid)  # Non-zero grid points are surveillance AoI
-
-                # Calculate distances to AoIs
-                if emergency_aoi_pos.numel() > 0:
-                    emergency_distances = torch.norm(big_agent_pos - emergency_aoi_pos.float(), dim=-1, p=2)
-                    emergency_deploy_r = 1.0 / (torch.min(emergency_distances) + 1e-6)
-                else:
-                    emergency_deploy_r = torch.tensor(0.0, device=self.device, dtype=torch.float32)
-
-                if surveillance_aoi_pos.numel() > 0:
-                    surveillance_distances = torch.norm(big_agent_pos - surveillance_aoi_pos.float(), dim=-1, p=2)
-                    surveillance_deploy_r = 1.0 / (torch.min(surveillance_distances) + 1e-6)
-                else:
-                    surveillance_deploy_r = torch.tensor(0.0, device=self.device, dtype=torch.float32)
-
-                # Scale down deploy action reward to a more reasonable range
-                deploy_reward = (emergency_deploy_r + surveillance_deploy_r) * 0.001  # Scaled down by 0.001
-                deploy_action_reward.append(deploy_reward)
-                reward_dict[f"big_{big_agent_id}_deploy_action"] = deploy_reward.item()
-
-        # Process rewards for small agents
-        for small_agent_id, small_agent in enumerate(self.small_agents):
-            if small_agent[DEPLOYED]:  # Only compute reward for deployed small agents
-                small_agent_pos = torch.tensor(small_agent[POSITION], device=self.device, dtype=torch.float32)
-
-                # Surveillance task reward: proximity to surveillance points of interest (poi)
-                poi_grid = torch.tensor(self.poi_grid, device=self.device, dtype=torch.float32)
-                surveillance_aoi_pos = torch.nonzero(poi_grid)  # Assuming non-zero grid points are AoI
-                if surveillance_aoi_pos.numel() > 0:
-                    surveillance_distances = torch.norm(small_agent_pos - surveillance_aoi_pos.float(), dim=-1, p=2)
-                    surveillance_r = 1.0 / (torch.min(surveillance_distances) + 1e-6)
-                else:
-                    surveillance_r = torch.tensor(0.0, device=self.device, dtype=torch.float32)
-
-                # Emergency task reward: proximity to emergency points of interest (emergency_poi)
-                emergency_poi_grid = torch.tensor(self.emergency_poi_grid, device=self.device, dtype=torch.float32)
-                emergency_aoi_pos = torch.nonzero(emergency_poi_grid)  # Non-zero grid points are emergency AoI
-                if emergency_aoi_pos.numel() > 0:
-                    emergency_distances = torch.norm(small_agent_pos - emergency_aoi_pos.float(), dim=-1, p=2)
-                    emergency_r = 1.0 / (torch.min(emergency_distances) + 1e-6)
-                else:
-                    emergency_r = torch.tensor(0.0, device=self.device, dtype=torch.float32)
-
-                # Use logarithmic scaling to encourage dynamic behavior and prevent premature convergence
-                log_surveillance_r = torch.log(1 + surveillance_r)
-                log_emergency_r = torch.log(1 + emergency_r)
-
-                # Store the reward for the small agent (convert to scalar)
-                reward_dict[f"small_{small_agent_id}"] = (log_surveillance_r + log_emergency_r).item()
-                surveillance_reward.append(log_surveillance_r)
-                emergency_reward.append(log_emergency_r)
-            else:
-                # Not deployed, no reward
-                reward_dict[f"small_{small_agent_id}"] = 0.0
-
-        # Calculate average reward components across agents
-        avg_surveillance_reward = torch.stack(surveillance_reward).mean() if surveillance_reward else torch.tensor(0.0,
-                                                                                                                   device=self.device,
-                                                                                                                   dtype=torch.float32)
-        avg_emergency_reward = torch.stack(emergency_reward).mean() if emergency_reward else torch.tensor(0.0,
-                                                                                                          device=self.device,
-                                                                                                          dtype=torch.float32)
-        avg_assignment_proximity_reward = torch.stack(
-            assignment_proximity_reward).mean() if assignment_proximity_reward else torch.tensor(0.0,
-                                                                                                 device=self.device,
-                                                                                                 dtype=torch.float32)
-        avg_deploy_action_reward = torch.stack(deploy_action_reward).mean() if deploy_action_reward else torch.tensor(
-            0.0, device=self.device, dtype=torch.float32)
-
-        # Convert average rewards to scalar values (float)
-        reward_components = {
-            "avg_surveillance_reward": avg_surveillance_reward.item(),
-            "avg_emergency_reward": avg_emergency_reward.item(),
-            "avg_assignment_proximity_reward": avg_assignment_proximity_reward.item(),
-            "avg_deploy_action_reward": avg_deploy_action_reward.item()
-        }
-
-        return reward_dict, reward_components
-
-    def step(self, actions) -> [dict, dict, bool, dict]:
+    def compute_reward(self, actions: dict) -> Tuple[Dict[str, float], Dict[str, float]]:
         info = {}
         unassigned_mask = ~self.emergency_assign_status
         emergency_unhandle_mask = (self.emergency_start_time <= self.timestep) & (self.emergency_end_time == -1)
@@ -342,10 +222,6 @@ class MultiAgentGridWorld(gym.Env):
                 rewards[f'small_{small_agent_id}'] += self.group_factor * self.aoi_grid[x, y] * self.poi_grid[
                     x, y] / self.max_timesteps
 
-                # self.max_reward = max(self.max_reward, rewards[f'small_{small_agent_id}'])
-                # self.min_reward = min(self.min_reward, rewards[f'small_{small_agent_id}'])
-                # rewards[f'small_{small_agent_id}'] = (
-                #         (rewards[f'small_{small_agent_id}'] - self.min_reward) / (self.max_reward - self.min_reward))
                 self.aoi_grid[x, y] = 0
             else:
                 # pass
@@ -430,13 +306,16 @@ class MultiAgentGridWorld(gym.Env):
                 pass
                 # rewards[f'big_{big_agent_id}'] -= len(big_agent[TARGETS]) * 0.5
 
-        # rewards, reward_component = self.compute_reward()
-        # info.update(**reward_component)
-        # Update AoI for all grid cells
+        # Calculate AoI updates
         self.aoi_grid += 1
-        # increment emergency only when it starts and it is not handled.
         self.emergency_aoi[emergency_unhandle_mask] += 1
 
+        # Return the reward dictionary and the reward components in info
+        return rewards, info
+
+    def step(self, actions) -> [dict, dict, bool, dict]:
+
+        rewards, info = self.compute_reward(actions)
         self.aoi_grid_by_time[self.timestep] = self.aoi_grid * self.poi_grid
         self.timestep += 1
         done = self.timestep >= self.max_timesteps

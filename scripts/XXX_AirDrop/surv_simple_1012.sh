@@ -1,5 +1,5 @@
 #!/bin/bash
-exp_name='emer-surv-rerun'
+exp_name='emer-surv-with-big'
 session_name=$exp_name
 dry_run=false
 # Process command-line arguments
