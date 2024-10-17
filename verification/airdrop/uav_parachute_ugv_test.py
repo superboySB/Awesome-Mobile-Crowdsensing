@@ -435,18 +435,19 @@ if __name__ == '__main__':
                 # convert small agent position and target to dataframe
                 for small_agent_id, small_agent in enumerate(env.small_agents):
                     # Convert small_agent_trajectories and small_agent_targets into numpy arrays for efficiency
-                    trajectories = np.array(env.small_agent_trajectories[small_agent_id])  # Shape: (num_steps, 2)
-                    targets = np.array(env.small_agent_targets[small_agent_id])  # Shape: (num_steps, 2)
-                    # Create DataFrame directly from the numpy arrays
-                    df = pd.DataFrame({
-                        "x": trajectories[:, 0],  # First column from trajectories
-                        "y": trajectories[:, 1],  # Second column from trajectories
-                        "target_x": targets[:, 0],  # First column from targets
-                        "target_y": targets[:, 1],  # Second column from targets
-                    }, index=pd.Index(np.arange(trajectories.shape[0]), name="step"))  # Set the index to "step"
-                    log_dict[f"small_{small_agent_id}_history"] = wandb.Table(data=df,
-                                                                              columns=["x", "y", "target_x",
-                                                                                       "target_y"])
+                    if len(env.small_agent_trajectories[small_agent_id]) > 0:
+                        trajectories = np.array(env.small_agent_trajectories[small_agent_id])  # Shape: (num_steps, 2)
+                        targets = np.array(env.small_agent_targets[small_agent_id])  # Shape: (num_steps, 2)
+                        # Create DataFrame directly from the numpy arrays
+                        df = pd.DataFrame({
+                            "x": trajectories[:, 0],  # First column from trajectories
+                            "y": trajectories[:, 1],  # Second column from trajectories
+                            "target_x": targets[:, 0],  # First column from targets
+                            "target_y": targets[:, 1],  # Second column from targets
+                        }, index=pd.Index(np.arange(trajectories.shape[0]), name="step"))  # Set the index to "step"
+                        log_dict[f"small_{small_agent_id}_history"] = wandb.Table(data=df,
+                                                                                  columns=["x", "y", "target_x",
+                                                                                           "target_y"])
         # GPT Logging Interval
         # if episode % GPT_LOG_INTERVAL == 0:
         #     for metric in info:

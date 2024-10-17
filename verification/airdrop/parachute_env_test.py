@@ -167,152 +167,154 @@ class MultiAgentGridWorld(gym.Env):
         self.num_poi = np.sum(self.poi_grid) + self.num_emergencies
 
     def compute_reward(self, actions: dict) -> Tuple[Dict[str, float], Dict[str, float]]:
-        info = {}
+        # Initialize reward dictionary and component lists
+        reward_dict = {f'big_{i}': 0 for i in range(self.num_big_agents)}
+        reward_dict.update({f'small_{i}': 0 for i in range(self.num_small_agents)})
+        surveillance_reward = []
+        emergency_reward = []
+        deploy_reward = []
+        assignment_proximity_reward = []
+
+        # Parameters for temperature-based transformations
+        temperature_surveillance = 0.05
+        temperature_emergency = 0.05
+        temperature_assignment = 0.1
+
+        # Unassigned emergency mask
         unassigned_mask = ~self.emergency_assign_status
         emergency_unhandle_mask = (self.emergency_start_time <= self.timestep) & (self.emergency_end_time == -1)
-        rewards = {f'big_{i}': 0 for i in range(self.num_big_agents)}
-        rewards.update({f'small_{i}': 0 for i in range(self.num_small_agents)})
-        if self.simple_mode:
-            # get position of all small agents
-            small_agent_positions = np.array([agent[POSITION] for agent in self.small_agents])
-            # get distance matrix between each emergency PoI and each small agent (num_emergencies, num_small_agents)
-            emergency_distances = np.linalg.norm(
-                self.emergency_positions[emergency_unhandle_mask, np.newaxis, :] - small_agent_positions,
-                axis=2)
-            emergency_index = np.nonzero(emergency_unhandle_mask)[0]
-            if len(emergency_distances) > 0:
-                # greedy assignment
-                emergency_assignments = np.argmin(emergency_distances, axis=1)
-                for i, j in zip(range(len(self.emergency_positions)), emergency_assignments):
-                    current_index = emergency_index[i]
-                    if self.emergency_assign_status[current_index]:
-                        continue
-                    self.emergency_assign_status[current_index] = True
-                    # match small agent index to emergency index
-                    if self.small_agents[j][TARGET] is None:
-                        self.small_agents[j][TARGET] = self.emergency_positions[current_index]
 
-        # Process small agent actions
         for small_agent_id, small_agent in enumerate(self.small_agents):
             small_agent['last_deploy_status'] = small_agent[DEPLOYED]
             if small_agent[DEPLOYED]:
                 action = actions[f'small_{small_agent_id}']
                 self._move_agent(small_agent, action)
                 x, y = small_agent[POSITION]
-                # Record small agent position
+
+                # Record small agent's trajectory
                 self.small_agent_trajectories[small_agent_id].append(small_agent[POSITION].copy())
                 self.small_agent_targets[small_agent_id].append(small_agent[TARGET] if
                                                                 small_agent[TARGET] is not None
                                                                 else np.array([-1, -1]))
+
+                # Emergency task reward
                 if 0 <= self.emergency_poi_grid[x, y] < self.timestep:
                     emergency_id = self.emergency_mapping[(x, y)]
-                    rewards[f'small_{small_agent_id}'] = self.emergency_aoi[emergency_id] / self.max_timesteps
+                    reward_dict[f'small_{small_agent_id}'] = self.emergency_aoi[emergency_id] / self.max_timesteps
                     self.emergency_end_time[emergency_id] = self.timestep
                     if np.all(small_agent[POSITION] == small_agent[TARGET]):
                         small_agent[TARGET] = None
-                        rewards[f'small_{small_agent_id}'] = 1
+                        reward_dict[f'small_{small_agent_id}'] = 1
 
+                # Penalty for distance from target
                 if small_agent[TARGET] is not None:
-                    pass
                     target_aoi = self.emergency_aoi[self.emergency_mapping[tuple(small_agent[TARGET])]]
-                    rewards[f'small_{small_agent_id}'] -= np.linalg.norm(
+                    reward_dict[f'small_{small_agent_id}'] -= np.linalg.norm(
                         (small_agent[TARGET] - small_agent[POSITION]) / self.grid_size
                     ) * target_aoi / self.max_timesteps
 
-                rewards[f'small_{small_agent_id}'] += self.group_factor * self.aoi_grid[x, y] * self.poi_grid[
+                # Surveillance task reward
+                reward_dict[f'small_{small_agent_id}'] += self.group_factor * self.aoi_grid[x, y] * self.poi_grid[
                     x, y] / self.max_timesteps
-
-                self.aoi_grid[x, y] = 0
+                self.aoi_grid[x, y] = 0  # Clear AoI once covered
             else:
-                # pass
-                rewards[f'small_{small_agent_id}'] = 0
+                reward_dict[f'small_{small_agent_id}'] = 0.0
 
-        # Process big agent actions
+        # Process rewards for big agents
         for big_agent_id, big_agent in enumerate(self.big_agents):
+            big_agent_pos = torch.tensor(big_agent[POSITION], device=self.device, dtype=torch.float32)
+
+            # Process movement and deployment action for big agents
             my_action = actions[f'big_{big_agent_id}']
             if isinstance(my_action, np.ndarray):
                 movement_action, deploy_action = my_action[0]
             else:
                 raise NotImplementedError("Action must be a numpy array")
+
+            # Move the big agent
             self._move_agent(big_agent, movement_action)
             self.big_agent_trajectories[big_agent_id].append(big_agent[POSITION].copy())
-            if self.log_action:
-                self.big_agent_actions[big_agent_id].append(movement_action)
-            deploy_x, deploy_y = big_agent[POSITION]
-            # reward big agent for its own movement
-            rewards[f'big_{big_agent_id}'] = self.self_factor * self.aoi_grid[deploy_x, deploy_y] * self.poi_grid[
-                deploy_x, deploy_y] / self.max_timesteps
-            # calculate the average distance between this big agent and other big agent
-            total_dist = 0
-            big_agent_count = 0
-            for other_agent in self.big_agents:
-                if other_agent != big_agent:
-                    dist = np.linalg.norm(other_agent[POSITION] - big_agent[POSITION])
-                    total_dist += dist
-                    big_agent_count += 1
-            if big_agent_count > 0:
-                avg_dist = total_dist / big_agent_count
-                info[f'big_{big_agent_id}_avg_dist'] = avg_dist
-            # normalize distance and add as reward
 
-            # Calculate distance between all emergencies and the deployment point (deploy_x, deploy_y)
-            deploy_position = big_agent[POSITION]  # Shape: (2,)
-            distances = np.abs(self.emergency_positions - deploy_position)  # Shape: (num_emergencies, 2)
-            within_range_mask = (distances[:, 0] <= BIG_AGENT_RANGE) & (distances[:, 1] <= BIG_AGENT_RANGE)
-            # Combine the two masks to get the valid emergencies
-            valid_emergencies_mask = unassigned_mask & emergency_unhandle_mask & within_range_mask
-            # Get valid emergency IDs and their AoI values
-            valid_emer_ids = self.emer_ids[valid_emergencies_mask]
-            valid_emergency_positions = self.emergency_positions[valid_emergencies_mask]
-            valid_aoi = self.emergency_aoi[valid_emer_ids]
-            # Apply discovery reward for valid emergencies
-            # rewards[f'big_{big_agent_id}'] += np.sum(valid_aoi) / self.max_timesteps
-            info[f'big_{big_agent_id}_buffer_length'] = len(big_agent[TARGETS])
-            # Update targets for the big agent and mark emergencies as assigned
-            big_agent[TARGETS].extend(valid_emergency_positions)
-            self.emergency_assign_status[valid_emer_ids] = True
+            # Reward based on proximity to deployed small agents
+            big_to_small_distances = []
+            for small_agent in self.small_agents:
+                if small_agent[DEPLOYED]:
+                    small_agent_pos = torch.tensor(small_agent[POSITION], device=self.device, dtype=torch.float32)
+                    distance = torch.norm(big_agent_pos - small_agent_pos, p=2)
+                    big_to_small_distances.append(distance)
+
+            if big_to_small_distances:
+                min_big_to_small_distance = torch.stack(big_to_small_distances).min()
+                proximity_reward = 1.0 / (min_big_to_small_distance + 1e-6)
+            else:
+                proximity_reward = torch.tensor(0.0, device=self.device, dtype=torch.float32)
+
+            transformed_proximity_reward = torch.exp(-temperature_assignment * proximity_reward)
+            reward_dict[f"big_{big_agent_id}"] = transformed_proximity_reward.item()
+            assignment_proximity_reward.append(transformed_proximity_reward)
 
             # Handle deployment action
+            deploy_position = big_agent[POSITION]
             if deploy_action == 1 and len(big_agent[CARRIED_AGENTS]) > 0:
-                # big agent is rewarded with AoI sum of PoIs around the deployment area
+                # Deploy small agent
                 self.small_agent_deploy_position.append(deploy_position.copy())
                 deployed_small_agent = self._deploy_small_agent(big_agent_id)
                 if deployed_small_agent[TARGET] is None:
-                    deploy_reward = 0
+                    deploy_reward_value = 0
                 else:
-                    deploy_reward = 1 - np.linalg.norm(
+                    deploy_reward_value = 1 - np.linalg.norm(
                         (deploy_position - deployed_small_agent[TARGET]) / self.grid_size)
-                info[f'big_{big_agent_id}_deploy_reward'] = deploy_reward
-                rewards[f'big_{big_agent_id}'] += deploy_reward
-                info[f'big_{big_agent_id}_deploy_time'] = self.timestep
-
+                deploy_reward.append(torch.tensor(deploy_reward_value, dtype=torch.float32))
+                reward_dict[f'big_{big_agent_id}_deploy_action'] = deploy_reward_value
             elif deploy_action == 1 and len(big_agent[CARRIED_AGENTS]) == 0:
-                # assign emergency in buffer to the closest available UGV.
+                # Assign emergency to nearest available small agent
                 for small_agent in self.small_agents:
                     if small_agent[DEPLOYED]:
                         small_x, small_y = small_agent[POSITION]
-                        # confirm the big agent can see this small agent
                         if np.abs(small_x - deploy_position[0]) < BIG_AGENT_RANGE and \
                                 np.abs(small_y - deploy_position[1]) < BIG_AGENT_RANGE:
                             if small_agent[TARGET] is None and len(big_agent[TARGETS]) > 0:
                                 small_agent[TARGET] = big_agent[TARGETS].pop()
-                                logger.debug(f"Assignment Operation Successful")
                                 assign_reward = 1 - np.linalg.norm(
                                     (small_agent[POSITION] - small_agent[TARGET]) / self.grid_size)
-                                info[f'big_{big_agent_id}_assign_reward'] = assign_reward
-                                rewards[f'big_{big_agent_id}'] += assign_reward
+                                reward_dict[f'big_{big_agent_id}_assign_reward'] = assign_reward
                                 break
-            else:
-                pass
-                # rewards[f'big_{big_agent_id}'] -= len(big_agent[TARGETS]) * 0.5
 
-        # Calculate AoI updates
+            # Calculate AoI-based rewards for the big agent
+            x, y = big_agent[POSITION]
+            reward_dict[f'big_{big_agent_id}'] += self.self_factor * self.aoi_grid[x, y] * self.poi_grid[
+                x, y] / self.max_timesteps
+
+        # Process rewards for small agents
+
+        # AoI grid updates
         self.aoi_grid += 1
         self.emergency_aoi[emergency_unhandle_mask] += 1
 
-        # Return the reward dictionary and the reward components in info
-        return rewards, info
+        # Calculate average reward components across agents
+        avg_surveillance_reward = torch.stack(surveillance_reward).mean() if surveillance_reward else torch.tensor(0.0,
+                                                                                                                   device=self.device,
+                                                                                                                   dtype=torch.float32)
+        avg_emergency_reward = torch.stack(emergency_reward).mean() if emergency_reward else torch.tensor(0.0,
+                                                                                                          device=self.device,
+                                                                                                          dtype=torch.float32)
+        avg_assignment_proximity_reward = torch.stack(
+            assignment_proximity_reward).mean() if assignment_proximity_reward else torch.tensor(0.0,
+                                                                                                 device=self.device,
+                                                                                                 dtype=torch.float32)
+        avg_deploy_action_reward = torch.stack(deploy_reward).mean() if deploy_reward else torch.tensor(0.0,
+                                                                                                        device=self.device,
+                                                                                                        dtype=torch.float32)
 
+        # Convert average rewards to scalar values (float)
+        reward_components = {
+            "avg_surveillance_reward": avg_surveillance_reward.item(),
+            "avg_emergency_reward": avg_emergency_reward.item(),
+            "avg_assignment_proximity_reward": avg_assignment_proximity_reward.item(),
+            "avg_deploy_action_reward": avg_deploy_action_reward.item()
+        }
+
+        return reward_dict, reward_components
     def step(self, actions) -> [dict, dict, bool, dict]:
 
         rewards, info = self.compute_reward(actions)

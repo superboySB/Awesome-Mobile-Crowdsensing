@@ -1,5 +1,5 @@
 #!/bin/bash
-exp_name='emer-surv-with-big'
+exp_name='gpt-iter-1'
 session_name=$exp_name
 dry_run=false
 # Process command-line arguments
@@ -15,10 +15,10 @@ while [[ $# -gt 0 ]]; do
 done
 # remove NN share_policy all
 trains=(
-  "--group-factor 0"
   "--group-factor 0.01"
+  "--group-factor 0.02"
+  "--group-factor 0.03"
   "--group-factor 0.05"
-  "--group-factor 0.1"
 )
 
 
