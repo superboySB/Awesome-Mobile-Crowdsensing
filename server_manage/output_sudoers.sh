@@ -4,7 +4,7 @@
 users=("liuchi" "hanrui" "lishuang" "gaoguangyu" "liguozheng")
 
 # Define the programs for which you want to generate sudo permissions
-programs=("cat" "tail" "apt" "apt-get" "grep" "less" "find" "rsync" "mkdir")
+programs=("cat" "tail" "apt" "apt-get" "grep" "less" "find" "rsync" "mkdir" "mysql")
 
 # Check if an IP address is provided
 if [ $# -eq 0 ]; then
@@ -80,9 +80,6 @@ for username in "${users[@]}"; do
   for nvidia_command in "${nvidia_commands[@]}"; do
     sudo_cmd+=" $nvidia_command,"
   done
-  # Add permission to read Docker config without a password
-  sudo_cmd+=" /bin/cat /home/$username/.docker/config.json,"
-
   # Trim the last comma
   sudo_cmd=${sudo_cmd%,}
 

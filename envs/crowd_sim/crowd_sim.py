@@ -111,6 +111,7 @@ policy_mapping_dict = {
     "SanFrancisco": map_dict,
     "KAIST": map_dict,
     "Chengdu": map_dict,
+    "Beijing": map_dict
 }
 excluded_keys = {"trainer", "env_params", "map_name"}
 logging.getLogger().setLevel(logging.WARN)
@@ -801,6 +802,8 @@ class CrowdSim:
                                      self.target_aoi_timelist[self.timestep, self.zero_shot_start:],
                                      emergency_status,
                                      np.zeros_like(emergency_status)]).T
+        # print('=========================================')
+        # print(emergency_status.shape, emergency_state.shape)
         # TODO: the fifth dimension is not synced with CUDA
         vector_state = np.concatenate([agents_state.ravel(), emergency_state.ravel(), np.array([self.timestep])])
         # else:
@@ -1801,7 +1804,6 @@ class RLlibCUDACrowdSim(MultiAgentEnv):
                 self.num_envs = 10
                 warnings.warn("render=True, num_envs is always equal to 10, and user input is ignored.")
             elif self.is_local:
-                # pass
                 self.num_envs = 10
                 warnings.warn("local_mode=True, num_envs is always equal to 10, and user input is ignored.")
             else:
@@ -2075,7 +2077,6 @@ class RLlibCUDACrowdSimWrapper(VectorEnv):
             actions = [self.group_wrapper._ungroup_items(item) for item in actions]
         logging.debug(actions[0])
         step_result = self.env.vector_step(actions)
-
         if self.group_wrapper is not None:
             obs_list, reward_list, done_list, info_list = step_result
             obs_group_list = [self.group_wrapper._group_items(item) for item in obs_list]
@@ -2284,10 +2285,15 @@ class SendAllocationCallback(DefaultCallbacks):
                         **kwargs) -> None:
         if env_index == 0:
             my_env: CUDACrowdSim = base_env.vector_env.env.env
-            if 'shared_policy' in policies and hasattr(policies['shared_policy'].model, 'get_allocation_table'):
-                allocation_table = policies['shared_policy'].model.get_allocation_table()
+            main_model = policies['shared_policy'].model
+            if 'shared_policy' in policies and hasattr(main_model, 'get_allocation_table'):
+                allocation_table = main_model.get_allocation_table()
                 my_env.cuda_data_manager.data_on_device_via_torch("emergency_allocation_table")[:] = (
                     torch.from_numpy(allocation_table))
+            elif 'shared_policy' in policies and hasattr(main_model, 'agent_x_time_list'):
+                # pred_loc, get agent history (x,y)
+                main_model.agent_x_time_list.append(my_env.cuda_data_manager.pull_data_from_device("agent_x"))
+                main_model.agent_y_time_list.append(my_env.cuda_data_manager.pull_data_from_device("agent_y"))
                 # my_env.agent_anti_goals[my_env.timestep] = policies['shared_policy'].model.get_anti_goals()[:my_env.num_agents]
 
 

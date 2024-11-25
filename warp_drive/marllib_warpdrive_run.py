@@ -50,7 +50,7 @@ if __name__ == '__main__':
     parser.add_argument("--encoder_layer", type=str, help='encoder layer config, input in format X-X-X',
                         default='128-128-128')
     parser.add_argument("--core_arch", type=str, help='core architecture, mlp, gru, lstm or attention',
-                        choices=['mlp', 'gru', 'lstm', 'crowdsim_net', 'attention'], default='mlp')
+                        choices=['mlp', 'gru', 'lstm', 'crowdsim_net', 'attention', 'pred_loc'], default='mlp')
     parser.add_argument('--local_mode', action='store_true', help='run in local mode')
     parser.add_argument('--all_random', action='store_true', help='PoIs in the environment '
                                                                   'are completely random')
@@ -93,11 +93,11 @@ if __name__ == '__main__':
     parser.add_argument('--speed_action', action='store_true', help='enable speed action')
     parser.add_argument('--blur_requirement', type=float, default=5,
                         help='blur requirement for image, proportional to speed')
+    parser.add_argument('--horizon', type=int, default=5, help='train timstep for pred loc')
     parser.add_argument('--emergency_reward', type=float, default=10, help='reward for covering emergency')
     parser.add_argument('--refill_emergency', action='store_true', help='fill in uncovered surveillance as emergency')
     parser.add_argument('--encoder_core_arch', type=str, default='mlp',
-                        choices=['mlp', 'mlp_residual', 'attention', 'attention_gumbel',
-                                 'attention_gumbel_mock', 'attention_residual'], help='core architecture for encoder')
+                        choices=['mlp', 'mlp_residual', 'pred_loc'], help='core architecture for encoder')
     parser.add_argument('--use_action_mask', action='store_true', help='use action mask for emergency')
     parser.add_argument('--no_task_allocation', action='store_true', help='disable task allocation high-level agent')
     parser.add_argument('--use_neural_ucb', action='store_true', help='use neural ucb for upper-level assignment.')
@@ -140,12 +140,15 @@ if __name__ == '__main__':
         ENV_REGISTRY[args.env] = RLlibCUDACrowdSim
         COOP_ENV_REGISTRY[args.env] = RLlibCUDACrowdSim
         share_policy = args.share_policy
+        print('=============> args.dataset: ', args.dataset)
         if args.dataset == LARGE_DATASET_NAME:
             from datasets.Sanfrancisco.env_config import BaseEnvConfig
         elif args.dataset == 'KAIST':
             from datasets.KAIST.env_config import BaseEnvConfig
         elif args.dataset == 'Chengdu':
             from datasets.Chengdu.env_config import BaseEnvConfig
+        elif args.dataset == 'Beijing':
+            from datasets.Beijing.env_config import BaseEnvConfig
         else:
             raise NotImplementedError(f"dataset {args.dataset} not supported")
         env_params = {'env_config': BaseEnvConfig}
@@ -275,7 +278,7 @@ if __name__ == '__main__':
                       'use_action_mask', 'use_attention', 'use_neural_ucb', 'use_pcgrad', 'use_bvn',
                       'use_relabeling', 'relabel_threshold', 'use_gdan', 'use_gdan_lstm',
                       'use_gdan_no_loss', 'use_action_label', 'gdan_eta', 'num_drones',
-                      'points_per_gen', 'no_task_allocation'] +
+                      'points_per_gen', 'no_task_allocation', 'horizon'] +
                      restore_ignore_params):
             load_preferences(custom_preference=model_preference, args=args, this_expr_dir=this_expr_dir)
     model = marl.build_model(env, my_algorithm, model_preference)
@@ -313,6 +316,7 @@ if __name__ == '__main__':
             kwargs['callbacks'] = SendAllocationCallback
         if args.algo == 'outpace':
             kwargs['callbacks'] = OUTPACECallback
+
         my_algorithm.fit(env, model, **kwargs)
 '''
            --algo qmix --env mpe --dataset simple_spread --num_workers 1
