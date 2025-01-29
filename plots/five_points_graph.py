@@ -3,7 +3,11 @@
 """
 import os
 import re
+import string
+
 import matplotlib
+
+within_parentheses = r'\([^()]*\)'
 
 matplotlib.use('pgf')
 import matplotlib.pyplot as plt
@@ -11,10 +15,10 @@ import matplotlib.ticker as ticker
 import numpy as np
 
 output_chinese = False
-FONTSIZE = 40
-FIG_SIZE = (20, 20)
-MARKER_SIZE = 24
-MARKER_WIDTH = 5
+FONTSIZE = 10
+FIG_SIZE = (17, 4)
+MARKER_SIZE = 6
+MARKER_WIDTH = 2
 MARKER_FACE_COLOR = 'none'
 LINE_WIDTH = 4
 colors = ['red', 'goldenrod', 'forestgreen', 'teal', 'violet', 'grey', 'turquoise']
@@ -32,7 +36,7 @@ if output_chinese:
     I_surv = "监控任务有效处理比率 ($\mathit{I}_{\mathrm{surv}}$)"
     eta = "能耗比率 (\scalebox{2}{$\eta$})"
     I_index = "有效任务处理指数 ($\mathit{I}$)"
-    X_BLUR = "最大模糊要求 (\scalebox{2}{$\delta$}$\scriptstyle\mathrm{max}$)"
+    X_BLUR = "最大模糊要求 ($\delta\scriptstyle\mathrm{max}$)"
     X_UAV = "群体数量 (U)"
     X_SURV_THRE = "监控任务阈值 ($\mathrm{AoI}_\mathrm{th}^\mathrm{surv}$)"
     X_TASK_TYPE = "任务类型数量"
@@ -40,9 +44,9 @@ else:
     RANDOM = 'Random'
     I_emer = "Valid Handling Ratio For Emergency ($\mathit{I}_{\mathrm{emer}}$)"
     I_surv = "Valid Handling Ratio For Surveillance ($\mathit{I}_{\mathrm{surv}}$)"
-    eta = r"Energy Consumption Ratio (\scalebox{2}{$\eta$})"
+    eta = "Energy Consumption Ratio ($\eta$)"
     I_index = "Valid Task Handling Index ($\mathit{I}$)"
-    X_BLUR = "Maximum Image Blur Requirement (\scalebox{2}{$\delta$}$\scriptstyle\mathrm{max}$)"
+    X_BLUR = "Maximum Image Blur Requirement ($\delta\scriptstyle\mathrm{max}$)"
     X_UAV = "No. of UAVs ($\mathit{U}$)"
     X_SURV_THRE = "AoI Threshold For Surveillance Tasks ($\mathrm{AoI}_\mathrm{th}^\mathrm{surv}$)"
     X_TASK_TYPE = "No. of Task Types"
@@ -52,13 +56,19 @@ DATAS = 'datas'
 Y_RANGE = 'yrange'
 San = 'SanFrancisco'
 Chengdu = 'Chengdu'
-
+EPS = 'eps'
 generate_dir = os.path.join('/Users', 'Charlie', 'Desktop', 'MCS_graph', 'zh' if output_chinese else 'en')
+all_methods = [OURS, TRADITIONAL, RL_SOTA, MCS_SOTA, GCRL_SOTA, RANDOM]
+
+import os
+import re
+import matplotlib.pyplot as plt
+import numpy as np
+import matplotlib.ticker as ticker
 
 
-def compare_plot(x_label, y_label, x, yrange, data_dict, dataset, eps=0.3):
+def compare_plot(x_label, y_label, x, yrange, data_dict, method_order, eps=0.3, ax=None):
     """
-
     :param str x_label: The x axis label of the plot
     :param str y_label: The y axis label of the plot
     :param list x: The x axis values
@@ -66,63 +76,33 @@ def compare_plot(x_label, y_label, x, yrange, data_dict, dataset, eps=0.3):
     :param dict[str, list[double]] data_dict: dictionary with key as data label, and actual data as values
     :param str dataset:
     :param float eps: the range for y axis
+    :param ax: The axis to plot on (for subplots)
     """
-    if os.path.exists(generate_dir) is False:
-        os.makedirs(generate_dir)
-    dataset_sub_dir = os.path.join(generate_dir, dataset)
-    if os.path.exists(dataset_sub_dir) is False:
-        os.makedirs(dataset_sub_dir)
-    # strip $, \, {, } using re
-    latex_exclude = r'[\$\{\}\\0-9]|scalebox|small|scriptstyle|mathit|mathrm'
-    raw_x_label = re.sub(latex_exclude, '', x_label)
-    raw_y_label = re.sub(latex_exclude, '', y_label)
 
-    plt.rcParams.update(
-        {
-            "text.usetex": True,
-            'font.size': FONTSIZE,
-            'font.family': 'serif',
-            'pgf.texsystem': 'xelatex',
-            'pgf.preamble': r'''
-                % \usepackage{luatexja-fontspec}
-                % \setmainfont{FandolSong}
-                \usepackage{xeCJK}
-                \usepackage{amsmath, amssymb}
-                % \setCJKmainfont{SimSong} % Replace with your desired CJK font
-                \renewcommand{\rmdefault}{ptm}
-                \renewcommand{\sfdefault}{phv}
-                \renewcommand{\ttdefault}{pcr}
-            ''',
-            "pgf.rcfonts": False,
-        }
-    )
-    plt.figure(figsize=FIG_SIZE)
-    plt.xlabel(x_label, fontsize=FONTSIZE + 24)
-    plt.ylabel(y_label, fontsize=FONTSIZE + 32)
-    plt.xticks(fontsize=FONTSIZE + 24)
-    plt.yticks(fontsize=FONTSIZE + 24)
-    for index, data_name in enumerate(data_dict):
+    # If ax is passed, use that axis, otherwise create a new figure
+    if ax is None:
+        fig, ax = plt.subplots(figsize=FIG_SIZE)
+
+    ax.set_ylabel(re.sub(within_parentheses, '', y_label))
+    ax.set_xticks(x)
+    margin = (yrange[1] - yrange[0]) * eps
+    ax.set_ylim(max(0, (yrange[0] - margin)), yrange[1] + margin)
+    if (yrange[1] - yrange[0]) < 0.1:
+        ax.yaxis.set_major_formatter(ticker.FormatStrFormatter('%.2f'))
+    else:
+        ax.yaxis.set_major_formatter(ticker.FormatStrFormatter('%.1f'))
+
+    # Plot each algorithm's data
+    for index, data_name in enumerate(method_order):
         assert len(data_dict[data_name]) == len(x), (f"Data length should be equal to x={x}, "
                                                      f"get {data_dict[data_name]}")
-        plt.plot(x, data_dict[data_name], color=colors[index], marker=markers[index],
-                 label=data_name, markersize=MARKER_SIZE,
-                 markeredgewidth=MARKER_WIDTH, markerfacecolor=MARKER_FACE_COLOR)
-    plt.xticks(x, x)
-    margin = (yrange[1] - yrange[0]) * eps
-    plt.ylim(max(0, (yrange[0] - margin)), yrange[1] + margin)
-    if (yrange[1] - yrange[0]) < 0.1:
-        plt.gca().yaxis.set_major_formatter(ticker.FormatStrFormatter('%.2f'))
-    else:
-        plt.gca().yaxis.set_major_formatter(ticker.FormatStrFormatter('%.1f'))
-    plt.grid(True)
-    plt.grid(linestyle='--')
-    plt.legend(loc='upper center', ncol=2, markerscale=0.9, fontsize=FONTSIZE + 16)
-    plt.tight_layout()
-    plt.savefig(os.path.join(dataset_sub_dir, f"{raw_x_label}-{raw_y_label}.pdf"), backend='pgf')
-    plt.close()
+        ax.plot(x, data_dict[data_name], color=colors[index], marker=markers[index],
+                label=data_name, markersize=MARKER_SIZE,
+                markeredgewidth=MARKER_WIDTH, markerfacecolor=MARKER_FACE_COLOR)
 
+    ax.grid(True, linestyle='--')
 
-EPS = 'eps'
+    return ax
 
 
 def generate_plots(x_label: str, x: list, data_dicts: dict, dataset: str):
@@ -134,32 +114,98 @@ def generate_plots(x_label: str, x: list, data_dicts: dict, dataset: str):
     :param str dataset: The dataset name
     """
 
+    # Update Matplotlib parameters
+    plt.rcParams.update(
+        {
+            "xtick.labelsize": FONTSIZE + 6,
+            "ytick.labelsize": FONTSIZE + 6,
+            'axes.labelsize': FONTSIZE + 8,
+            "text.usetex": True,
+            'font.family': 'serif',
+            'pgf.texsystem': 'xelatex',
+            'pgf.preamble': r'''
+                \usepackage{xeCJK}
+                \usepackage{amsmath, amssymb}
+                \renewcommand{\rmdefault}{ptm}
+                \renewcommand{\sfdefault}{phv}
+                \renewcommand{\ttdefault}{pcr}
+            ''',
+            "pgf.rcfonts": False,
+        }
+    )
+
     if EPS in data_dicts:
         eps = data_dicts.pop(EPS)
     else:
-        eps = 0.5
-    for y_label, data_dict in data_dicts.items():
+        eps = 0.2
+
+    n_plots = len(data_dicts)
+
+    # Create subplots
+    fig, axes = plt.subplots(1, n_plots, figsize=FIG_SIZE, sharex=True)
+
+    # If there's only one subplot, make axes an iterable
+    if n_plots == 1:
+        axes = [axes]
+
+    for idx, (y_label, data_dict) in enumerate(data_dicts.items()):
         if EPS in data_dict:
             eps = data_dict.pop(EPS)
         all_values = np.concatenate(list(data_dict.values()))
         y_range = [np.nanmin(all_values), np.nanmax(all_values)]
-        compare_plot(x_label=x_label,
-                     y_label=y_label,
-                     x=x,
-                     yrange=y_range,
-                     data_dict=data_dict,
-                     dataset=dataset,
-                     eps=eps)
+        if os.path.exists(generate_dir) is False:
+            os.makedirs(generate_dir)
+        dataset_sub_dir = os.path.join(generate_dir, dataset)
+        if os.path.exists(dataset_sub_dir) is False:
+            os.makedirs(dataset_sub_dir)
+        # Generate each plot on its corresponding subplot
+        ax = compare_plot(x_label=x_label,
+                          y_label=y_label,
+                          x=x,
+                          yrange=y_range,
+                          method_order=all_methods,
+                          data_dict=data_dict,
+                          eps=eps,
+                          ax=axes[idx])
+
+        # Collect handles and labels for the unified legend
+    # strip $, \, {, } using re
+    latex_exclude = r'[\$\{\}\\0-9]|scalebox|small|scriptstyle|mathit|mathrm'
+    raw_x_label = re.sub(latex_exclude, '', x_label)
+    # Unified legend from last ax
+    handles_, labels_ = ax.get_legend_handles_labels()
+
+
+    subplot_step = 1 / (n_plots * 2)
+    letters = string.ascii_letters
+    extra_artists = []
+    for index, y_label in zip(range(n_plots), data_dicts.keys()):
+        symbol_label = re.findall(within_parentheses, y_label)[0]
+        extra_artists.append(fig.text(subplot_step + index * (subplot_step * 2),
+                                      -0.03, '('+letters[index]+') ' + symbol_label[1:-1], size=FONTSIZE + 10))
+    extra_artists.append(fig.text(0.5, -0.12, x_label, ha='center', size=FONTSIZE + 10))
+    extra_artists.append(fig.legend(handles_, labels_, loc='upper center', ncol=len(labels_),
+                               fontsize=FONTSIZE + 10, bbox_to_anchor=(0.5, 1.17)))
+    # Save the plot
+    dataset_sub_dir = os.path.join(generate_dir, dataset)
+    if not os.path.exists(dataset_sub_dir):
+        os.makedirs(dataset_sub_dir)
+    fig.tight_layout()
+    fig.savefig(os.path.join(dataset_sub_dir, f"{raw_x_label}.pdf"), backend='pgf',
+                bbox_extra_artists=extra_artists,  bbox_inches='tight')
+    plt.close()
+
 
 
 def calculate_index(all_methods, data_dict):
-    data_dict[I_index] = {}
+    new_data_dict = {I_index: {}, **data_dict}
     for method in all_methods:
         # assert method in data_dict[I_emer][DATAS], f"method {method} should be in data_dict"
         sur_ratio = data_dict[I_surv][method]
         eme_ratio = data_dict[I_emer][method]
         energy_ratio = data_dict[eta][method]
-        data_dict[I_index][method] = (np.minimum(sur_ratio, eme_ratio) / energy_ratio).tolist()
+        new_data_dict[I_index][method] = (np.minimum(sur_ratio, eme_ratio) / energy_ratio).tolist()
+    return new_data_dict
 
 
 if __name__ == '__main__':
@@ -172,7 +218,7 @@ if __name__ == '__main__':
                 I_emer: {
                     OURS: [0.5923, 0.7579, 0.8919, 0.9719, 0.973, 0.9958, 0.9982],
                     # 7,10 not converged for RL_SOTA.
-                    RL_SOTA: [0.2684, 0.2902, 0.3505, 0.3768, 0.433, 0.4614, np.NaN],
+                    RL_SOTA: [0.2684, 0.2902, 0.3505, 0.3768, 0.433, 0.4614, 0.1],
                     GCRL_SOTA: [0.2551, 0.3158, 0.3449, 0.3561, 0.4558, 0.5182, 0.6817],
                     MCS_SOTA: [0.233, 0.2568, 0.3512, 0.36, 0.4288, 0.5853, 0.7652],
                     TRADITIONAL: [
@@ -196,7 +242,7 @@ if __name__ == '__main__':
                 },
                 I_surv: {
                     OURS: [0.746, 0.8302, 0.8836, 0.9224, 0.9474, 0.9639, 0.9785],
-                    RL_SOTA: [0.8078, 0.8619, 0.8926, 0.9136, 0.9302, 0.94, np.NaN],
+                    RL_SOTA: [0.8078, 0.8619, 0.8926, 0.9136, 0.9302, 0.94, 0.1],
                     GCRL_SOTA: [0.7086, 0.8479, 0.88, 0.8911, 0.9169, 0.9254, 0.9537],
                     MCS_SOTA: [0.6686, 0.79, 0.8426, 0.8698, 0.8915, 0.9293, 0.9632],
                     TRADITIONAL: [
@@ -220,7 +266,7 @@ if __name__ == '__main__':
                 },
                 eta: {
                     OURS: [0.6679, 0.6675, 0.6548, 0.6572, 0.6471, 0.5869, 0.6149],
-                    RL_SOTA: [0.6717, 0.6641, 0.6503, 0.6499, 0.6466, 0.613, np.NaN],
+                    RL_SOTA: [0.6717, 0.6641, 0.6503, 0.6499, 0.6466, 0.613, 0.1],
                     GCRL_SOTA: [0.6533, 0.658, 0.6629, 0.6608, 0.6403, 0.6041, 0.6375],
                     MCS_SOTA: [0.6641, 0.6675, 0.6693, 0.6688, 0.6704, 0.6663, 0.6591],
                     TRADITIONAL: [
@@ -246,7 +292,7 @@ if __name__ == '__main__':
             Chengdu: {
                 I_emer: {
                     OURS: [0.6007, 0.7326, 0.9547, 0.9765, 0.986, 0.9979, 0.9992],
-                    RL_SOTA: [0.2537, 0.3175, 0.3418, 0.3754, 0.48, 0.5098, np.NaN],
+                    RL_SOTA: [0.2537, 0.3175, 0.3418, 0.3754, 0.48, 0.5098, 0.1],
                     GCRL_SOTA: [0.5467, 0.6898, 0.8761, 0.913, 0.9214, 0.4975, 0.7112],
                     MCS_SOTA: [0.2702, 0.3723, 0.3744, 0.4116, 0.4895, 0.5737, 0.7652],
                     TRADITIONAL: [
@@ -256,7 +302,7 @@ if __name__ == '__main__':
                         0.636363636,
                         0.666666667,
                         0.909090909,
-                        np.NaN
+                        0.1
                     ],
                     RANDOM: [
                         0.280701754,
@@ -271,7 +317,7 @@ if __name__ == '__main__':
                 },
                 I_surv: {
                     OURS: [0.7729, 0.8923, 0.9449, 0.9785, 0.99, 0.9947, 0.9988],
-                    RL_SOTA: [0.8604, 0.9193, 0.9455, 0.9739, 0.9873, 0.992, np.NaN],
+                    RL_SOTA: [0.8604, 0.9193, 0.9455, 0.9739, 0.9873, 0.992, 0.1],
                     GCRL_SOTA: [0.6694, 0.8252, 0.8692, 0.9567, 0.9652, 0.9594, 0.9948],
                     MCS_SOTA: [0.7313, 0.8382, 0.8847, 0.9312, 0.9702, 0.995, 0.9891],
                     TRADITIONAL: [
@@ -281,7 +327,7 @@ if __name__ == '__main__':
                         0.763333333,
                         0.943333333,
                         0.87,
-                        np.NaN
+                        0.1
                     ],
                     RANDOM: [
                         0.36,
@@ -296,7 +342,7 @@ if __name__ == '__main__':
                 eta: {
                     EPS: 0.5,
                     OURS: [0.6696, 0.666, 0.6643, 0.6571, 0.651, 0.6229, 0.6288],
-                    RL_SOTA: [0.6786, 0.6796, 0.6654, 0.6534, 0.6523, 0.6539, np.NaN],
+                    RL_SOTA: [0.6786, 0.6796, 0.6654, 0.6534, 0.6523, 0.6539, 0.1],
                     GCRL_SOTA: [0.6824, 0.6799, 0.6629, 0.6629, 0.6632, 0.6672, 0.6369],
                     MCS_SOTA: [0.6767, 0.6753, 0.6612, 0.6611, 0.658, 0.6538, 0.6535],
                     TRADITIONAL: [
@@ -306,7 +352,7 @@ if __name__ == '__main__':
                         0.653623624,
                         0.657083523,
                         0.655491053,
-                        np.NaN
+                        0.1
                     ],
                     RANDOM: [
                         0.666898342,
@@ -540,7 +586,6 @@ if __name__ == '__main__':
         }
 
     }
-    all_methods = [OURS, RL_SOTA, GCRL_SOTA, MCS_SOTA, TRADITIONAL, RANDOM]
     for x_label, array_data in all_data.items():
         assert X_TICKS in array_data, "x-ticks should be in array_data"
         xticks = array_data.pop(X_TICKS)
@@ -549,7 +594,7 @@ if __name__ == '__main__':
         else:
             eps = None
         for dataset, dataset_data in array_data.items():
-            calculate_index(all_methods, dataset_data)
+            dataset_data = calculate_index(all_methods, dataset_data)
             if eps is not None:
                 dataset_data[EPS] = eps
             generate_plots(
