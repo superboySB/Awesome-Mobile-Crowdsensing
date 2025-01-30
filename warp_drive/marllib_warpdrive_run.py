@@ -36,8 +36,6 @@ if __name__ == '__main__':
     import numpy as np
 
     np.seterr(all="raise")
-    # import multiprocessing as mp
-    # mp.set_start_method('spawn')
     parser = argparse.ArgumentParser()
     add_common_arguments(parser)
     parser.add_argument('--centralized', action='store_true', help='use centralized reward function')

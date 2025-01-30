@@ -168,59 +168,58 @@ class MultiAgentGridWorld(gym.Env):
 
     def compute_reward(self, actions: dict) -> Tuple[Dict[str, float], Dict[str, float]]:
         # Initialize reward dictionary and component lists
-        reward_dict = {f'big_{i}': 0 for i in range(self.num_big_agents)}
-        reward_dict.update({f'small_{i}': 0 for i in range(self.num_small_agents)})
+        reward_dict = {f'big_{i}': 0.0 for i in range(self.num_big_agents)}
+        reward_dict.update({f'small_{i}': 0.0 for i in range(self.num_small_agents)})
+
         surveillance_reward = []
         emergency_reward = []
         deploy_reward = []
         assignment_proximity_reward = []
 
-        # Parameters for temperature-based transformations
-        temperature_surveillance = 0.1  # Increased to amplify the effect of surveillance tasks
-        temperature_emergency = 0.15  # Increased for more focus on emergency tasks
-        temperature_assignment = 0.05  # Reduced for smoother assignment proximity rewards
+        # Temperature parameters for reward components
+        temperature_surveillance = 0.1
+        temperature_emergency = 0.2
+        temperature_deploy = 0.05
 
-        # Unassigned emergency mask
+        # Unassigned and unhandled emergency mask
         unassigned_mask = ~self.emergency_assign_status
         emergency_unhandle_mask = (self.emergency_start_time <= self.timestep) & (self.emergency_end_time == -1)
 
-        # Process rewards for small agents
+        # Process rewards for small agents first (they act before big agents)
         for small_agent_id, small_agent in enumerate(self.small_agents):
-            small_agent['last_deploy_status'] = small_agent[DEPLOYED]
             if small_agent[DEPLOYED]:
                 action = actions[f'small_{small_agent_id}']
                 self._move_agent(small_agent, action)
                 x, y = small_agent[POSITION]
-
                 # Record small agent's trajectory
                 self.small_agent_trajectories[small_agent_id].append(small_agent[POSITION].copy())
                 self.small_agent_targets[small_agent_id].append(small_agent[TARGET] if
                                                                 small_agent[TARGET] is not None
                                                                 else np.array([-1, -1]))
+                # Surveillance reward (areas covered by small agents)
+                aoi_reward = self.aoi_grid[x, y] * self.poi_grid[x, y] / self.max_timesteps
+                scaled_aoi_reward = torch.exp(
+                    -temperature_surveillance * torch.tensor(aoi_reward, dtype=torch.float32)).item()
+                surveillance_reward.append(scaled_aoi_reward)
+                reward_dict[f'small_{small_agent_id}'] += scaled_aoi_reward
 
-                # Emergency task reward
+                # Emergency reward (handling emergencies)
                 if 0 <= self.emergency_poi_grid[x, y] < self.timestep:
                     emergency_id = self.emergency_mapping[(x, y)]
                     emergency_r = self.emergency_aoi[emergency_id] / self.max_timesteps
-                    reward_dict[f'small_{small_agent_id}'] = emergency_r
+                    scaled_emergency_r = torch.exp(
+                        -temperature_emergency * torch.tensor(emergency_r, dtype=torch.float32)).item()
+                    emergency_reward.append(scaled_emergency_r)
+                    reward_dict[f'small_{small_agent_id}'] += scaled_emergency_r
                     self.emergency_end_time[emergency_id] = self.timestep
-                    if np.all(small_agent[POSITION] == small_agent[TARGET]):
-                        small_agent[TARGET] = None
-                        reward_dict[f'small_{small_agent_id}'] += 1
 
-                # Surveillance task reward
-                aoi_reward = self.group_factor * self.aoi_grid[x, y] * self.poi_grid[x, y] / self.max_timesteps
-                reward_dict[f'small_{small_agent_id}'] += aoi_reward
-                self.aoi_grid[x, y] = 0  # Clear AoI once covered
-
-                surveillance_reward.append(aoi_reward)
+                # Clear AOI once covered
+                self.aoi_grid[x, y] = 0
             else:
                 reward_dict[f'small_{small_agent_id}'] = 0.0
+
         # Process rewards for big agents
         for big_agent_id, big_agent in enumerate(self.big_agents):
-            big_agent_pos = torch.tensor(big_agent[POSITION], device=self.device, dtype=torch.float32)
-
-            # Process movement and deployment action for big agents
             my_action = actions[f'big_{big_agent_id}']
             if isinstance(my_action, np.ndarray):
                 movement_action, deploy_action = my_action[0]
@@ -230,8 +229,10 @@ class MultiAgentGridWorld(gym.Env):
             # Move the big agent
             self._move_agent(big_agent, movement_action)
             self.big_agent_trajectories[big_agent_id].append(big_agent[POSITION].copy())
+            x, y = big_agent[POSITION]
 
             # Proximity-based reward for small agents
+            big_agent_pos = torch.tensor(big_agent[POSITION], device=self.device, dtype=torch.float32)
             big_to_small_distances = []
             for small_agent in self.small_agents:
                 if small_agent[DEPLOYED]:
@@ -245,65 +246,43 @@ class MultiAgentGridWorld(gym.Env):
             else:
                 proximity_reward = torch.tensor(0.0, device=self.device, dtype=torch.float32)
 
-            transformed_proximity_reward = torch.exp(-temperature_assignment * proximity_reward)
-            reward_dict[f"big_{big_agent_id}"] = transformed_proximity_reward.item()
-            assignment_proximity_reward.append(transformed_proximity_reward)
+            scaled_proximity_reward = torch.exp(-temperature_deploy * proximity_reward).item()
+            reward_dict[f'big_{big_agent_id}'] += scaled_proximity_reward
+            assignment_proximity_reward.append(scaled_proximity_reward)
 
-            # Handle deployment action
-            deploy_position = big_agent[POSITION]
+            # Deployment reward
             if deploy_action == 1 and len(big_agent[CARRIED_AGENTS]) > 0:
-                # Deploy small agent
-                self.small_agent_deploy_position.append(deploy_position.copy())
                 deployed_small_agent = self._deploy_small_agent(big_agent_id)
-                if deployed_small_agent[TARGET] is None:
-                    deploy_reward_value = 0.1  # Small baseline reward for deployment
+                if deployed_small_agent[TARGET] is not None:
+                    deploy_r = 1 - np.linalg.norm((big_agent[POSITION] - deployed_small_agent[TARGET]) / self.grid_size)
+                    scaled_deploy_r = torch.exp(
+                        -temperature_deploy * torch.tensor(deploy_r, dtype=torch.float32)).item()
+                    deploy_reward.append(scaled_deploy_r)
+                    reward_dict[f'big_{big_agent_id}'] += scaled_deploy_r
                 else:
-                    deploy_reward_value = 1 - np.linalg.norm(
-                        (deploy_position - deployed_small_agent[TARGET]) / self.grid_size)
-                deploy_reward.append(torch.tensor(deploy_reward_value, dtype=torch.float32))
-                reward_dict[f'big_{big_agent_id}_deploy_action'] = deploy_reward_value
-            elif deploy_action == 1 and len(big_agent[CARRIED_AGENTS]) == 0:
-                # Assign emergency to nearest available small agent
-                for small_agent in self.small_agents:
-                    if small_agent[DEPLOYED]:
-                        small_x, small_y = small_agent[POSITION]
-                        if np.abs(small_x - deploy_position[0]) < BIG_AGENT_RANGE and \
-                                np.abs(small_y - deploy_position[1]) < BIG_AGENT_RANGE:
-                            if small_agent[TARGET] is None and len(big_agent[TARGETS]) > 0:
-                                small_agent[TARGET] = big_agent[TARGETS].pop()
-                                assign_reward = 1 - np.linalg.norm(
-                                    (small_agent[POSITION] - small_agent[TARGET]) / self.grid_size)
-                                reward_dict[f'big_{big_agent_id}_assign_reward'] = assign_reward
-                                break
+                    # Handle the case when the target is None (no reward or set to a small negative/neutral reward)
+                    deploy_reward.append(0.0)
+                    reward_dict[f'big_{big_agent_id}'] += 0.0
 
-            # Reward for covering AoI in big agent's movement
-            x, y = big_agent[POSITION]
-            aoi_reward = self.aoi_grid[x, y] * self.poi_grid[x, y] / self.max_timesteps
-            reward_dict[f'big_{big_agent_id}'] += self.self_factor * aoi_reward
-
-
-        # AoI grid updates
+        # Update AoI grid and emergency AoI
         self.aoi_grid += 1
         self.emergency_aoi[emergency_unhandle_mask] += 1
 
-        # Calculate average reward components across agents
+        # Compute averaged reward components across agents
         avg_surveillance_reward = torch.tensor(np.mean(surveillance_reward),
                                                dtype=torch.float32) if surveillance_reward else torch.tensor(0.0,
-                                                                                                             device=self.device,
                                                                                                              dtype=torch.float32)
         avg_emergency_reward = torch.tensor(np.mean(emergency_reward),
                                             dtype=torch.float32) if emergency_reward else torch.tensor(0.0,
-                                                                                                       device=self.device,
                                                                                                        dtype=torch.float32)
-        avg_assignment_proximity_reward = torch.stack(
-            assignment_proximity_reward).mean() if assignment_proximity_reward else torch.tensor(0.0,
-                                                                                                 device=self.device,
-                                                                                                 dtype=torch.float32)
-        avg_deploy_action_reward = torch.stack(deploy_reward).mean() if deploy_reward else torch.tensor(0.0,
-                                                                                                        device=self.device,
+        avg_assignment_proximity_reward = torch.tensor(np.mean(assignment_proximity_reward),
+                                                       dtype=torch.float32) if assignment_proximity_reward else torch.tensor(
+            0.0, dtype=torch.float32)
+        avg_deploy_action_reward = torch.tensor(np.mean(deploy_reward),
+                                                dtype=torch.float32) if deploy_reward else torch.tensor(0.0,
                                                                                                         dtype=torch.float32)
 
-        # Convert average rewards to scalar values (float)
+        # Convert averaged reward components to scalar values (float)
         reward_components = {
             "avg_surveillance_reward": avg_surveillance_reward.item(),
             "avg_emergency_reward": avg_emergency_reward.item(),

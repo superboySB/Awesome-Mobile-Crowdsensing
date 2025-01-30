@@ -83,7 +83,7 @@ user_override_params = ['env_config', 'dynamic_zero_shot', 'use_2d_state', 'all_
                         'no_refresh', 'force_allocate', 'emergency_queue_length',
                         'buffer_in_obs', 'intrinsic_mode', 'use_random', 'emergency_threshold',
                         'surveillance_threshold', 'speed_action', 'blur_requirement', 'emergency_reward',
-                        'refill_emergency', 'surveillance_penalty', 'points_per_gen']
+                        'refill_emergency', 'surveillance_penalty', 'points_per_gen', 'core_arch']
 
 grid_size = 10
 
@@ -210,6 +210,7 @@ class CrowdSim:
             refill_emergency=False,
             surveillance_penalty=0,
             points_per_gen=3,
+            core_arch='crowdsim_net',
     ):
         self.float_dtype = np.float32
         self.int_dtype = np.int32
@@ -220,6 +221,7 @@ class CrowdSim:
         self.no_refresh = no_refresh
         self.use_random = use_random
         self.buffer_in_obs = buffer_in_obs
+        self.use_pred_loc = core_arch == 'pred_loc'
         self.refill_emergency = refill_emergency
         self.scaled_reward = (("scale" in intrinsic_mode) or (intrinsic_mode == 'dis')
                               or (intrinsic_mode == 'none') or (intrinsic_mode == 'aim'))
@@ -482,6 +484,8 @@ class CrowdSim:
         self.observation_space = None  # Note: this will be set via the env_wrapper
         # state = (type,energy,x,y) * self.num_agents + neighbor_aoi_grids (10 * 10)
         self.vector_state_dim = (self.num_agents + 4) * self.num_agents + self.emergency_count * 5 + 1
+        if self.use_pred_loc:
+            self.vector_state_dim += 64
         self.image_state_dim = 0
         if self.use_2d_state:
             self.global_state = {
@@ -806,8 +810,9 @@ class CrowdSim:
         # print(emergency_status.shape, emergency_state.shape)
         # TODO: the fifth dimension is not synced with CUDA
         vector_state = np.concatenate([agents_state.ravel(), emergency_state.ravel(), np.array([self.timestep])])
-        # else:
-        #     vector_state = np.concatenate([agents_state.ravel(), np.array([self.timestep])])
+        if self.use_pred_loc:
+            # concat 64 dim in vector state
+            vector_state = np.concatenate([vector_state, np.zeros(64)])
         if self.use_2d_state:
             self.global_state = {
                 _VECTOR_STATE: self.float_dtype(vector_state),
@@ -831,6 +836,7 @@ class CrowdSim:
             self.global_state = self.float_dtype(np.concatenate([vector_state,
                                                                  state_aoi_grid.ravel()]))
             observations = {agent_id: observations[agent_id] for agent_id in range(self.num_agents)}
+
         return observations
 
     def generate_agent_pos_grid(self, grid_centers_x: Union[np.ndarray, int, float],
@@ -875,7 +881,7 @@ class CrowdSim:
             filtered_points = discrete_points_xy[agent_id, valid_mask]
             # is_zero_shot = np.arange(self.num_sensing_targets) > self.zero_shot_start
             filtered_aoi_values = aoi_list[valid_mask]
-            # filtered_aoi_values[is_zero_shot] *= 1.5
+            # filtered_aoi_values[is_zero_shot]z *= 1.5
             # TODO: strong aoi for emgergency is not added.
             # Accumulate counts and AoI values for this agent
             np.add.at(aoi_grid_parts[agent_id], (filtered_points[:, 0], filtered_points[:, 1]), filtered_aoi_values)
@@ -1612,6 +1618,7 @@ class CUDACrowdSim(CrowdSim, CUDAEnvironmentContext):
                                  ("agent_speed", self.int_dtype(list(self.agent_speed.values()))),
                                  ("dynamic_zero_shot", self.int_dtype(self.dynamic_zero_shot)),
                                  ("buffer_in_obs", self.int_dtype(self.buffer_in_obs)),
+                                 ("use_pred_loc", self.int_dtype(self.use_pred_loc)),
                                  ("force_allocate", self.int_dtype(self.force_allocate)),
                                  ("with_end_time", self.int_dtype(self.with_end_time)),
                                  ("scaled_reward", self.int_dtype(self.scaled_reward)),
@@ -1619,7 +1626,7 @@ class CUDACrowdSim(CrowdSim, CUDAEnvironmentContext):
                                  ("emergency_threshold", self.int_dtype(self.emergency_threshold)),
                                  ("surveillance_threshold", self.int_dtype(self.surveillance_threshold)),
                                  ("surveillance_penalty", self.float_dtype(self.surveillance_penalty)),
-                                 ("refill_emergency", self.int_dtype(self.refill_emergency)),
+                                 # ("refill_emergency", self.int_dtype(self.refill_emergency)),
                                  ("zero_shot_start", self.int_dtype(self.zero_shot_start)),
                                  ("single_type_agent", self.int_dtype(self.single_type_agent)),
                                  ("agents_over_range", self.bool_dtype(np.zeros([self.num_agents, ])), True),
@@ -1684,6 +1691,7 @@ class CUDACrowdSim(CrowdSim, CUDAEnvironmentContext):
             "agent_speed",
             "dynamic_zero_shot",
             "buffer_in_obs",
+            "use_pred_loc",
             "force_allocate",  # too many commas are forgotten at here.
             "with_end_time",
             "scaled_reward",
@@ -1691,7 +1699,7 @@ class CUDACrowdSim(CrowdSim, CUDAEnvironmentContext):
             "emergency_threshold",
             "surveillance_threshold",
             "surveillance_penalty",
-            "refill_emergency",
+            # "refill_emergency",
             "zero_shot_start",
             "single_type_agent",
             "agents_over_range",
@@ -2285,16 +2293,17 @@ class SendAllocationCallback(DefaultCallbacks):
                         **kwargs) -> None:
         if env_index == 0:
             my_env: CUDACrowdSim = base_env.vector_env.env.env
-            main_model = policies['shared_policy'].model
-            if 'shared_policy' in policies and hasattr(main_model, 'get_allocation_table'):
-                allocation_table = main_model.get_allocation_table()
-                my_env.cuda_data_manager.data_on_device_via_torch("emergency_allocation_table")[:] = (
-                    torch.from_numpy(allocation_table))
-            elif 'shared_policy' in policies and hasattr(main_model, 'agent_x_time_list'):
-                # pred_loc, get agent history (x,y)
-                main_model.agent_x_time_list.append(my_env.cuda_data_manager.pull_data_from_device("agent_x"))
-                main_model.agent_y_time_list.append(my_env.cuda_data_manager.pull_data_from_device("agent_y"))
-                # my_env.agent_anti_goals[my_env.timestep] = policies['shared_policy'].model.get_anti_goals()[:my_env.num_agents]
+            if 'shared_policy' in policies:
+                main_model = policies['shared_policy'].model
+                if hasattr(main_model, 'get_allocation_table'):
+                    allocation_table = main_model.get_allocation_table()
+                    my_env.cuda_data_manager.data_on_device_via_torch("emergency_allocation_table")[:] = (
+                        torch.from_numpy(allocation_table))
+                elif hasattr(main_model, 'agent_x_time_list'):
+                    # pred_loc, get agent history (x,y)
+                    main_model.agent_x_time_list.append(my_env.cuda_data_manager.pull_data_from_device("agent_x"))
+                    main_model.agent_y_time_list.append(my_env.cuda_data_manager.pull_data_from_device("agent_y"))
+                    # my_env.agent_anti_goals[my_env.timestep] = policies['shared_policy'].model.get_anti_goals()[:my_env.num_agents]
 
 
 class OUTPACECallback(DefaultCallbacks):

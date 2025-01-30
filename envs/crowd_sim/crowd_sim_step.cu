@@ -574,6 +574,7 @@ extern "C" {
                                           const int * agent_speed_arr,
                                             int dynamic_zero_shot,
                                             int buffer_in_obs,
+                                            int use_pred_loc,
                                             int force_allocate,
                                             int with_end_time,
                                             int scaled_reward,
@@ -581,7 +582,7 @@ extern "C" {
                                             int emergency_threshold,
                                             int surveillance_threshold,
                                             float surveillance_penalty,
-                                            int refill_emergency,
+//                                             int refill_emergency,
                                             int zero_shot_start,
                                             int single_type_agent,
                                             bool * agents_over_range
@@ -653,8 +654,13 @@ extern "C" {
     const int StateFullAgentFeature = kNumAgents * AgentFeature;
     // add timestep to state for neural network resetting.
     const int features_per_emergency_in_state = 5;
-    const int state_vec_features = StateFullAgentFeature + emergency_count * features_per_emergency_in_state + 1;
+    int state_vec_features = StateFullAgentFeature + emergency_count * features_per_emergency_in_state + 1;
+    if (use_pred_loc){
+      state_vec_features += 64;
+    }
+
     const int state_features = state_vec_features + grid_flatten_size;
+//     printf("CUDA: state_features: %d\n", state_features);
 //     const float invThreshold = 1.0f / 10;
     int obs_vec_features = AgentFeature + (kNumAgentsObserved << 2);
     if (buffer_in_obs){

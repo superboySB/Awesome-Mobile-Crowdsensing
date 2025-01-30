@@ -45,7 +45,7 @@ from warp_drive.utils.constants import Constants
 _STATE = Constants.STATE
 
 class PyCUDAFunctionManager(CUDAFunctionManager):
-    """"""
+
     """
     Example:
 
@@ -730,6 +730,8 @@ class PyCUDAEnvironmentReset(CUDAEnvironmentReset):
                     reset_func = self.reset_func_in_int_3d
                 else:
                     raise Exception(f"unknown dtype: {dtype}")
+                block_number = int((agent_dim - 1) // self._blocks_per_env + 1)
+                print("CUDA Block Number: ", block_number, "Grid Number: ", self._grid, sep=",")
                 reset_func(
                     data_manager.device_data(name),
                     data_manager.device_data(f"{name}_at_reset"),
@@ -737,7 +739,7 @@ class PyCUDAEnvironmentReset(CUDAEnvironmentReset):
                     agent_dim,
                     feature_dim,
                     force_reset,
-                    block=(int((agent_dim - 1) // self._blocks_per_env + 1), 1, 1),
+                    block=(block_number, 1, 1),
                     grid=self._grid,
                 )
             else:
@@ -750,19 +752,16 @@ class PyCUDAEnvironmentReset(CUDAEnvironmentReset):
                 else:
                     raise Exception(f"unknown dtype: {dtype}")
                 # print reset parameters
-                # logging.debug("reset_func_in_2d parameters:")
                 logging.debug(f"name: {name}")
-                # logging.debug(f"feature_dim: {feature_dim}")
-                # logging.debug(f"force_reset: {force_reset}")
-                logging.debug(f"block: {(int((feature_dim - 1) // self._blocks_per_env + 1), 1, 1)}")
-                # logging.debug(f"grid: {self._grid}")
+                block_number = int((feature_dim - 1) // self._blocks_per_env + 1)
+                logging.debug(f"block: {(block_number, 1, 1)}")
                 reset_func(
                     data_manager.device_data(name),
                     data_manager.device_data(f"{name}_at_reset"),
                     data_manager.device_data("_done_"),
                     feature_dim,
                     force_reset,
-                    block=(int((feature_dim - 1) // self._blocks_per_env + 1), 1, 1),
+                    block=(block_number, 1, 1),
                     grid=self._grid,
                 )
 
