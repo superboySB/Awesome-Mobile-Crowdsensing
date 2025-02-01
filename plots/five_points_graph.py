@@ -17,12 +17,12 @@ import numpy as np
 output_chinese = False
 FONTSIZE = 10
 FIG_SIZE = (17, 4)
-MARKER_SIZE = 6
+MARKER_SIZE = 8
 MARKER_WIDTH = 2
 MARKER_FACE_COLOR = 'none'
 LINE_WIDTH = 4
 colors = ['red', 'goldenrod', 'forestgreen', 'teal', 'violet', 'grey', 'turquoise']
-markers = ['o', '*', '^', 'v', 'd', 's', '+', 'x']
+markers = ['o', 'v', 'x', '>', 'd', 's', '^', '<' , 'p']
 
 X_TICKS = 'x-ticks'
 OURS = 'DRL-MTUCS'
@@ -42,13 +42,13 @@ if output_chinese:
     X_TASK_TYPE = "任务类型数量"
 else:
     RANDOM = 'Random'
-    I_emer = "Valid Handling Ratio For Emergency ($\mathit{I}_{\mathrm{emer}}$)"
-    I_surv = "Valid Handling Ratio For Surveillance ($\mathit{I}_{\mathrm{surv}}$)"
+    I_emer = "Valid Hand. Ratio For Emer. ($\mathit{I}_{\mathrm{emer}}$)"
+    I_surv = "Valid Hand. Ratio For Surv. ($\mathit{I}_{\mathrm{surv}}$)"
     eta = "Energy Consumption Ratio ($\eta$)"
     I_index = "Valid Task Handling Index ($\mathit{I}$)"
-    X_BLUR = "Maximum Image Blur Requirement ($\delta\scriptstyle\mathrm{max}$)"
+    X_BLUR = "Max Blur Requirement ($\delta\scriptstyle\mathrm{max}$)"
     X_UAV = "No. of UAVs ($\mathit{U}$)"
-    X_SURV_THRE = "AoI Threshold For Surveillance Tasks ($\mathrm{AoI}_\mathrm{th}^\mathrm{surv}$)"
+    X_SURV_THRE = "AoI Threshold for Surv. ($\mathrm{AoI}_\mathrm{th}^\mathrm{surv}$)"
     X_TASK_TYPE = "No. of Task Types"
 
 DATASET = 'dataset'
@@ -82,8 +82,8 @@ def compare_plot(x_label, y_label, x, yrange, data_dict, method_order, eps=0.3, 
     # If ax is passed, use that axis, otherwise create a new figure
     if ax is None:
         fig, ax = plt.subplots(figsize=FIG_SIZE)
-
-    ax.set_ylabel(re.sub(within_parentheses, '', y_label))
+    ax.set_xlabel(x_label)
+    ax.set_ylabel(y_label)
     ax.set_xticks(x)
     margin = (yrange[1] - yrange[0]) * eps
     ax.set_ylim(max(0, (yrange[0] - margin)), yrange[1] + margin)
@@ -182,10 +182,10 @@ def generate_plots(x_label: str, x: list, data_dicts: dict, dataset: str):
     for index, y_label in zip(range(n_plots), data_dicts.keys()):
         symbol_label = re.findall(within_parentheses, y_label)[0]
         extra_artists.append(fig.text(subplot_step + index * (subplot_step * 2),
-                                      -0.03, '('+letters[index]+') ' + symbol_label[1:-1], size=FONTSIZE + 10))
-    extra_artists.append(fig.text(0.5, -0.12, x_label, ha='center', size=FONTSIZE + 10))
+                                      -0.06, '('+letters[index]+') ' + symbol_label[1:-1], size=FONTSIZE + 10))
+    # extra_artists.append(fig.text(0.5, -0.12, x_label, ha='center', size=FONTSIZE + 10))
     extra_artists.append(fig.legend(handles_, labels_, loc='upper center', ncol=len(labels_),
-                               fontsize=FONTSIZE + 10, bbox_to_anchor=(0.5, 1.17)))
+                               fontsize=FONTSIZE + 10, bbox_to_anchor=(0.5, 1.18)))
     # Save the plot
     dataset_sub_dir = os.path.join(generate_dir, dataset)
     if not os.path.exists(dataset_sub_dir):
@@ -400,7 +400,7 @@ if __name__ == '__main__':
                     ],
                 },
                 eta: {
-                    OURS: [0.6652, 0.6618, 0.6575, 0.6547, 0.6517, 0.6487],
+                    OURS: [0.6652, 0.6575, 0.6596, 0.6522, 0.6510, 0.6487],
                     RL_SOTA: [0.6717, 0.6641, 0.6638, 0.657, 0.6578, 0.65],
                     GCRL_SOTA: [0.6669, 0.6608, 0.6623, 0.6594, 0.6593, 0.6557],
                     MCS_SOTA: [0.6663, 0.6664, 0.6654, 0.666, 0.6693, 0.6664],
