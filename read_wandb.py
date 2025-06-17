@@ -28,10 +28,8 @@ def get_metric_history(run_path, metric_name, api_key=None):
 
 # 使用示例
 if __name__ == "__main__":
-    # API_KEY = "5ffc8c5e4c655a56fca8012422e6d43bf5716746"
     # RUN_PATH = "aequatio/awesome-mcs/3mz40utj"
     # METRIC_NAME = "valid_handling_index"
-    API_KEY = "f2d06e743020209726d0f62f1b57930bb0c02049"
     RUN_PATH = f"{wandb.run.entity}/{wandb.run.project}/{wandb.run.id}"
     METRIC_NAME = "valid_handling_index"
     values = get_metric_history(RUN_PATH, METRIC_NAME, API_KEY)
