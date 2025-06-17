@@ -46,7 +46,7 @@ else:
     I_surv = "Valid Hand. Ratio For Surv. ($\mathit{I}_{\mathrm{surv}}$)"
     eta = "Energy Consumption Ratio ($\eta$)"
     I_index = "Valid Task Handling Index ($\mathit{I}$)"
-    X_BLUR = "Max Blur Requirement ($\delta\scriptstyle\mathrm{max}$)"
+    X_BLUR = "Max. Img. Blur Requirement ($\delta\scriptstyle\mathrm{max}$)"
     X_UAV = "No. of UAVs ($\mathit{U}$)"
     X_SURV_THRE = "AoI Threshold for Surv. ($\mathrm{AoI}_\mathrm{th}^\mathrm{surv}$)"
     X_TASK_TYPE = "No. of Task Types"
@@ -119,7 +119,7 @@ def generate_plots(x_label: str, x: list, data_dicts: dict, dataset: str):
         {
             "xtick.labelsize": FONTSIZE + 6,
             "ytick.labelsize": FONTSIZE + 6,
-            'axes.labelsize': FONTSIZE + 8,
+            'axes.labelsize': FONTSIZE + 7,
             "text.usetex": True,
             'font.family': 'serif',
             'pgf.texsystem': 'xelatex',

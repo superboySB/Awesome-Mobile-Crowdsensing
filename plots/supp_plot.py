@@ -133,44 +133,45 @@ def plot_postprocess(ax, fig, plot_title, raw_y_label):
     ax.set_xticks(alpha)  # Ensure all alpha values are on the x-axis
     fig.tight_layout()
     # fig.text(0.5, 1.01, plot_title, ha='center', fontsize=16)
-    extra_artists = [fig.legend(handles_, labels_, fontsize=FONTSIZE - 4, bbox_to_anchor=(0.5, 0.97), loc='lower center', ncol=2),
-                     fig.text(-0.03, 0.5, raw_y_label, va='center', rotation='vertical', size=FONTSIZE + 4),
-                     fig.text(0.5, -0.07, '$\omega$', ha='center', size=FONTSIZE + 4)
+    extra_artists = [fig.legend(handles_, labels_, fontsize=FONTSIZE - 4, bbox_to_anchor=(0.5, 0.1), loc='lower center', ncol=2),
+                     fig.text(-0.03, 0.5, raw_y_label, va='center', rotation='vertical', size=FONTSIZE),
+                     fig.text(0.5, -0.07, raw_x_label, ha='center', size=FONTSIZE)
                      ]
-    for index in range(n_plots):
-        extra_artists.append(
-            fig.text(subplot_step + index * (subplot_step * 2),
-                     -0.03, '(' + letters[index] + ') ', size=FONTSIZE)
-        )
+    # for index in range(n_plots):
+    #     extra_artists.append(
+    #         fig.text(subplot_step + index * (subplot_step * 2),
+    #                  -0.03, '(' + letters[index] + ') ', size=FONTSIZE)
+    #     )
     fig.savefig(os.path.join(generate_dir, f"{plot_title}.pdf"), backend='pgf',
                 bbox_extra_artists=extra_artists, bbox_inches='tight')
 
 
 # Plot 1, Trade-off between Emergency and Surveillance Tasks
-fig, axes = plt.subplots(1,  len(datasets), sharex=True, figsize=(6 * len(datasets), 3))
-for ax, dataset, emergency_list, surveillance_list, hline \
-        in zip(axes, datasets, emergency_values, surveillance_values, buffer_enhance):
+# fig, axes = plt.subplots(1,  len(datasets), sharex=True, figsize=(6 * len(datasets), 3))
+fig, ax = plt.subplots(1, 1, figsize=(8, 4))
+colors = ['#824D1B', '#2B8CBE']
+for color, dataset, emergency_list, surveillance_list, hline \
+        in zip(colors, datasets, emergency_values, surveillance_values, buffer_enhance):
     # Plot Emergency and Surveillance
-    ax.plot(alpha, emergency_list, label='Emergency', color='#824D1B', marker='v', linestyle='--')
-    ax.plot(alpha, surveillance_list, label='Surveillance', color='#2B8CBE', marker='o', linestyle='--')
+    ax.plot(alpha, emergency_list, label=f'Emergency for {dataset}', color=color, marker='v', linestyle='-')
+    ax.plot(alpha, surveillance_list, label=f'Surveillance for {dataset}', color=color, marker='o', linestyle='--')
     # ax.axhline(hline, linestyle='dashed', linewidth=1, color='red')
     # ax.text(1, hline, 'Performance Boost', transform=ax.transAxes)
-    ax.set_title(dataset, fontsize=FONTSIZE - 4)
-    ax.set_ylim(np.min([emergency_list, surveillance_list])*0.9, np.max([emergency_list, surveillance_list]) * 1.1)
-
-plot_postprocess(ax, fig, 'Trade-off between emergency and surveillance tasks', '$I_{m}$')
+    # ax.set_title(dataset, fontsize=FONTSIZE - 4)
+ax.set_ylim(np.min([emergency_values, surveillance_values])*0.9, np.max([emergency_values, surveillance_values]) * 1.1)
+plot_postprocess(ax, fig, 'Trade-off between emergency and surveillance tasks', raw_y_label)
 # strangely, bbox_inches must be added. Otherwise, the legend will be cut off.
 # Clear the figure
 fig.clear()
-fig, axes = plt.subplots(1, len(datasets),  sharex=True, figsize=(6 * len(datasets), 3))
-for (ax, dataset, improved_emergency_list, improved_surveillance_list,
-     emergency_list) in zip(axes, datasets, improved_emergency, improved_surveillance, emergency_values):
+# fig, axes = plt.subplots(1, len(datasets),  sharex=True, figsize=(6 * len(datasets), 3))
+fig, ax = plt.subplots(1, 1, figsize=(8, 4))
+for (color, dataset, improved_emergency_list, improved_surveillance_list,
+     emergency_list) in zip(colors, datasets, improved_emergency, improved_surveillance, emergency_values):
     # Plot Improved Emergency and Original Emergency
     # ax.plot(alpha, improved_surveillance_list, label='With buffer (Surveillance)', color='orange', marker='o', linestyle='-')
-    ax.plot(alpha, improved_emergency_list, label='With buffer', color='orange', marker='v', linestyle='-')
-    ax.plot(alpha, emergency_list, label='Without buffer', color='#824D1B', marker='v', linestyle='--')
-    ax.set_title(dataset, fontsize=FONTSIZE - 4)
-    ax.set_ylim(np.min([improved_emergency_list, emergency_list]) * 0.9,
-                np.max([improved_emergency_list, emergency_list]) * 1.1)
+    ax.plot(alpha, improved_emergency_list, label=f'With buffer ({dataset})', color=color, marker='v', linestyle='-')
+    ax.plot(alpha, emergency_list, label=f'Without buffer ({dataset})', color=color, marker='v', linestyle='--')
+    # ax.set_title(dataset, fontsize=FONTSIZE - 4)
+ax.set_ylim(np.min([emergency_values, improved_emergency])*0.9, np.max([emergency_values, improved_emergency]) * 1.1)
 plot_postprocess(ax, fig, 'Effectiveness of dynamically weighted buffer',
-                 '$I_{\\text{emer}}$')
+                 'Valid Hand. Ratio For Emer. ($I_{\\text{emer}}$)')

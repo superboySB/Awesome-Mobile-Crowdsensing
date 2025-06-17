@@ -1,7 +1,8 @@
 #!/bin/bash
 
 # Define the expected hostname
-expected_hostname="c99244229552"
+#expected_hostname="c99244229552"
+expected_hostname="dba35451f1c6"
 current_hostname=$(hostname)
 
 # Check if the current hostname is equal to the expected hostname
@@ -9,7 +10,7 @@ if [ "$current_hostname" = "$expected_hostname" ]; then
     echo "Master Server, syncing public keys to other servers"
 
     # List of users and their corresponding IP addresses
-    users=("liuchi" "hanrui" "lishuang" "gaoguangyu" "liguozheng")
+    users=("liuchi" "lishuang" "liguozheng" "admin")
 #    ip_addresses=("10.1.114.50" "10.1.114.56" "10.1.114.66" "10.1.114.75" "10.1.114.76" "10.1.114.77" "10.1.114.103")
     cpu_addresses=("10.1.114.66")
     ip_addresses=("10.1.114.50" "10.1.114.56" "10.1.114.75" "10.1.114.76" "10.1.114.77")

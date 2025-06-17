@@ -881,7 +881,7 @@ class CrowdSim:
             filtered_points = discrete_points_xy[agent_id, valid_mask]
             # is_zero_shot = np.arange(self.num_sensing_targets) > self.zero_shot_start
             filtered_aoi_values = aoi_list[valid_mask]
-            # filtered_aoi_values[is_zero_shot]z *= 1.5
+            # filtered_aoi_values[is_zero_shot] *= 1.5
             # TODO: strong aoi for emgergency is not added.
             # Accumulate counts and AoI values for this agent
             np.add.at(aoi_grid_parts[agent_id], (filtered_points[:, 0], filtered_points[:, 1]), filtered_aoi_values)
@@ -2293,17 +2293,16 @@ class SendAllocationCallback(DefaultCallbacks):
                         **kwargs) -> None:
         if env_index == 0:
             my_env: CUDACrowdSim = base_env.vector_env.env.env
-            if 'shared_policy' in policies:
-                main_model = policies['shared_policy'].model
-                if hasattr(main_model, 'get_allocation_table'):
-                    allocation_table = main_model.get_allocation_table()
-                    my_env.cuda_data_manager.data_on_device_via_torch("emergency_allocation_table")[:] = (
-                        torch.from_numpy(allocation_table))
-                elif hasattr(main_model, 'agent_x_time_list'):
-                    # pred_loc, get agent history (x,y)
-                    main_model.agent_x_time_list.append(my_env.cuda_data_manager.pull_data_from_device("agent_x"))
-                    main_model.agent_y_time_list.append(my_env.cuda_data_manager.pull_data_from_device("agent_y"))
-                    # my_env.agent_anti_goals[my_env.timestep] = policies['shared_policy'].model.get_anti_goals()[:my_env.num_agents]
+            main_model = policies['shared_policy'].model
+            if 'shared_policy' in policies and hasattr(main_model, 'get_allocation_table'):
+                allocation_table = main_model.get_allocation_table()
+                my_env.cuda_data_manager.data_on_device_via_torch("emergency_allocation_table")[:] = (
+                    torch.from_numpy(allocation_table))
+            elif 'shared_policy' in policies and hasattr(main_model, 'agent_x_time_list'):
+                # pred_loc, get agent history (x,y)
+                main_model.agent_x_time_list.append(my_env.cuda_data_manager.pull_data_from_device("agent_x"))
+                main_model.agent_y_time_list.append(my_env.cuda_data_manager.pull_data_from_device("agent_y"))
+                # my_env.agent_anti_goals[my_env.timestep] = policies['shared_policy'].model.get_anti_goals()[:my_env.num_agents]
 
 
 class OUTPACECallback(DefaultCallbacks):
