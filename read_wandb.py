@@ -1,3 +1,4 @@
+import wandb
 from wandb import Api
 import pandas as pd
 

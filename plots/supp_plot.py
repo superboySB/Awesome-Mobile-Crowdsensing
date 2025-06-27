@@ -4,10 +4,12 @@ import string
 import matplotlib.pyplot as plt
 import numpy as np
 
+# add xelatex path to PATH variable
+os.environ['PATH'] += os.pathsep + '/usr/local/texlive/2025/bin/universal-darwin'
 matplotlib.use('pgf')
 raw_x_label = 'Intrinsic Coefficient ($\omega$)'
 raw_y_label = 'Valid Handling Ratio ($I_{m}$)'
-generate_dir = os.path.join('/Users', 'Charlie', 'Desktop', 'MCS_graph')
+generate_dir = os.path.join('/Users', 'aequatio', 'Desktop', 'MCS_graph')
 FONTSIZE = 20
 # Data for Emergency and Surveillance
 alpha = [0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
@@ -150,11 +152,12 @@ def plot_postprocess(ax, fig, plot_title, raw_y_label):
 # fig, axes = plt.subplots(1,  len(datasets), sharex=True, figsize=(6 * len(datasets), 3))
 fig, ax = plt.subplots(1, 1, figsize=(8, 4))
 colors = ['#824D1B', '#2B8CBE']
-for color, dataset, emergency_list, surveillance_list, hline \
-        in zip(colors, datasets, emergency_values, surveillance_values, buffer_enhance):
+markers = [['v', 'o'], ['x', '*']]
+for dual_marker, color, dataset, emergency_list, surveillance_list, hline \
+        in zip(markers, colors, datasets, emergency_values, surveillance_values, buffer_enhance):
     # Plot Emergency and Surveillance
-    ax.plot(alpha, emergency_list, label=f'Emergency for {dataset}', color=color, marker='v', linestyle='-')
-    ax.plot(alpha, surveillance_list, label=f'Surveillance for {dataset}', color=color, marker='o', linestyle='--')
+    ax.plot(alpha, emergency_list, label=f'Emergency for {dataset}', color=color, marker=dual_marker[0], linestyle='-')
+    ax.plot(alpha, surveillance_list, label=f'Surveillance for {dataset}', color=color, marker=dual_marker[1], linestyle='--')
     # ax.axhline(hline, linestyle='dashed', linewidth=1, color='red')
     # ax.text(1, hline, 'Performance Boost', transform=ax.transAxes)
     # ax.set_title(dataset, fontsize=FONTSIZE - 4)
@@ -165,13 +168,13 @@ plot_postprocess(ax, fig, 'Trade-off between emergency and surveillance tasks', 
 fig.clear()
 # fig, axes = plt.subplots(1, len(datasets),  sharex=True, figsize=(6 * len(datasets), 3))
 fig, ax = plt.subplots(1, 1, figsize=(8, 4))
-for (color, dataset, improved_emergency_list, improved_surveillance_list,
-     emergency_list) in zip(colors, datasets, improved_emergency, improved_surveillance, emergency_values):
+for (dual_marker, color, dataset, improved_emergency_list, improved_surveillance_list,
+     emergency_list) in zip(markers, colors, datasets, improved_emergency, improved_surveillance, emergency_values):
     # Plot Improved Emergency and Original Emergency
-    # ax.plot(alpha, improved_surveillance_list, label='With buffer (Surveillance)', color='orange', marker='o', linestyle='-')
-    ax.plot(alpha, improved_emergency_list, label=f'With buffer ({dataset})', color=color, marker='v', linestyle='-')
-    ax.plot(alpha, emergency_list, label=f'Without buffer ({dataset})', color=color, marker='v', linestyle='--')
+    # ax.plot(alpha, improved_surveillance_list, label='With queue (Surveillance)', color='orange', marker='o', linestyle='-')
+    ax.plot(alpha, improved_emergency_list, label=f'With queue ({dataset})', color=color, marker=dual_marker[0], linestyle='-')
+    ax.plot(alpha, emergency_list, label=f'Without queue ({dataset})', color=color, marker=dual_marker[1], linestyle='--')
     # ax.set_title(dataset, fontsize=FONTSIZE - 4)
 ax.set_ylim(np.min([emergency_values, improved_emergency])*0.9, np.max([emergency_values, improved_emergency]) * 1.1)
-plot_postprocess(ax, fig, 'Effectiveness of dynamically weighted buffer',
+plot_postprocess(ax, fig, 'Effectiveness of dynamically weighted queue',
                  'Valid Hand. Ratio For Emer. ($I_{\\text{emer}}$)')

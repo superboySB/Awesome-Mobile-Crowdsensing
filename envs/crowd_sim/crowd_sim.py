@@ -9,6 +9,7 @@ import re
 import time
 import math
 import warnings
+# import swanlab
 from datetime import datetime
 from typing import Optional, Tuple, Dict, List, Any, Union
 
@@ -2143,6 +2144,7 @@ def binary_search_bound(array: np.ndarray) -> Box:
 def setup_wandb(logging_config: dict):
     if not logging_config:
         return
+    # swanlab.sync_wandb(wandb_run=False)
     wandb.init(project=PROJECT_NAME, name=logging_config['expr_name'], group=logging_config['group'],
                tags=[logging_config['dataset']] + logging_config['tag']
                if logging_config['tag'] is not None else [], dir=logging_config['logging_dir'],
@@ -2293,16 +2295,17 @@ class SendAllocationCallback(DefaultCallbacks):
                         **kwargs) -> None:
         if env_index == 0:
             my_env: CUDACrowdSim = base_env.vector_env.env.env
-            main_model = policies['shared_policy'].model
-            if 'shared_policy' in policies and hasattr(main_model, 'get_allocation_table'):
-                allocation_table = main_model.get_allocation_table()
-                my_env.cuda_data_manager.data_on_device_via_torch("emergency_allocation_table")[:] = (
-                    torch.from_numpy(allocation_table))
-            elif 'shared_policy' in policies and hasattr(main_model, 'agent_x_time_list'):
-                # pred_loc, get agent history (x,y)
-                main_model.agent_x_time_list.append(my_env.cuda_data_manager.pull_data_from_device("agent_x"))
-                main_model.agent_y_time_list.append(my_env.cuda_data_manager.pull_data_from_device("agent_y"))
-                # my_env.agent_anti_goals[my_env.timestep] = policies['shared_policy'].model.get_anti_goals()[:my_env.num_agents]
+            if 'shared_policy' in policies:
+                main_model = policies['shared_policy'].model
+                if hasattr(main_model, 'get_allocation_table'):
+                    allocation_table = main_model.get_allocation_table()
+                    my_env.cuda_data_manager.data_on_device_via_torch("emergency_allocation_table")[:] = (
+                        torch.from_numpy(allocation_table))
+                elif hasattr(main_model, 'agent_x_time_list'):
+                    # pred_loc, get agent history (x,y)
+                    main_model.agent_x_time_list.append(my_env.cuda_data_manager.pull_data_from_device("agent_x"))
+                    main_model.agent_y_time_list.append(my_env.cuda_data_manager.pull_data_from_device("agent_y"))
+                    # my_env.agent_anti_goals[my_env.timestep] = policies['shared_policy'].model.get_anti_goals()[:my_env.num_agents]
 
 
 class OUTPACECallback(DefaultCallbacks):

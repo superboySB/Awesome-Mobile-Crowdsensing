@@ -1,7 +1,7 @@
-exp_name='50_ablation'
+exp_name='76_gen_interval_ippo'
 # not completely edited.
 session_name=$exp_name
-cards=(0 1 2 3 4 5 6 7 8 9)
+cards=(4 5 6 7 0 1 2 3)
 card_num=${#cards[@]}
 dry_run=false
 # Process command-line arguments
@@ -17,7 +17,18 @@ while [[ $# -gt 0 ]]; do
 done
 # remove NN share_policy all
 trains=(
-  "--dataset SanFrancisco --tag ablation ours --emergency_queue_length 3 --NN_buffer --sibling_rivalry --alpha 0.7 --intrinsic_mode scaled_dis_aoi"
+  "--dataset SanFrancisco --tag gen_interval --gen_interval 3 --algo ippo"
+  "--dataset SanFrancisco --tag gen_interval --gen_interval 6 --algo ippo"
+  "--dataset SanFrancisco --tag gen_interval --gen_interval 10 --algo ippo"
+  "--dataset SanFrancisco --tag gen_interval --gen_interval 15 --algo ippo"
+  "--dataset SanFrancisco --tag gen_interval --gen_interval 20 --algo ippo"
+  "--dataset SanFrancisco --tag gen_interval --gen_interval 30 --algo ippo"
+  "--dataset Chengdu --tag gen_interval --gen_interval 3 --algo ippo"
+  "--dataset Chengdu --tag gen_interval --gen_interval 6 --algo ippo"
+  "--dataset Chengdu --tag gen_interval --gen_interval 10 --algo ippo"
+  "--dataset Chengdu --tag gen_interval --gen_interval 15 --algo ippo"
+  "--dataset Chengdu --tag gen_interval --gen_interval 20 --algo ippo"
+  "--dataset Chengdu --tag gen_interval --gen_interval 30 --algo ippo"
 )
 
 
@@ -48,16 +59,19 @@ for ((i = 0; i < train_num; i++)); do
   then
       tmux send-keys -t $session_name:0."$i" 'cd /workspace/Awesome-Mobile-Crowdsensing' Enter;
       tmux send-keys -t $session_name:0."$i" 'conda activate mcs' Enter;
+      tmux send-keys -t $session_name:0."$i" 'source /etc/profile.d/clash.sh' Enter;
+      tmux send-keys -t $session_name:0."$i" 'proxy_on' Enter;
   fi
   card_id=$((i % card_num))
   # shellcheck disable=SC2004
   # if want to add $PATH, remember to add / before $
   command="python warp_drive/marllib_warpdrive_run.py --track --core_arch crowdsim_net --dynamic_zero_shot\
-  --num_drones 4 --num_cars 0 --group auto_allocation --algo trafficppo --share_policy all --switch_step 60000000\
+  --num_drones 4 --num_cars 0 --group 2025_resubmit --share_policy all --switch_step 60000000\
   --gpu_id ${cards[card_id]} ${trains[i]} --use_2d_state --look_ahead --with_programming_optimization\
   --emergency_threshold 20 --blur_requirement 5 --selector_type RL --use_random --prioritized_buffer\
-  --gen_interval 6 --cut_points 300 --surveillance_threshold 35\
-  --display_tags dataset intrinsic_mode emergency_queue_length --reward_mode original --rl_gamma 0"
+   --cut_points 300 --surveillance_threshold 35\
+  --emergency_queue_length 3 --NN_buffer --sibling_rivalry --alpha 0.7 --intrinsic_mode scaled_dis_aoi\
+  --display_tags dataset gen_interval --reward_mode original --rl_gamma 0"
   echo "$command"
   if [ "$dry_run" = "false" ] && [ "$choice" != "n" ]
   then

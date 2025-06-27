@@ -4,7 +4,7 @@
 import os
 import re
 import string
-
+os.environ['PATH'] += os.pathsep + '/usr/local/texlive/2025/bin/universal-darwin'
 import matplotlib
 
 within_parentheses = r'\([^()]*\)'
@@ -39,7 +39,8 @@ if output_chinese:
     X_BLUR = "最大模糊要求 ($\delta\scriptstyle\mathrm{max}$)"
     X_UAV = "群体数量 (U)"
     X_SURV_THRE = "监控任务阈值 ($\mathrm{AoI}_\mathrm{th}^\mathrm{surv}$)"
-    X_TASK_TYPE = "任务类型数量"
+    X_INTERVAL = "生成间隔 ($\Delta$)"
+    # X_TASK_TYPE = "任务类型数量"
 else:
     RANDOM = 'Random'
     I_emer = "Valid Hand. Ratio For Emer. ($\mathit{I}_{\mathrm{emer}}$)"
@@ -49,7 +50,8 @@ else:
     X_BLUR = "Max. Img. Blur Requirement ($\delta\scriptstyle\mathrm{max}$)"
     X_UAV = "No. of UAVs ($\mathit{U}$)"
     X_SURV_THRE = "AoI Threshold for Surv. ($\mathrm{AoI}_\mathrm{th}^\mathrm{surv}$)"
-    X_TASK_TYPE = "No. of Task Types"
+    X_INTERVAL = "Emergency Generation Interval ($\Delta$)"
+    # X_TASK_TYPE = "No. of Task Types"
 
 DATASET = 'dataset'
 DATAS = 'datas'
@@ -57,7 +59,7 @@ Y_RANGE = 'yrange'
 San = 'SanFrancisco'
 Chengdu = 'Chengdu'
 EPS = 'eps'
-generate_dir = os.path.join('/Users', 'Charlie', 'Desktop', 'MCS_graph', 'zh' if output_chinese else 'en')
+generate_dir = os.path.join('/Users', 'aequatio', 'Desktop', 'MCS_graph', 'zh' if output_chinese else 'en')
 all_methods = [OURS, TRADITIONAL, RL_SOTA, MCS_SOTA, GCRL_SOTA, RANDOM]
 
 import os
@@ -583,8 +585,94 @@ if __name__ == '__main__':
                     ],
                 }
             }
-        }
+        },
+        # X_INTERVAL not updated!!
+        X_INTERVAL: {
+            X_TICKS: [3, 6, 10, 15, 20, 30],
+            San: {
+                I_emer: {
+                    OURS: [0.8115, 0.8368, 0.9439, 0.9453, 0.9123, 0.9221],
+                    RL_SOTA: [0.3593, 0.3449, 0.3242, 0.2958, 0.3768, 0.3646],
+                    GCRL_SOTA: [0.3358, 0.3481, 0.3691, 0.3358, 0.3239, 0.3446],
+                    MCS_SOTA: [0.3407, 0.3467, 0.3414, 0.3702, 0.3512, 0.3161],
+                    TRADITIONAL: [0.606060606] * 6,
+                    RANDOM: [0.245614035] * 6,
+                },
+                I_surv: {
+                    OURS: [0.6717, 0.7309, 0.8161, 0.8401, 0.8602, 0.8939],
+                    RL_SOTA: [0.6942, 0.7888, 0.8486, 0.8711, 0.896, 0.9062],
+                    GCRL_SOTA: [0.65, 0.7489, 0.8018, 0.8254, 0.8663, 0.8768],
+                    MCS_SOTA: [0.5337, 0.675, 0.7655, 0.7919, 0.8426, 0.8479],
+                    TRADITIONAL: [
+                        0.283333333,
+                        0.413333333,
+                        0.503333333,
+                        0.65,
+                        0.723333333,
+                        0.76
+                    ],
+                    RANDOM: [
+                        0.116666667,
+                        0.166666667,
+                        0.263333333,
+                        0.373333333,
+                        0.546666667,
+                        0.56
+                    ],
+                },
+                eta: {
+                    OURS: [0.6652, 0.6575, 0.6596, 0.6522, 0.6510, 0.6487],
+                    RL_SOTA: [0.6717, 0.6641, 0.6638, 0.657, 0.6578, 0.65],
+                    GCRL_SOTA: [0.6669, 0.6608, 0.6623, 0.6594, 0.6593, 0.6557],
+                    MCS_SOTA: [0.6663, 0.6664, 0.6654, 0.666, 0.6693, 0.6664],
+                    TRADITIONAL: [0.676202787] * 6,
+                    RANDOM: [0.665712714] * 6,
 
+                }
+            },
+            Chengdu: {
+                I_emer: {
+                    OURS: [0.9537, 0.9765, 0.9768, 0.9825, 0.9849, 0.9909],
+                    RL_SOTA: [0.3533, 0.3954, 0.3281, 0.4084, 0.4063, 0.3523],
+                    GCRL_SOTA: [0.3951, 0.6747, 0.7677, 0.8765, 0.853, 0.7695],
+                    MCS_SOTA: [0.3723, 0.3877, 0.4007, 0.3804, 0.3744, 0.4151],
+                    TRADITIONAL: [0.666666667] * 6,
+                    RANDOM: [0.298245614] * 6,
+                },
+                I_surv: {
+                    OURS: [0.6791, 0.7996, 0.8834, 0.9198, 0.9405, 0.964],
+                    RL_SOTA: [
+                        0.7355, 0.8486, 0.8924, 0.9336, 0.9572, 0.9653
+                    ],
+                    GCRL_SOTA: [0.7388, 0.8064, 0.8743, 0.8792, 0.9264, 0.9392],
+                    MCS_SOTA: [0.508, 0.6735, 0.8135, 0.836, 0.8847, 0.9121],
+                    TRADITIONAL: [
+                        0.16,
+                        0.28,
+                        0.333333333,
+                        0.41,
+                        0.476666667,
+                        0.523333333,
+                    ],
+                    RANDOM: [
+                        0.36,
+                        0.423333333,
+                        0.446666667,
+                        0.476666667,
+                        0.623333333,
+                        0.643333333
+                    ],
+                },
+                eta: {
+                    OURS: [0.6669, 0.6622, 0.6614, 0.6578, 0.6512, 0.6502],
+                    RL_SOTA: [0.6791, 0.6746, 0.6753, 0.6777, 0.6788, 0.6734],
+                    GCRL_SOTA: [0.6792, 0.673, 0.6739, 0.6715, 0.6715, 0.6701],
+                    MCS_SOTA: [0.662, 0.6652, 0.6624, 0.6614, 0.6652, 0.6654],
+                    TRADITIONAL: [0.657083523] * 6,
+                    RANDOM: [0.65589873] * 6,
+                }
+            }
+        }
     }
     for x_label, array_data in all_data.items():
         assert X_TICKS in array_data, "x-ticks should be in array_data"

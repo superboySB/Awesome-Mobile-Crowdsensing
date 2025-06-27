@@ -1,7 +1,7 @@
 import argparse
 import logging
 import os
-
+# import swanlab
 import pandas as pd
 from collections import namedtuple
 from util_misc import file_to_string
@@ -303,6 +303,7 @@ if __name__ == '__main__':
     if track:
         # note big_XXX indicates the neural network architecture, XXX is the architecture
         # which may be cnn, mlp, etc.
+        # swanlab.sync_wandb(wandb_run=False)
         wandb.init(project=PROJECT_NAME, name=expr_name, group='emergency_mvp',
                    tags=['ppo', 'big_cnn', 'small_cnn'],
                    config=config, dir=os.path.join('/workspace', 'saved_data'))
