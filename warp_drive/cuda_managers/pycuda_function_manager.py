@@ -731,7 +731,7 @@ class PyCUDAEnvironmentReset(CUDAEnvironmentReset):
                 else:
                     raise Exception(f"unknown dtype: {dtype}")
                 block_number = int((agent_dim - 1) // self._blocks_per_env + 1)
-                print("CUDA Block Number: ", block_number, "Grid Number: ", self._grid, sep=",")
+                logging.debug("CUDA Block Number: ", block_number, "Grid Number: ", self._grid, sep=",")
                 reset_func(
                     data_manager.device_data(name),
                     data_manager.device_data(f"{name}_at_reset"),
