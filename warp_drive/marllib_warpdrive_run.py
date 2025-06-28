@@ -10,6 +10,7 @@ from marllib.marl.algos.scripts.coma import restore_ignore_params
 from marllib.envs.base_env import ENV_REGISTRY
 from marllib.envs.global_reward_env import COOP_ENV_REGISTRY
 from marllib.marl import _Algo
+from util_misc import set_freest_gpu
 import setproctitle
 
 from common import add_common_arguments, logging_dir, customize_experiment, is_valid_format, get_restore_dict
@@ -179,9 +180,9 @@ if __name__ == '__main__':
     if not os.path.exists(this_expr_dir):
         os.makedirs(this_expr_dir)
     logging.debug("experiment name: %s", expr_name)
-    if args.algo == 'trafficppo':
+    if args.algo == 'trafficppo' or args.algo == 'traffica2c' or args.algo == 'traffictrpo':
         assert args.env == 'crowdsim', \
-            f"trafficppo only supports crowdsim env, got {args.env}"
+            f"traffic series algorithm only supports crowdsim env, got {args.env}"
     elif args.algo == 'tsp' or args.algo == 'random':
         new_env = marl.make_env(environment_name=args.env, map_name=args.dataset,
                                 env_params=env_params, mock=False)

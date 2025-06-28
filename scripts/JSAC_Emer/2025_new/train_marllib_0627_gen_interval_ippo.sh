@@ -71,7 +71,7 @@ for ((i = 0; i < train_num; i++)); do
   --emergency_threshold 20 --blur_requirement 5 --selector_type RL --use_random --prioritized_buffer\
    --cut_points 300 --surveillance_threshold 35\
   --emergency_queue_length 3 --NN_buffer --sibling_rivalry --alpha 0.7 --intrinsic_mode scaled_dis_aoi\
-  --display_tags dataset gen_interval --reward_mode original --rl_gamma 0"
+  --display_tags dataset gen_interval core_arch --reward_mode original --rl_gamma 0"
   echo "$command"
   if [ "$dry_run" = "false" ] && [ "$choice" != "n" ]
   then
