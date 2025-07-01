@@ -96,7 +96,7 @@ if __name__ == '__main__':
     parser.add_argument('--emergency_reward', type=float, default=10, help='reward for covering emergency')
     parser.add_argument('--refill_emergency', action='store_true', help='fill in uncovered surveillance as emergency')
     parser.add_argument('--encoder_core_arch', type=str, default='mlp',
-                        choices=['mlp', 'mlp_residual', 'pred_loc'], help='core architecture for encoder')
+                        choices=['mlp', 'mlp_residual', 'pred_loc', 'greedy'], help='core architecture for encoder')
     parser.add_argument('--use_action_mask', action='store_true', help='use action mask for emergency')
     parser.add_argument('--no_task_allocation', action='store_true', help='disable task allocation high-level agent')
     parser.add_argument('--use_neural_ucb', action='store_true', help='use neural ucb for upper-level assignment.')
@@ -183,7 +183,7 @@ if __name__ == '__main__':
     if args.algo == 'trafficppo' or args.algo == 'traffica2c' or args.algo == 'traffictrpo':
         assert args.env == 'crowdsim', \
             f"traffic series algorithm only supports crowdsim env, got {args.env}"
-    elif args.algo == 'tsp' or args.algo == 'random':
+    elif args.algo in ['random', 'tsp']:
         new_env = marl.make_env(environment_name=args.env, map_name=args.dataset,
                                 env_params=env_params, mock=False)
         env, env_config = new_env

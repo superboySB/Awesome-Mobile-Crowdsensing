@@ -18,17 +18,17 @@ while [[ $# -gt 0 ]]; do
 done
 # remove NN share_policy all
 trains=(
-  "--dataset SanFrancisco --tag ablation ours --emergency_queue_length 5 --NN_buffer --sibling_rivalry --alpha 0.3 --intrinsic_mode scaled_dis_aoi"
-  "--dataset SanFrancisco --tag ablation no_pred --emergency_queue_length 5 --sibling_rivalry --alpha 0.3 --intrinsic_mode scaled_dis_aoi"
-  "--dataset SanFrancisco --tag ablation no_pred_aoi --emergency_queue_length 5 --sibling_rivalry --alpha 0.3 --intrinsic_mode dis"
+  "--dataset SanFrancisco --tag ablation ours --emergency_queue_length 3 --NN_buffer --sibling_rivalry --alpha 0.3 --intrinsic_mode scaled_dis_aoi"
+  "--dataset SanFrancisco --tag ablation no_pred --emergency_queue_length 3 --sibling_rivalry --alpha 0.3 --intrinsic_mode scaled_dis_aoi"
+  "--dataset SanFrancisco --tag ablation no_pred_aoi --emergency_queue_length 3 --sibling_rivalry --alpha 0.3 --intrinsic_mode dis"
   "--dataset SanFrancisco --tag ablation no_buffer --emergency_queue_length 1 --sibling_rivalry --alpha 0.3 --intrinsic_mode scaled_dis_aoi"
-  "--dataset SanFrancisco --tag ablation no_dis --emergency_queue_length 5 --NN_buffer --intrinsic_mode none"
+  "--dataset SanFrancisco --tag ablation no_dis --emergency_queue_length 3 --NN_buffer --intrinsic_mode none"
   "--dataset SanFrancisco --tag ablation no_both --emergency_queue_length 1 --intrinsic_mode none"
-  "--dataset Chengdu --tag ablation ours --emergency_queue_length 5 --NN_buffer --sibling_rivalry --alpha 0.3 --intrinsic_mode scaled_dis_aoi"
-  "--dataset Chengdu --tag ablation no_pred --emergency_queue_length 5 --sibling_rivalry --alpha 0.3 --intrinsic_mode scaled_dis_aoi"
-  "--dataset Chengdu --tag ablation no_pred_aoi --emergency_queue_length 5 --sibling_rivalry --alpha 0.3 --intrinsic_mode dis"
+  "--dataset Chengdu --tag ablation ours --emergency_queue_length 3 --NN_buffer --sibling_rivalry --alpha 0.3 --intrinsic_mode scaled_dis_aoi"
+  "--dataset Chengdu --tag ablation no_pred --emergency_queue_length 3 --sibling_rivalry --alpha 0.3 --intrinsic_mode scaled_dis_aoi"
+  "--dataset Chengdu --tag ablation no_pred_aoi --emergency_queue_length 3 --sibling_rivalry --alpha 0.3 --intrinsic_mode dis"
   "--dataset Chengdu --tag ablation no_buffer --emergency_queue_length 1 --sibling_rivalry --alpha 0.3 --intrinsic_mode scaled_dis_aoi"
-  "--dataset Chengdu --tag ablation no_dis --emergency_queue_length 5 --NN_buffer --intrinsic_mode none"
+  "--dataset Chengdu --tag ablation no_dis --emergency_queue_length 3 --NN_buffer --intrinsic_mode none"
   "--dataset Chengdu --tag ablation no_both --emergency_queue_length 1 --intrinsic_mode none"
 )
 
@@ -70,7 +70,7 @@ for ((i = 0; i < train_num; i++)); do
   --num_drones 4 --num_cars 0 --group 2025_resubmit --algo traffica2c --share_policy all --switch_step 60000000\
   --gpu_id ${cards[card_id]} ${trains[i]} --use_2d_state --look_ahead --with_programming_optimization\
   --emergency_threshold 20 --blur_requirement 5 --selector_type RL --use_random --prioritized_buffer\
-  --gen_interval 6 --cut_points 300 --surveillance_threshold 35\
+  --gen_interval 30 --cut_points 300 --surveillance_threshold 35\
   --display_tags dataset intrinsic_mode emergency_queue_length --reward_mode original --rl_gamma 0"
   echo "$command"
   if [ "$dry_run" = "false" ] && [ "$choice" != "n" ]

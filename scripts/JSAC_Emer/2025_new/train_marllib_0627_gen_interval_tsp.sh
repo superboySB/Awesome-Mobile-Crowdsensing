@@ -1,8 +1,7 @@
-#!/bin/bash
-exp_name='75_ablation_trpo'
+exp_name='77_gen_interval_tsp'
 # not completely edited.
 session_name=$exp_name
-cards=(0 1 2 3 4 5 6 7 1 3 5 7)
+cards=(4 5 6 7 0 1 2 3)
 card_num=${#cards[@]}
 dry_run=false
 # Process command-line arguments
@@ -18,18 +17,18 @@ while [[ $# -gt 0 ]]; do
 done
 # remove NN share_policy all
 trains=(
-  "--dataset SanFrancisco --tag ablation ours --emergency_queue_length 5 --NN_buffer --sibling_rivalry --alpha 0.3 --intrinsic_mode scaled_dis_aoi"
-  "--dataset SanFrancisco --tag ablation no_pred --emergency_queue_length 5 --sibling_rivalry --alpha 0.3 --intrinsic_mode scaled_dis_aoi"
-  "--dataset SanFrancisco --tag ablation no_pred_aoi --emergency_queue_length 5 --sibling_rivalry --alpha 0.3 --intrinsic_mode dis"
-  "--dataset SanFrancisco --tag ablation no_buffer --emergency_queue_length 1 --sibling_rivalry --alpha 0.3 --intrinsic_mode scaled_dis_aoi"
-  "--dataset SanFrancisco --tag ablation no_dis --emergency_queue_length 5 --NN_buffer --intrinsic_mode none"
-  "--dataset SanFrancisco --tag ablation no_both --emergency_queue_length 1 --intrinsic_mode none"
-  "--dataset Chengdu --tag ablation ours --emergency_queue_length 5 --NN_buffer --sibling_rivalry --alpha 0.3 --intrinsic_mode scaled_dis_aoi"
-  "--dataset Chengdu --tag ablation no_pred --emergency_queue_length 5 --sibling_rivalry --alpha 0.3 --intrinsic_mode scaled_dis_aoi"
-  "--dataset Chengdu --tag ablation no_pred_aoi --emergency_queue_length 5 --sibling_rivalry --alpha 0.3 --intrinsic_mode dis"
-  "--dataset Chengdu --tag ablation no_buffer --emergency_queue_length 1 --sibling_rivalry --alpha 0.3 --intrinsic_mode scaled_dis_aoi"
-  "--dataset Chengdu --tag ablation no_dis --emergency_queue_length 5 --NN_buffer --intrinsic_mode none"
-  "--dataset Chengdu --tag ablation no_both --emergency_queue_length 1 --intrinsic_mode none"
+  "--dataset SanFrancisco --tag gen_interval --gen_interval 3"
+  "--dataset SanFrancisco --tag gen_interval --gen_interval 6"
+  "--dataset SanFrancisco --tag gen_interval --gen_interval 10"
+  "--dataset SanFrancisco --tag gen_interval --gen_interval 15"
+  "--dataset SanFrancisco --tag gen_interval --gen_interval 20"
+  "--dataset SanFrancisco --tag gen_interval --gen_interval 30"
+  "--dataset Chengdu --tag gen_interval --gen_interval 3"
+  "--dataset Chengdu --tag gen_interval --gen_interval 6"
+  "--dataset Chengdu --tag gen_interval --gen_interval 10"
+  "--dataset Chengdu --tag gen_interval --gen_interval 15"
+  "--dataset Chengdu --tag gen_interval --gen_interval 20"
+  "--dataset Chengdu --tag gen_interval --gen_interval 30"
 )
 
 
@@ -67,11 +66,12 @@ for ((i = 0; i < train_num; i++)); do
   # shellcheck disable=SC2004
   # if want to add $PATH, remember to add / before $
   command="python warp_drive/marllib_warpdrive_run.py --track --core_arch crowdsim_net --dynamic_zero_shot\
-  --num_drones 4 --num_cars 0 --group 2025_resubmit --algo traffictrpo --share_policy all --switch_step 60000000\
+  --num_drones 4 --num_cars 0 --group 2025_resubmit --share_policy all --switch_step 60000000\
   --gpu_id ${cards[card_id]} ${trains[i]} --use_2d_state --look_ahead --with_programming_optimization\
   --emergency_threshold 20 --blur_requirement 5 --selector_type RL --use_random --prioritized_buffer\
-  --gen_interval 6 --cut_points 300 --surveillance_threshold 35\
-  --display_tags dataset intrinsic_mode emergency_queue_length --reward_mode original --rl_gamma 0"
+   --cut_points 300 --surveillance_threshold 35 --algo tsp\
+  --emergency_queue_length 3 --NN_buffer --sibling_rivalry --alpha 0.7 --intrinsic_mode scaled_dis_aoi\
+  --display_tags dataset gen_interval core_arch --reward_mode original --rl_gamma 0"
   echo "$command"
   if [ "$dry_run" = "false" ] && [ "$choice" != "n" ]
   then
