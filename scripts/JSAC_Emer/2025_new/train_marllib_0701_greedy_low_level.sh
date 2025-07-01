@@ -1,5 +1,5 @@
 #!/bin/bash
-exp_name='77_ablation_main'
+exp_name='77_ablation_greedy'
 # not completely edited.
 session_name=$exp_name
 cards=(2 3)
@@ -18,8 +18,10 @@ while [[ $# -gt 0 ]]; do
 done
 # remove NN share_policy all
 trains=(
-  "--dataset SanFrancisco --tag low_level_greedy --emergency_queue_length 1 --intrinsic_mode none"
-  "--dataset Chengdu --tag low_level_greedy --emergency_queue_length 1 --intrinsic_mode none"
+  "--dataset SanFrancisco --tag low_level_greedy --emergency_queue_length 1 --intrinsic_mode none --selector_type RL"
+  "--dataset Chengdu --tag low_level_greedy --emergency_queue_length 1 --intrinsic_mode none --selector_type RL"
+  "--dataset SanFrancisco --tag low_level_greedy --emergency_queue_length 1 --intrinsic_mode none --selector_type greedy"
+  "--dataset Chengdu --tag low_level_greedy --emergency_queue_length 1 --intrinsic_mode none --selector_type greedy"
 )
 
 
@@ -59,7 +61,7 @@ for ((i = 0; i < train_num; i++)); do
   command="python warp_drive/marllib_warpdrive_run.py --track --core_arch crowdsim_net --dynamic_zero_shot\
   --num_drones 4 --num_cars 0 --group 2025_resubmit --algo trafficppo --share_policy all --switch_step 60000000\
   --gpu_id ${cards[card_id]} ${trains[i]} --use_2d_state --look_ahead --with_programming_optimization\
-  --emergency_threshold 20 --blur_requirement 5 --selector_type RL --use_random --prioritized_buffer\
+  --emergency_threshold 20 --blur_requirement 5 --use_random --prioritized_buffer\
   --gen_interval 6 --cut_points 300 --surveillance_threshold 35 --encoder_core_arch greedy\
   --display_tags dataset intrinsic_mode emergency_queue_length --reward_mode original --rl_gamma 0"
   echo "$command"

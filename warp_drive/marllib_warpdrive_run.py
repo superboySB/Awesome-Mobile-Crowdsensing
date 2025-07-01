@@ -20,7 +20,7 @@ from envs.crowd_sim.crowd_sim import (RLlibCUDACrowdSim, LARGE_DATASET_NAME, CUD
 from warp_drive.utils.common import get_project_root
 
 
-def load_preferences(custom_preference: dict, args: argparse.Namespace, this_expr_dir: str):
+def load_preferences(item, custom_preference: dict, args: argparse.Namespace, this_expr_dir: str):
     if item == 'render_file_name':
         original = getattr(args, item)
         if args.render:
@@ -163,7 +163,7 @@ if __name__ == '__main__':
             logging_config = None
         for item in ['centralized', 'gpu_id', 'render_file_name', 'render', 'local_mode'] + user_override_params:
             if item != 'env_config':
-                load_preferences(custom_preference=env_params, args=args, this_expr_dir=this_expr_dir)
+                load_preferences(item, custom_preference=env_params, args=args, this_expr_dir=this_expr_dir)
         logging.debug(env_params)
         env = marl.make_env(environment_name=args.env, map_name=args.dataset, env_params=env_params)
     else:
@@ -279,7 +279,7 @@ if __name__ == '__main__':
                       'use_gdan_no_loss', 'use_action_label', 'gdan_eta', 'num_drones',
                       'points_per_gen', 'no_task_allocation', 'horizon'] +
                      restore_ignore_params):
-            load_preferences(custom_preference=model_preference, args=args, this_expr_dir=this_expr_dir)
+            load_preferences(item, custom_preference=model_preference, args=args, this_expr_dir=this_expr_dir)
     model = marl.build_model(env, my_algorithm, model_preference)
     # start learning
     # passing logging_config to fit is for trainer Initialization
@@ -304,7 +304,7 @@ if __name__ == '__main__':
                   'share_policy': share_policy,
                   'checkpoint_end': False, 'algo_args': {'resume': args.resume},
                   'checkpoint_freq': args.evaluation_interval,
-                  # 'stop': {"timesteps_total": 60000},
+                  # 'stop': {"timesteps_total": 2400},
                   'stop': {"timesteps_total": 10000000},
                   'restore_path': restore_dict,
                   'evaluation_interval': False,
