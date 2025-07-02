@@ -549,7 +549,6 @@ extern "C" {
                             int * refilled_count,
                             float emergency_reward,
                             const int emergency_queue_length,
-                            const int emergency_per_gen,
                               int * emergency_allocation_table,
                               int * target_aoi_arr,
                               int * emergency_index,
@@ -579,7 +578,7 @@ extern "C" {
                                             int with_end_time,
                                             int scaled_reward,
                                             float scale_size,
-                                            int emergency_threshold,
+                                            int * emergency_threshold,
                                             int surveillance_threshold,
                                             float surveillance_penalty,
 //                                             int refill_emergency,
@@ -961,7 +960,7 @@ extern "C" {
           // Uncovered Emergency and Uncovered Surveillance, both require AoI increasing.
           // Note Emergency Points Before Schedule are skipped in prior logic.
           target_aoi++;
-        if (is_dyn_point and target_aoi > emergency_threshold){
+        if (is_dyn_point and target_aoi > emergency_threshold[target_idx - zero_shot_start]){
         if (with_end_time){
           target_coverage = true;
         }

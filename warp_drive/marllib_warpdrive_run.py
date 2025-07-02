@@ -53,6 +53,7 @@ if __name__ == '__main__':
     parser.add_argument('--local_mode', action='store_true', help='run in local mode')
     parser.add_argument('--all_random', action='store_true', help='PoIs in the environment '
                                                                   'are completely random')
+    parser.add_argument('--multi_type', action='store_true', help='use multi-type emergency poi from csv file.')
     parser.add_argument("--ckpt", nargs=4, type=str, help='uuid, checkpoint_num, time_str '
                                                           'and backup_str to restore')
     parser.add_argument("--share_policy", choices=['all', 'group', 'individual'], default='all')
@@ -277,7 +278,7 @@ if __name__ == '__main__':
                       'use_action_mask', 'use_attention', 'use_neural_ucb', 'use_pcgrad', 'use_bvn',
                       'use_relabeling', 'relabel_threshold', 'use_gdan', 'use_gdan_lstm',
                       'use_gdan_no_loss', 'use_action_label', 'gdan_eta', 'num_drones',
-                      'points_per_gen', 'no_task_allocation', 'horizon'] +
+                      'points_per_gen', 'no_task_allocation', 'horizon', 'multi_type'] +
                      restore_ignore_params):
             load_preferences(item, custom_preference=model_preference, args=args, this_expr_dir=this_expr_dir)
     model = marl.build_model(env, my_algorithm, model_preference)

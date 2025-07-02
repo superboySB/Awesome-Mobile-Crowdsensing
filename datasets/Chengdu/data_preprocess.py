@@ -306,6 +306,21 @@ class VehicleTrajectoriesProcessor(object):
                 df.to_csv(out_file + "_without_fill" + ".csv")
         else:
             df = pd.read_csv(out_file + "_without_fill" + ".csv", header=0)
+
+        # Step 1: Sort the DataFrame by timestamp
+        df = df.sort_values(by='timestamp').reset_index(drop=True)
+
+        # Step 3: Downsize to 1000 points if necessary
+        if len(df) > 1000:
+            # Downsample the DataFrame to keep only 1000 points
+            downsampled_df = df.sample(n=1000, random_state=42)
+        else:
+            downsampled_df = df
+
+        # Reset index
+        downsampled_df = downsampled_df.drop('Unnamed: 0', axis=1)
+        downsampled_df.to_csv("heat_map_source.csv", index=False, header=final_csv_header)
+
         if not os.path.exists(out_file + ".csv"):
             print("Filling data...")
             df = self.fill_trajectory(df)
@@ -518,7 +533,7 @@ class VehicleTrajectoriesAnalyst(object):
         print("Standard deviation of speed (m/s):", asv_std)
 
 
-parent_dir_name = os.path.join("/workspace", "saved_data", 'datasets', 'Chengdu_taxi')
+parent_dir_name = os.path.join("/workspace", "saved_data", 'Chengdu_taxi')
 trajectory_file_name: str = os.path.join(parent_dir_name, 'gps_20161116')
 # Longitude range (GCJ02): (104.04215, 104.12958)
 # Latitude range (GCJ02): (30.65294, 30.72775)
@@ -558,3 +573,4 @@ if __name__ == "__main__":
         out_file=trajectories_out_file_name,
         output_analysis=True,
     )
+    pass

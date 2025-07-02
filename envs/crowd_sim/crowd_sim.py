@@ -84,7 +84,7 @@ user_override_params = ['env_config', 'dynamic_zero_shot', 'use_2d_state', 'all_
                         'no_refresh', 'force_allocate', 'emergency_queue_length',
                         'buffer_in_obs', 'intrinsic_mode', 'use_random', 'emergency_threshold',
                         'surveillance_threshold', 'speed_action', 'blur_requirement', 'emergency_reward',
-                        'refill_emergency', 'surveillance_penalty', 'points_per_gen', 'core_arch']
+                        'refill_emergency', 'surveillance_penalty', 'points_per_gen', 'core_arch', 'multi_type']
 
 grid_size = 10
 
@@ -194,6 +194,7 @@ class CrowdSim:
             env_config=None,
             centralized=True,
             all_random=False,
+            multi_type=False,
             cut_points=-1,
             gen_interval=30,
             no_refresh=False,
@@ -221,6 +222,7 @@ class CrowdSim:
         self.single_type_agent = single_type_agent
         self.no_refresh = no_refresh
         self.use_random = use_random
+        self.multi_type = multi_type
         self.buffer_in_obs = buffer_in_obs
         self.use_pred_loc = core_arch == 'pred_loc'
         self.refill_emergency = refill_emergency
@@ -278,75 +280,86 @@ class CrowdSim:
         self.agent_speed = {'car': self.config.env.car_velocity, 'drone': self.config.env.drone_velocity}
         points_x, points_y, self.num_centers, self.num_points, self.num_points_per_center = (None,) * 5
         self.dynamic_zero_shot = dynamic_zero_shot
+        self.num_points_per_center = 1
 
         if self.all_random:
+            self.emergency_threshold = np.full(self.num_centers, emergency_threshold)
             self.num_centers = self.num_sensing_targets
-            self.num_points_per_center = 1
             points_x, points_y = self.generate_emergency(self.num_centers, self.num_points_per_center)
             self.zero_shot_start = 0
             self.emergency_count = 0
             self.points_per_gen = 0
         else:
             parent_path = os.path.join(get_project_root(), 'datasets', self.dataset_name)
-            file_names = os.listdir(parent_path)
-            file_names = [file_name for file_name in file_names if file_name.startswith('emergency_time_loc')]
-            if len(file_names) > 0 and (not self.use_random):
-                file_names = sorted(file_names)
-                self.file_names = file_names
-                self.all_dataframes = []
-                self.all_emergency_counts = []
-                for file_name in file_names:
-                    my_frame = pd.read_csv(os.path.join(parent_path, file_name))
-                    columns = ['start_time', 'end_time', 'x_bin', 'y_bin']
-                    my_frame = my_frame[columns].sort_values(by=['start_time', 'end_time'], ascending=True)
-                    self.all_dataframes.append(my_frame)
-                    self.all_emergency_counts.append(self.all_dataframes[-1].shape[0])
-                unique_emergencies = self.all_dataframes[np.argmax(self.all_emergency_counts)]
-                max_length = len(unique_emergencies)
-                dummy_row = pd.Series({'start_time': self.episode_length, 'end_time': self.episode_length,
-                                       'x_bin': -1, 'y_bin': -1})
-                for i in range(len(self.all_dataframes)):
-                    current_frame = self.all_dataframes[i]
-                    repeat_time = max_length - len(current_frame)
-                    if repeat_time > 0:
-                        dummy_rows = pd.concat([dummy_row] * repeat_time, axis=1).transpose()
-                        self.all_dataframes[i] = pd.concat([current_frame, dummy_rows])
-                self.emergency_count = unique_emergencies.shape[0]
-                self.num_sensing_targets += self.emergency_count
-                self.zero_shot_start = self.num_sensing_targets - self.emergency_count
-                self.points_per_gen = self.emergency_count
-                self.num_centers = self.emergency_count
-                self.num_points_per_center = 1
 
-                points_x, points_y = self.get_emergencies_from_dataset(unique_emergencies)
-                logging.debug(f"Emergency points: {self.num_centers}")
-            else:
-                self.file_names = self.all_dataframes = self.all_emergency_counts = None
-                # if self.dynamic_zero_shot:
+            if self.multi_type:
                 self.zero_shot_start = self.num_sensing_targets
-                # note: hard code to 3 for now.
+                self.multi_type_df = pd.read_csv(os.path.join(parent_path, 'real_world_trajectory.csv'))
                 self.points_per_gen = points_per_gen
                 self.aoi_schedule = np.repeat(np.arange(self.gen_interval, self.episode_length, self.gen_interval),
                                               repeats=self.points_per_gen)
-                logging.debug(f"AoI Schedule: {self.aoi_schedule}")
+
                 generation_time = int(self.aoi_schedule.shape[0] / self.points_per_gen)
                 self.num_centers = generation_time * self.points_per_gen
-                self.num_points_per_center = 1
-                all_surveillance = self.human_df[self.human_df['timestamp'] == self.start_timestamp][['x', 'y']].values
-                random_indexes = np.random.choice(all_surveillance.shape[0], self.num_centers, replace=False)
-                # self.emergency_centers_x = np.random.randint(0, self.max_distance_x, self.num_centers)
-                # self.emergency_centers_y = np.random.randint(0, self.max_distance_y, self.num_centers)
-                self.emergency_centers_x = all_surveillance[random_indexes, 0]
-                self.emergency_centers_y = all_surveillance[random_indexes, 1]
-                points_x, points_y = self.generate_emergency(self.num_centers, self.num_points_per_center)
+                # randomly choose number between 10 and self.episode_length - 10, with shape same to self.aoi_schedule
+                points_x, points_y = self.generate_emergency_from_multi_type()
                 self.emergency_count = (self.num_centers * self.num_points_per_center)
                 self.num_sensing_targets += self.emergency_count
-                # add visualization parts of dynamic generated points.
-                # else:
-                #     self.zero_shot_start = 0
-                #     self.emergency_count = 0
-                #     self.points_per_gen = 0
-                #     self.aoi_schedule = np.zeros(0)
+            else:
+                file_names = os.listdir(parent_path)
+                file_names = [file_name for file_name in file_names if file_name.startswith('emergency_time_loc')]
+                if len(file_names) > 0 and (not self.use_random):
+                    file_names = sorted(file_names)
+                    self.file_names = file_names
+                    self.all_dataframes = []
+                    self.all_emergency_counts = []
+                    for file_name in file_names:
+                        my_frame = pd.read_csv(os.path.join(parent_path, file_name))
+                        columns = ['start_time', 'end_time', 'x_bin', 'y_bin']
+                        my_frame = my_frame[columns].sort_values(by=['start_time', 'end_time'], ascending=True)
+                        self.all_dataframes.append(my_frame)
+                        self.all_emergency_counts.append(self.all_dataframes[-1].shape[0])
+                    unique_emergencies = self.all_dataframes[np.argmax(self.all_emergency_counts)]
+                    max_length = len(unique_emergencies)
+                    dummy_row = pd.Series({'start_time': self.episode_length, 'end_time': self.episode_length,
+                                           'x_bin': -1, 'y_bin': -1})
+                    for i in range(len(self.all_dataframes)):
+                        current_frame = self.all_dataframes[i]
+                        repeat_time = max_length - len(current_frame)
+                        if repeat_time > 0:
+                            dummy_rows = pd.concat([dummy_row] * repeat_time, axis=1).transpose()
+                            self.all_dataframes[i] = pd.concat([current_frame, dummy_rows])
+                    self.emergency_count = unique_emergencies.shape[0]
+                    self.num_sensing_targets += self.emergency_count
+                    self.zero_shot_start = self.num_sensing_targets - self.emergency_count
+                    # self.points_per_gen = self.emergency_count
+                    self.num_centers = self.emergency_count
+                    self.num_points_per_center = 1
+                    points_x, points_y = self.get_emergencies_from_dataset(unique_emergencies)
+                    logging.debug(f"Emergency points: {self.num_centers}")
+                else:
+                    self.file_names = self.all_dataframes = self.all_emergency_counts = None
+                    # if self.dynamic_zero_shot:
+                    self.zero_shot_start = self.num_sensing_targets
+                    # note: hard code to 3 for now.
+                    self.points_per_gen = points_per_gen
+                    self.aoi_schedule = np.repeat(np.arange(self.gen_interval, self.episode_length, self.gen_interval),
+                                                  repeats=self.points_per_gen)
+
+                    generation_time = int(self.aoi_schedule.shape[0] / self.points_per_gen)
+                    self.num_centers = generation_time * self.points_per_gen
+                    all_surveillance = self.human_df[self.human_df['timestamp'] == self.start_timestamp][
+                        ['x', 'y']].values
+                    random_indexes = np.random.choice(all_surveillance.shape[0], self.num_centers, replace=False)
+                    # self.emergency_centers_x = np.random.randint(0, self.max_distance_x, self.num_centers)
+                    # self.emergency_centers_y = np.random.randint(0, self.max_distance_y, self.num_centers)
+                    self.emergency_centers_x = all_surveillance[random_indexes, 0]
+                    self.emergency_centers_y = all_surveillance[random_indexes, 1]
+                    points_x, points_y = self.generate_emergency(self.num_centers, self.num_points_per_center)
+                    self.emergency_count = (self.num_centers * self.num_points_per_center)
+                    self.num_sensing_targets += self.emergency_count
+                self.emergency_threshold = np.full(self.num_centers, emergency_threshold)
+        logging.debug(f"AoI Schedule: {self.aoi_schedule}")
         # human infos
         unique_ids = np.arange(0, self.num_sensing_targets)  # id from 0 to 91
         unique_timestamps = np.arange(self.start_timestamp, self.end_timestamp + self.step_time, self.step_time)
@@ -361,10 +374,8 @@ class CrowdSim:
                 self.target_x_time_list[:, :] = points_x
                 self.target_y_time_list[:, :] = points_y
             else:
-                self.target_x_time_list[:, self.num_sensing_targets -
-                                           self.num_centers * self.num_points_per_center:] = points_x
-                self.target_y_time_list[:, self.num_sensing_targets -
-                                           self.num_centers * self.num_points_per_center:] = points_y
+                self.target_x_time_list[:, self.num_sensing_targets - self.emergency_count:] = points_x
+                self.target_y_time_list[:, self.num_sensing_targets - self.emergency_count:] = points_y
         if not self.all_random:
             # Fill the new array with data from the full DataFrame
             last_id = -1
@@ -416,7 +427,6 @@ class CrowdSim:
         self.car_action_space_dx = self.float_dtype(self.config.env.car_action_space[:, 0])
         self.car_action_space_dy = self.float_dtype(self.config.env.car_action_space[:, 1])
         self.action_space = spaces.Dict()
-        self.emergency_slots = self.points_per_gen
         self.speed_levels = 3
         self.speed_action = speed_action
         env_config = self.config.env
@@ -504,7 +514,7 @@ class CrowdSim:
         # all the other agents, otherwise, each agent will only have info of
         # its k-nearest agents (k = num_other_agents_observed)
         self.init_obs = None  # Will be set later in generate_observation()
-
+        self.emergency_centers_x = self.emergency_centers_y = None
         self.drone_sensing_range = self.float_dtype(self.config.env.drone_sensing_range)
         self.car_sensing_range = self.float_dtype(self.config.env.car_sensing_range)
         self.drone_car_comm_range = self.float_dtype(self.config.env.drone_car_comm_range)
@@ -536,6 +546,15 @@ class CrowdSim:
         self.selected_color_index = 0
         self.queue_feature = 3
         self.emergency_queue_length = emergency_queue_length
+
+    def generate_emergency_from_multi_type(self):
+        self.aoi_schedule = np.sort(np.random.randint(10, self.episode_length - 10, size=self.aoi_schedule.shape))
+        # df header: vehicle_id,time,longitude,latitude,timestamp,x,y,aoi_requirement
+        # randomly sample len(self.aoi_schedule) points x,y and aoi_requirement
+        emergency_to_use = self.multi_type_df.sample(self.num_centers, random_state=self.seed()[0])
+
+        self.emergency_threshold = emergency_to_use['aoi_requirement'].to_numpy()
+        return emergency_to_use['x'].to_numpy(), emergency_to_use['y'].to_numpy()
 
     def calculate_max_monitor_speed(self, blur_requirement, env_config):
         focal_length = 24 * 1e-3
@@ -644,16 +663,19 @@ class CrowdSim:
         logging.debug("Target regen is called")
         if self.dynamic_zero_shot and not self.all_random:
             logging.debug("Emergency points reset completed!")
-            if self.emergency_centers_y is not None and self.emergency_centers_x is not None:
-                if self.all_dataframes is not None:
-                    my_index = np.random.randint(0, len(self.all_dataframes))
-                    new_emergencies = self.all_dataframes[my_index]
-                    logging.debug(f"newly selected emergency: {self.file_names[my_index]}")
-                    points_x, points_y = self.get_emergencies_from_dataset(new_emergencies)
+            if self.multi_type:
+                points_x, points_y = self.generate_emergency_from_multi_type()
+            else:
+                if self.emergency_centers_y is not None and self.emergency_centers_x is not None:
+                    if self.all_dataframes is not None:
+                        my_index = np.random.randint(0, len(self.all_dataframes))
+                        new_emergencies = self.all_dataframes[my_index]
+                        logging.debug(f"newly selected emergency: {self.file_names[my_index]}")
+                        points_x, points_y = self.get_emergencies_from_dataset(new_emergencies)
+                    else:
+                        points_x, points_y = self.generate_emergency(self.num_centers, self.num_points_per_center)
                 else:
                     points_x, points_y = self.generate_emergency(self.num_centers, self.num_points_per_center)
-            else:
-                points_x, points_y = self.generate_emergency(self.num_centers, self.num_points_per_center)
             self.target_x_time_list[:, self.zero_shot_start:] = points_x
             self.target_y_time_list[:, self.zero_shot_start:] = points_y
         elif self.all_random:
@@ -1121,7 +1143,7 @@ class CrowdSim:
             info[SURVEILLANCE_METRIC] = np.mean(surveillance_aoi_mean)
             info[EMERGENCY_METRIC] = emergency_aoi_mean
             info[VALID_EMERGENCY_DELAY] = valid_emergency_aoi_mean
-            info[DELAY_ADVANTAGE_RATIO] = 1 - np.mean(emergency_aoi) / self.emergency_threshold
+            info[DELAY_ADVANTAGE_RATIO] = 1 - np.mean(np.mean(emergency_aoi, axis=0) / self.emergency_threshold)
             info[VALID_HANDLING_RATIO] = np.mean(valid_emergency_mask)
             info[VALID_SURVEILLANCE_RATIO] = np.mean(valid_surveillance_mask)
             bottleneck = min(info[VALID_HANDLING_RATIO], info[VALID_SURVEILLANCE_RATIO])
@@ -1198,7 +1220,7 @@ class CrowdSim:
                     emergency_df = self.xy_to_dataframe(delay_list, energy_list, id_list, max_latitude,
                                                         max_longitude, timestamp_list, x_list, y_list)
                     emergency_df['creation_time'] = self.aoi_schedule[i - self.zero_shot_start]
-                    emergency_df['threshold'] = self.emergency_threshold
+                    emergency_df['threshold'] = np.mean(self.emergency_threshold)
                     emergency_df['allocation'] = int(self.emergency_allocation_table[i - self.zero_shot_start])
                     emergency_df['episode_length'] = self.episode_length
                     emergency_df['coverage'] = self.target_coveraged_timelist[:, i]
@@ -1593,7 +1615,6 @@ class CUDACrowdSim(CrowdSim, CUDAEnvironmentContext):
                                  ("refilled_count", self.int_dtype(np.zeros(1)), True),
                                  ("emergency_reward", self.float_dtype(self.emergency_reward)),
                                  ("emergency_queue_length", self.int_dtype(self.emergency_queue_length)),
-                                 ("emergency_per_gen", self.int_dtype(self.points_per_gen)),
                                  ("target_aoi", self.int_dtype(np.ones([self.num_sensing_targets, ])), True),
                                  ("emergency_index", self.int_dtype(np.full(
                                      [self.num_agents, self.emergency_count], -1)), True),
@@ -1667,7 +1688,6 @@ class CUDACrowdSim(CrowdSim, CUDAEnvironmentContext):
             "refilled_count",
             "emergency_reward",
             "emergency_queue_length",
-            "emergency_per_gen",
             "emergency_allocation_table",
             "target_aoi",
             "emergency_index",
